@@ -108,8 +108,8 @@ fails to link before it ever reaches the host.
 6. **Present.** Render through `HeadlessAppContext`, capture the frame, upload
    it, and call `surface::present`.
 7. **Build.** `cargo build --release --target wasm32-wasip2`.
-8. **Check.** Run it under `crates/soil-webgpu` with `--frame` and inspect the
-   captured pixels before committing.
+8. **Check.** Run it through `soil`'s `frame` surface and inspect the captured
+   pixels before committing.
 
 ## Build and run
 
@@ -117,12 +117,12 @@ fails to link before it ever reaches the host.
 cd spores/terminal-gpui
 cargo build --release --target wasm32-wasip2
 
-# The native soil host; provides wasi:webgpu and soil:present.
-soil-webgpu --frame /tmp/term.bgr --size 1000x700 \
-  target/wasm32-wasip2/release/terminal_gpui.wasm
+# The one runner; the frame surface provides wasi:webgpu and soil:present.
+soil spore run . --surface frame --frame /tmp/term.png --size 1000x700
 ```
 
-`soil-webgpu` writes BGR24 at the host-selected extent. On a 2x display a
+The frame surface writes a PNG (or raw BGR24 for a `.bgr` path) at the
+host-selected extent. On a 2x display a
 requested `1000x700` produces `2000x1400`, because the guest renders at the
 physical size the host reports.
 
@@ -134,20 +134,20 @@ physical size the host reports.
 - The first frame pays for pipeline creation and the readback; a live host
   should keep the `HeadlessAppContext` alive and re-render on input instead of
   constructing one per frame.
-- Today's `soil-webgpu` is a one-shot runner: run, present one frame, exit. A
-  live Spore needs a long-lived host with a frame sink and session/input
-  imports. That is the next host change.
+- The `frame` surface is one-shot: run, present one frame, exit. A live Spore
+  wants the `window` surface, which keeps the sink and the input loop alive.
 
 ## Hosts today
 
-- `crates/soil-webgpu` — one-shot CLI presenter used by the fixtures and by
-  `--capture` checks.
-- `crates/canvas-winit` (soil) — a winit window that presents a GPUI Spore
-  frame natively, with a live keyboard loop and a `soil:spore/catalog` host.
-  It scans `--spores DIR`, and `launch` starts `canvas-winit <module>` in a new
-  window. [`spores/launcher-gpui`](../spores/launcher-gpui) is its front end.
-- Canvas's external-surface path is the compositor-side host; the web bridge is
-  still deferred.
+- `crates/soil-webgpu` — the presenter library: frame detection, readback, the
+  framebuffer, and the window's frame sink.
+- `crates/canvas-winit` — the winit window: a live keyboard loop and a
+  `soil:spore/catalog` host. It scans `--spores DIR`, and `launch` starts
+  `soil spore run <package> --surface window`. [`spores/launcher-gpui`](../spores/launcher-gpui)
+  is its front end.
+- All of them are surfaces of the one runner, `soil spore run <package>
+  --surface http|window|web|frame|framebuffer`. Canvas's external-surface path
+  is the compositor-side host.
 
 ## What is deferred
 

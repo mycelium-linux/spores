@@ -47,8 +47,8 @@ cargo build --release --target wasm32-wasip2
 cp target/wasm32-wasip2/release/lights_view.wasm module.wasm
 soil-spore lock . && soil-spore check .
 
-canvas-winit module.wasm \
-  --hue-bridge http://192.168.10.15 \
+soil spore run . --surface window \
+  --allow-origin http://192.168.10.15 \
   --geode-socket ~/.geode/geode.sock \
   --geode-purpose hue.control
 ```

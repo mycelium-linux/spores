@@ -56,10 +56,14 @@ lockfile and target directory.
 
 ![the window](frame.png)
 
-That frame is real: `soil-webgpu` compiled the component, instantiated it against
-`soil:present`, and captured the surface it presented. It is the **`demo`** build
-against a fixed listing (see `src/data.rs`), because the host's Spore world does
-not import `soil:vfs` yet — the shipped build imports it and needs the grant.
+That frame is real: `soil spore run . --surface frame` compiled the component,
+instantiated it against `soil:present`, and captured the surface it presented. It
+is the **`demo`** build against a fixed listing (see `src/data.rs`); the shipped
+build reads the same listing through `soil:vfs`, which the runner now links:
+
+```sh
+soil spore run . --surface frame --frame /tmp/xplorer.png --vfs-root ~/vault
+```
 
 ![the same window in light mode](frame-light.png)
 
@@ -87,8 +91,8 @@ reasons, both facts about the host rather than about this package:
   `~/.mycelium/gateway/routes.json`, and the store only supplies each tile's
   mark and colour — an installed Spore with no route is not a tile;
 - nothing serves a native module Spore over HTTP yet. `spore-serve` renders Lua
-  views, `canvas-winit` opens a local window, and `soil-webgpu` captures a
-  frame. A route needs a host that presents these frames and accepts input.
+  views, and `soil spore run . --surface window` opens a local window. A route
+  needs a host that presents these frames and accepts input.
 
 A store listing is a further step: `check --publish` wants a `[catalog]` with a
 category from the fixed vocabulary and `ipfs://` screenshots, which a package
@@ -100,15 +104,12 @@ The shipped build compiles — `import soil:vfs` is in the world, and the module
 now reads it through `crate::soil`, which is what a submodule needs since a
 bare `soil::` path resolves against the module, not the crate root. To *run* it,
 a host must link `soil:present` (surface, input, cursor), `soil:vfs` and
-`wasi:webgpu`, then call `run`. `crates/soil-webgpu/wit/runner.wit` is where the
-`soil:vfs` import is missing; its state type then has to implement
-`soil:vfs/vfs::Host` — which `crates/soil-vfs-host`'s `VfsHost` already does —
-and the runner needs a `--root <workspace>` to open.
+`wasi:webgpu`, then call `run` — which is what `soil spore run . --surface
+frame` does.
 
-`crates/soil-vfs-host` in soil already implements `soil:vfs` and `soil:index`
-over `fungos-vfs`, and `crates/soil-webgpu` already presents a component's
-frames — but no binary composes the two. That runner is the next piece:
-`--root <workspace> --frame <file.bgr> --size WxH <component.wasm>`.
+`crates/soil`'s `vfs_host` implements `soil:vfs` and `soil:index` over
+`fungos-vfs`, and `crates/soil-webgpu` presents a component's frames; `soil
+spore run` is the runner that composes them.
 
 ## Later
 
