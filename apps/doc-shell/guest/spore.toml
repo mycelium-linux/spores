@@ -60,4 +60,5 @@ transport = ["socket", "quic", "iroh"]
 [presentation]
 badge = "D"
 color = "#c9a6ff"
-icon = "ipfs://bafkreiclwhfe7prfdzslsbqxdh7tj6qjj5dmkrvopb6itozithreqi5umq"
+mark = "assets/icon.svg"
+icon = "ipfs://bafkreiafsj6kdjj7rpp5ujbkojdjgyudjg3edcnfstqq6kmzuvnnxcblvy"
