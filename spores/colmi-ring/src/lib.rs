@@ -105,14 +105,14 @@ impl Args {
             index += 1;
         }
         match args.command.as_str() {
-            "watch" | "battery" | "steps" => Ok(args),
+            "watch" | "battery" | "steps" | "probe" => Ok(args),
             other => Err(format!("unknown command {other:?}\n{}", usage())),
         }
     }
 }
 
 fn usage() -> String {
-    "usage: colmi-ring <watch|battery|steps> [--wearer W] [--device ID] \
+    "usage: colmi-ring <watch|battery|steps|probe> [--wearer W] [--device ID] \
      [--scan-ms N] [--hold-ms N] [--day N] [--streams hr,spo2,steps]"
         .to_string()
 }
@@ -137,6 +137,11 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
     let args = Args::parse(raw)?;
 
     let devices = ble::scan(args.scan_ms).map_err(ble_err)?;
+    // Two identical rings are told apart by what they answer, not by their
+    // name; `probe` reports one line per ring before a session picks one.
+    if args.command == "probe" {
+        return probe(&devices, &args);
+    }
     let target = find_target(&devices, &args)
         .ok_or_else(|| format!("no COLMI ring found among {} device(s)", devices.len()))?;
     let handle = target.handle;
@@ -170,6 +175,105 @@ fn find_target<'a>(
                 .is_some_and(|name| name.to_ascii_lowercase().contains("colmi"))
         }
     })
+}
+
+/// Connect to every candidate ring in turn and report what each one says.
+///
+/// This is the honest answer to "which ring is which": the advertised name is
+/// the same for both, the platform address is a host-local locator the Spore
+/// never sees, and the only per-unit fact available is what the ring answers
+/// over its own service. Duplicate serials are reported, not averaged away.
+fn probe(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String> {
+    let mut rings = Vec::new();
+    let mut serials: Vec<String> = Vec::new();
+
+    for device in devices {
+        if !is_candidate(device, args) {
+            continue;
+        }
+        let entry = match probe_one(device, &args.wearer) {
+            Ok(entry) => {
+                if let Some(serial) = entry["serial"].as_str().filter(|s| !s.is_empty()) {
+                    serials.push(serial.to_string());
+                }
+                entry
+            }
+            Err(error) => json!({
+                "handle": device.handle,
+                "name": device.name,
+                "error": error,
+            }),
+        };
+        rings.push(entry);
+    }
+
+    let mut duplicates = Vec::new();
+    for serial in &serials {
+        if serials.iter().filter(|other| *other == serial).count() > 1
+            && !duplicates.contains(serial)
+        {
+            duplicates.push(serial.clone());
+        }
+    }
+
+    let now = time::monotonic_ms().map_err(time_err)?;
+    SNAPSHOT.with(|slot| {
+        *slot.borrow_mut() = json!({
+            "ok": true,
+            "command": "probe",
+            "rings": rings,
+            "distinct": duplicates.is_empty(),
+            "duplicates": duplicates,
+            "wearer": args.wearer.clone(),
+            "updated_at_monotonic_ms": now,
+        });
+    });
+    Ok(())
+}
+
+fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
+    if let Some(wanted) = &args.device {
+        return device.handle.to_string() == *wanted
+            || device
+                .name
+                .as_deref()
+                .is_some_and(|name| name.eq_ignore_ascii_case(wanted));
+    }
+    device
+        .name
+        .as_deref()
+        .is_some_and(|name| name.to_ascii_lowercase().contains("colmi"))
+}
+
+fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, String> {
+    let link = ble::connect(device.handle).map_err(ble_err)?;
+    let result = (|| {
+        let model = read_string(link, proto::MODEL_NUMBER).unwrap_or_default();
+        let firmware = read_string(link, proto::FIRMWARE_REVISION).unwrap_or_default();
+        let hardware = read_string(link, proto::HARDWARE_REVISION).unwrap_or_default();
+        let serial = read_string(link, proto::SERIAL_NUMBER).unwrap_or_default();
+        let battery = request_battery(link).ok();
+
+        // Battery is device state, not a body signal; only a ring that named
+        // itself can own the record.
+        if let Some(serial) = watch_core::device_id(&serial, None) {
+            if let Some(battery) = battery {
+                upsert_device_state(&serial, &model, &firmware, battery.percent, wearer)?;
+            }
+        }
+        Ok(json!({
+            "handle": device.handle,
+            "name": device.name,
+            "serial": serial,
+            "model": model,
+            "firmware": firmware,
+            "hardware": hardware,
+            "battery_percent": battery.map(|battery| battery.percent),
+            "charging": battery.map(|battery| battery.charging),
+        }))
+    })();
+    let _ = ble::disconnect(link);
+    result
 }
 
 fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), String> {

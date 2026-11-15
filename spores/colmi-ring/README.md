@@ -21,6 +21,7 @@ colmi-ring watch   [--wearer W] [--device ID] [--scan-ms N] [--hold-ms N]
                    [--streams hr,spo2,steps]
 colmi-ring battery [--wearer W] [--device ID]
 colmi-ring steps   [--wearer W] [--device ID] [--day N]
+colmi-ring probe   [--device ID] [--scan-ms N]
 ```
 
 `watch` starts a real-time reading per stream, drains notifications for
@@ -28,8 +29,29 @@ colmi-ring steps   [--wearer W] [--device ID] [--day N]
 `--streams steps` polls the day's activity buckets after the drain. `steps`
 polls without streaming anything.
 
-Two rings advertise the same name. Use `--device <serial>` (the DIS serial) to
-pick which one; without it the first name containing `colmi` wins.
+## Two identical rings
+
+Both advertise the same name. `probe` connects to each candidate in turn and
+reports what it answers — handle, DIS serial, model, firmware, battery — and
+whether any two report the same serial:
+
+```sh
+colmi-ring probe
+# {"ok":true,"distinct":true,"rings":[{"handle":2,"name":"COLMI Ring 2",
+#   "serial":"sim-ring","battery_percent":74}, ...]}
+```
+
+Use `--device <serial>` afterwards to say which ring a session is for; without
+it the first name containing `colmi` wins. A duplicate serial is reported in
+`duplicates` rather than quietly picking one, because two units claiming one
+serial is the case where records would merge two bodies.
+
+The platform address (MAC, or a CoreBluetooth UUID on macOS) also tells the two
+apart at scan time, but it is host-local and rotating on privacy-enabled
+devices, so Soil keeps it behind the opaque handle and never uses it as
+identity. Bonding would only help if the rings paired and used resolvable
+private addresses; the QRing flow works unpaired, and nothing here initiates a
+bond.
 
 ## Identity
 
