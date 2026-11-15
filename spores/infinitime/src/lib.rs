@@ -12,6 +12,11 @@
 //! - <https://github.com/InfiniTimeOrg/InfiniTime/blob/main/src/components/ble/AlertNotificationService.cpp>
 //! - <https://github.com/InfiniTimeOrg/InfiniTime/blob/main/src/components/ble/MusicService.h>
 
+// Test modules sit next to the code they cover here, so a few items follow a
+// `mod tests`. The lint arrived with clippy 1.100; reordering the file is a
+// separate cleanup and not worth mixing into another change.
+#![allow(clippy::items_after_test_module)]
+
 pub mod dfu;
 
 use std::fmt;
@@ -618,6 +623,10 @@ const WEATHER_LOCATION_BYTES: usize = 32;
 ///
 /// Temperatures are degrees Celsius x100 as `i16`; the location is a fixed
 /// 32-byte zero-padded field, so a shorter name is not a shorter frame.
+///
+/// Eight arguments is what the frame is: one per field it carries. Naming them
+/// in a struct would only move the same eight fields one line up.
+#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn current_weather_packet(
     timestamp: u64,

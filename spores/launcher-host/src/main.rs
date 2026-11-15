@@ -43,6 +43,9 @@ impl soil::spore::catalog::Host for State {
                 summary: entry.summary.clone(),
                 workspace: entry.workspace.clone(),
                 default_surface: entry.manifest.launch.default.clone(),
+                // The package's own mark, if it ships one: the source a
+                // launcher rasterises into its tile.
+                mark: entry.mark.clone(),
                 // A declared surface is a record now: the name and artifact are
                 // what the launcher opens, the kind is what it must be able to
                 // present.
