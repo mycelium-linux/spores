@@ -32,8 +32,8 @@
 # source:      fungOS-linux/soil, wit/soil-ble.wit
 # soil-commit: 335800a (soil main; soil:ble@1.1.0 link handles)
 
-spores/pinetime/wit/deps/soil-ble.wit 852b098388728ed063ffb441331b44c10c3af791
-spores/colmi-ring/wit/deps/soil-ble.wit 852b098388728ed063ffb441331b44c10c3af791
+spores/pinetime/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
+spores/colmi-ring/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
 
 # --- soil-records.wit -------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-records.wit

@@ -14,7 +14,7 @@ homepage = "https://github.com/fungOS-linux/spores"
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { ble = "1.1.0", time = "1.0.0", records = "0.1.0" }
+abi = { ble = "1.2.0", time = "1.0.0", records = "0.1.0" }
 
 [module]
 path = "module.wasm"

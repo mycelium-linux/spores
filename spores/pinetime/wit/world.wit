@@ -6,7 +6,7 @@
 package fungos:pinetime@0.1.0;
 
 world pinetime-spore {
-  import soil:ble/ble@1.1.0;
+  import soil:ble/ble@1.2.0;
   import soil:time/time@1.0.0;
   import soil:records/records@0.1.0;
 

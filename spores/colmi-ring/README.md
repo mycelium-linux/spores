@@ -22,6 +22,7 @@ colmi-ring watch   [--wearer W] [--device ID] [--scan-ms N] [--hold-ms N]
 colmi-ring battery [--wearer W] [--device ID]
 colmi-ring steps   [--wearer W] [--device ID] [--day N]
 colmi-ring probe   [--device ID] [--scan-ms N]
+colmi-ring claim   <id> [--handle N] [--scan-ms N]
 ```
 
 `watch` starts a real-time reading per stream, drains notifications for
@@ -31,33 +32,32 @@ polls without streaming anything.
 
 ## Two identical rings
 
-Both advertise the same name. `probe` connects to each candidate in turn and
-reports what it answers — handle, DIS serial, model, firmware, battery — and
-whether any two report the same serial:
+Both advertise the same name and expose no serial, so nothing in a scan tells
+them apart. Claim each one once, with an id you choose:
 
 ```sh
-colmi-ring probe
-# {"ok":true,"distinct":true,"rings":[{"handle":2,"name":"COLMI Ring 2",
-#   "serial":"sim-ring","battery_percent":74}, ...]}
+colmi-ring claim ring-left      # with the other ring out of range
+colmi-ring claim ring-right     # the only unclaimed ring left
 ```
 
-Use `--device <serial>` afterwards to say which ring a session is for; without
-it the first name containing `colmi` wins. A duplicate serial is reported in
-`duplicates` rather than quietly picking one, because two units claiming one
-serial is the case where records would merge two bodies.
+Soil stores the binding (id ↔ platform address) in its session file, and every
+later scan reports `device-id` before any read, so `--device ring-left` selects
+the right ring from then on. A session with no `--device` refuses when more than
+one ring matches, instead of picking one:
 
-The platform address (MAC, or a CoreBluetooth UUID on macOS) also tells the two
-apart at scan time, but it is host-local and rotating on privacy-enabled
-devices, so Soil keeps it behind the opaque handle and never uses it as
-identity. Bonding would only help if the rings paired and used resolvable
-private addresses; the QRing flow works unpaired, and nothing here initiates a
-bond.
+```text
+2 rings match by name and none is selected; pass --device <claimed-id>,
+or run `colmi-ring claim <id>` once per ring
+```
+
+`probe` lists handles if you would rather say which one directly, but handles
+are per scan; the physical ceremony above is the reliable way to bind each unit.
 
 ## Identity
 
-The serial comes from the standard Device Information service. A ring that
-exposes none needs `--device <provisioned-id>`; the BLE address is never used
-as identity.
+Order: **the claimed id**, then a serial the device itself reports, then an
+error. `--device` only selects a peripheral — it never becomes a record key, and
+the BLE address never does either.
 
 **Verified on two COLMI Ring 2 units (2026-11-14, macOS/btleplug):**
 
@@ -71,17 +71,12 @@ as identity.
 The ring answers about **one GATT round trip per connection** and then stops
 responding: a second read times out, and an immediate reconnect times out too
 (~15 s). That is why `probe` takes one connection and reads the identity
-characteristic first — it is the answer that decides whether a `--device` is
-needed at all. Every read still reports its own outcome, so "no answer" is
-never shown as "no data".
-
-So these units carry **no usable device identity**: the serial characteristic
-exists, answers, and is empty. Two rings are told apart only by a host-local
-address or by provisioning, which is why `--device` is mandatory here rather
-than a fallback.
+characteristic first. Every read still reports its own outcome, so "no answer"
+is never shown as "no data".
 
 This is a property of the ring, not of two rings sharing a room: the same
-per-read behaviour reproduces with a single ring in range.
+per-read behaviour reproduces with a single ring in range. The simulator models
+a ring with an empty 2A25, so the claim path is what gets exercised in tests.
 
 The vendor UART service is confirmed present on the hardware:
 `6e40fff0-…` with write `6e400002-…` and notify `6e400003-…`.

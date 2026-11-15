@@ -44,6 +44,11 @@ struct Args {
     hold_ms: u64,
     day_offset: u8,
     streams: Vec<Stream>,
+    /// `claim <id>`: the id to bind to a ring.
+    claim_id: Option<String>,
+    /// `claim --handle N`: a specific scan handle, for when several rings are
+    /// in range and the wearer knows which one is which.
+    handle: Option<u32>,
 }
 
 impl Default for Args {
@@ -56,6 +61,8 @@ impl Default for Args {
             hold_ms: 5_000,
             day_offset: 0,
             streams: PROFILE.streams().to_vec(),
+            claim_id: None,
+            handle: None,
         }
     }
 }
@@ -97,8 +104,19 @@ impl Args {
                         .map_err(|_| format!("--day: {:?} is not a number", raw[index]))?
                 }
                 "--streams" => args.streams = Stream::parse_from(&value()?, PROFILE.streams())?,
+                "--handle" => {
+                    args.handle = Some(
+                        value()?
+                            .parse()
+                            .map_err(|_| format!("--handle: {:?} is not a number", raw[index]))?,
+                    )
+                }
                 "--help" | "-h" => {
                     return Err(usage());
+                }
+                // A bare second token is the id for `claim`.
+                other if !other.starts_with("--") && args.claim_id.is_none() => {
+                    args.claim_id = Some(other.to_string());
                 }
                 other => return Err(format!("unknown flag {other:?}\n{}", usage())),
             }
@@ -106,6 +124,11 @@ impl Args {
         }
         match args.command.as_str() {
             "watch" | "battery" | "steps" | "probe" => Ok(args),
+            "claim" if args.claim_id.is_some() => Ok(args),
+            "claim" => Err(format!(
+                "claim needs an id, e.g. `colmi-ring claim ring-left`\n{}",
+                usage()
+            )),
             other => Err(format!("unknown command {other:?}\n{}", usage())),
         }
     }
@@ -113,7 +136,8 @@ impl Args {
 
 fn usage() -> String {
     "usage: colmi-ring <watch|battery|steps|probe> [--wearer W] [--device ID] \
-     [--scan-ms N] [--hold-ms N] [--day N] [--streams hr,spo2,steps]"
+     [--scan-ms N] [--hold-ms N] [--day N] [--streams hr,spo2,steps]\n\
+     \x20      colmi-ring claim <id> [--handle N] [--scan-ms N]"
         .to_string()
 }
 
@@ -142,13 +166,32 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
     if args.command == "probe" {
         return probe(&devices, &args);
     }
+    if args.command == "claim" {
+        return claim(&devices, &args);
+    }
+    // Two rings advertise the same name and expose no serial. Picking the
+    // first match would bind one ring's body data to the other's identity, so
+    // an unselected session refuses instead.
+    if args.device.is_none() {
+        let matching: Vec<_> = devices
+            .iter()
+            .filter(|device| name_matches(device))
+            .collect();
+        if matching.len() > 1 {
+            return Err(format!(
+                "{} rings match by name and none is selected; pass --device <claimed-id>, or run `colmi-ring claim <id>` once per ring",
+                matching.len()
+            ));
+        }
+    }
     let target = find_target(&devices, &args)
         .ok_or_else(|| format!("no COLMI ring found among {} device(s)", devices.len()))?;
     let handle = target.handle;
     let advertised_name = target.name.clone().unwrap_or_default();
+    let claimed = target.device_id.clone();
 
     let link = ble::connect(handle).map_err(ble_err)?;
-    let result = run_connected(link, &args, &advertised_name);
+    let result = run_connected(link, &args, &advertised_name, claimed);
     // A Spore should not keep the radio leased after a failed command either.
     let _ = ble::disconnect(link);
     result
@@ -231,6 +274,80 @@ fn probe(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String
     Ok(())
 }
 
+/// Bind one ring to an id, once. With several identical rings in range the
+/// wearer either says which handle, or leaves exactly one unclaimed ring.
+fn claim(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String> {
+    let id = args
+        .claim_id
+        .as_deref()
+        .ok_or_else(|| "claim needs an id".to_string())?;
+
+    let candidates: Vec<&soil::ble::types::Device> = match args.handle {
+        Some(handle) => devices
+            .iter()
+            .filter(|device| device.handle == handle)
+            .collect(),
+        None => devices
+            .iter()
+            .filter(|device| name_matches(device))
+            .collect(),
+    };
+    if candidates.is_empty() {
+        return Err(match args.handle {
+            Some(handle) => {
+                format!("no ring with handle {handle}; run `probe` to see what is in range")
+            }
+            None => "no ring found; run `probe` to see what is in range".to_string(),
+        });
+    }
+
+    let target = match args.handle {
+        Some(_) => candidates[0],
+        None => {
+            let unclaimed: Vec<_> = candidates
+                .iter()
+                .filter(|device| device.device_id.is_none())
+                .copied()
+                .collect();
+            match unclaimed.len() {
+                1 => unclaimed[0],
+                0 => {
+                    return Err(format!(
+                        "all {} matching ring(s) are already claimed; pass --handle <N> to re-claim one",
+                        candidates.len()
+                    ));
+                }
+                many => {
+                    return Err(format!(
+                        "{many} unclaimed rings match; put the others out of range, or pass --handle <N> (probe lists handles)"
+                    ));
+                }
+            }
+        }
+    };
+
+    ble::claim(target.handle, id).map_err(ble_err)?;
+    let now = time::monotonic_ms().map_err(time_err)?;
+    SNAPSHOT.with(|slot| {
+        *slot.borrow_mut() = json!({
+            "ok": true,
+            "command": "claim",
+            "device_id": id,
+            "handle": target.handle,
+            "name": target.name,
+            "updated_at_monotonic_ms": now,
+        });
+    });
+    Ok(())
+}
+
+fn name_matches(device: &soil::ble::types::Device) -> bool {
+    device
+        .name
+        .as_deref()
+        .is_some_and(|name| name.to_ascii_lowercase().contains("colmi"))
+}
+
 fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
     if let Some(wanted) = &args.device {
         return device.handle.to_string() == *wanted
@@ -306,17 +423,20 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
 
         let battery = request_battery(link).ok();
 
-        // Battery is device state, not a body signal; only a ring that named
-        // itself can own the record.
-        if let Some(serial) = watch_core::device_id(&serial_text, None) {
-            if let Some(battery) = battery {
-                upsert_device_state(&serial, &model, &firmware, battery.percent, wearer)?;
-            }
+        // Battery is device state, not a body signal; only a ring with an
+        // identity can own the record.
+        let identity = device
+            .device_id
+            .clone()
+            .or_else(|| watch_core::device_id(&serial_text, None));
+        if let (Some(identity), Some(battery)) = (identity, battery) {
+            upsert_device_state(&identity, &model, &firmware, battery.percent, wearer)?;
         }
 
         Ok(json!({
             "handle": device.handle,
             "name": device.name,
+            "device_id": device.device_id,
             "serial": serial_text,
             "model": model,
             "firmware": firmware,
@@ -333,7 +453,12 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
     result
 }
 
-fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), String> {
+fn run_connected(
+    link: Link,
+    args: &Args,
+    advertised_name: &str,
+    claimed: Option<String>,
+) -> Result<(), String> {
     let model =
         read_string(link, proto::MODEL_NUMBER).unwrap_or_else(|_| advertised_name.to_string());
     let firmware = read_string(link, proto::FIRMWARE_REVISION).unwrap_or_default();
@@ -343,9 +468,11 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
     // Identity comes from the device, never from the rotating BLE address. A
     // ring that exposes no serial needs `--device`; inventing one from the
     // platform handle would split the same ring into a new device per host.
-    let device_id = watch_core::device_id(&serial, args.device.as_deref()).ok_or_else(|| {
-        "COLMI ring returned an empty DIS serial (2A25 is present but blank on Ring 2); pass --device <provisioned-id> instead of using the BLE address".to_string()
-    })?;
+    let device_id = claimed
+        .or_else(|| watch_core::device_id(&serial, None))
+        .ok_or_else(|| {
+            "this ring has no claimed id and returned an empty DIS serial; run `colmi-ring claim <id>` once with it selected".to_string()
+        })?;
 
     let mut counts: Counts = Counts::default();
     let mut battery_percent: Option<u8> = None;

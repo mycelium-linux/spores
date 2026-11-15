@@ -12,11 +12,12 @@
 // Limits (Soil-enforced, not expressible in WIT):
 // - at most 64 devices per scan, 8 subscribed characteristics per link
 // - at most `max-links` concurrent links; further links fail `over-budget`
+// - a claimed device keeps its id in the host's session until re-claimed
 // - one live radio lease per device, held by one host at a time
 // - scan <= 30 s; next-event bounded per call; every call has a deadline
 // - read <= 512 B per call; write <= 512 B per call; the Spore chunks frames
 // - no fs, net, clock, env, or device enumeration beyond scan results
-package soil:ble@1.1.0;
+package soil:ble@1.2.0;
 
 interface types {
   /// Soil-issued handle for a scan result. Opaque; not an address. Valid only
@@ -32,7 +33,10 @@ interface types {
     handle: device-handle,
     name: option<string>,
     rssi: option<s16>,
-    /// Stable cross-host identity once Soil has read DIS; absent until then.
+    /// Stable identity for this peripheral: the id it was claimed with, or one
+    /// Soil read from DIS. Absent until one of those exists. Two units of the
+    /// same model advertise the same name and may expose no serial, so this is
+    /// the only field a caller can safely key a record on.
     device-id: option<string>,
   }
 
@@ -99,6 +103,14 @@ interface ble {
   /// `over-budget` before any handshake starts.
   connect: func(device: device-handle) -> result<link, error>;
   disconnect: func(link: link) -> result<_, error>;
+
+  /// Bind a scan handle to a caller-chosen id, once. Soil records the
+  /// peripheral's platform address in its session, so later scans report that
+  /// `device-id` before any read. This is how two identical devices with no
+  /// serial stay distinguishable: the wearer claims each one while it is the
+  /// only candidate, and identity is stable from then on. Re-claiming moves
+  /// the id to the current peripheral; `invalid` for an empty id.
+  claim: func(device: device-handle, device-id: string) -> result<_, error>;
 
   /// Discovered GATT tree on that link.
   services: func(link: link) -> result<list<service>, error>;
