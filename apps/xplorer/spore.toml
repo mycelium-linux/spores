@@ -14,6 +14,19 @@ summary = "Browse the workspace: a grid of files, previewed instantly"
 description = "A file manager that draws its own window: an icon grid over one granted workspace, a preview of what is selected, and nothing else."
 homepage = "https://github.com/fungOS-linux/spores"
 
+[docs]
+usage = ["soil spore run . --surface window --vfs-root DIR"]
+man = "docs/man.md"
+
+[catalog]
+categories = ["utilities"]
+keywords = ["files", "browser", "finder", "preview", "workspace"]
+screenshots = [
+  { cid = "ipfs://bafkreibbfevon2fmnsit4kov6d43s7cozo2kx2vm4wn75nif7pbovojsyu", caption = "A workspace as a grid, with the selected file previewed beside it" },
+  { cid = "ipfs://bafkreibdfn7yfroraeyvj6jdvobntyu5djd23srgwaa4f6fffsyilaff3e", caption = "The same listing in the light theme" },
+]
+record = "ipfs://bafkreifdc3z5t3nde25x5sglkq3dokodohkw2xcn7gzqs2acmjjhqywgua"
+
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
@@ -44,3 +57,4 @@ transport = ["socket", "quic", "iroh"]
 [presentation]
 badge = "X"
 color = "#7fb2a8"
+icon = "ipfs://bafkreih7oumklmwkpbjdnqllt5eaqnmpsczbenruvvjye5yqrjnsgex7ve"

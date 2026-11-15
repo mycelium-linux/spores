@@ -15,6 +15,11 @@ crate-type = ["cdylib", "rlib"]
 # The core library and widgets, without crossterm or any other host backend:
 # this Spore emits ANSI and lets the host's VT own the screen.
 ratatui = { version = "0.30", default-features = false, features = ["std"] }
+
+# The generated bindings exist only for a wasm guest (`src/guest.rs` is
+# `#[cfg(target_arch = "wasm32")]`), so a host build that pulled them in would be
+# carrying a dependency it cannot use — and clippy says so.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = "0.57"
 
 [lints.rust]

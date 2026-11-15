@@ -14,6 +14,19 @@ summary = "Read a Word file as blocks: Word's own paragraph identities, previewe
 description = "A document reader that draws its own window: a vault on one side, a .docx parsed from its own bytes on the other, and each paragraph shown by the identity Word already wrote."
 homepage = "https://github.com/fungOS-linux/spores"
 
+[docs]
+usage = ["soil spore run . --surface window --vfs-root DIR"]
+man = "docs/man.md"
+
+[catalog]
+categories = ["productivity"]
+keywords = ["docx", "word", "reader", "comments", "documents"]
+screenshots = [
+  { cid = "ipfs://bafkreiasqw7linmei5bnpy6mjk4xxvrrgogmx76qyzajjafyqghovfo2sy", caption = "A .docx opened as blocks, each shown by Word's own paragraph identity" },
+  { cid = "ipfs://bafkreihhu7gqd765u2h2zadl7jretec2kbro6qvonm2wuxslbucwhpg6xq", caption = "The same document in the light theme, with the comments pane open" },
+]
+record = "ipfs://bafkreibnpmha6sj7bhk544awi6fvol6yg2plz3egdiugi6fxy6zz3yadqq"
+
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
@@ -47,3 +60,4 @@ transport = ["socket", "quic", "iroh"]
 [presentation]
 badge = "D"
 color = "#c9a6ff"
+icon = "ipfs://bafkreiclwhfe7prfdzslsbqxdh7tj6qjj5dmkrvopb6itozithreqi5umq"
