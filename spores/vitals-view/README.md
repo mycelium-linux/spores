@@ -25,16 +25,15 @@ soil-dev-host --records-dir .soil-dev/records spores/vitals/module.wasm seed
 soil-dev-host --records-dir .soil-dev/records spores/vitals/module.wasm once --wearer owner
 ```
 
-Then run the renderer through Soil's WebGPU host. It opens the records root
-read-only, links `wasi:webgpu` + `soil:present` + `soil:records`, and writes
-the captured frame as the same BGR24 format `soil-webgpu` already uses:
+Then run it through `soil`, which opens the records root read-only, links
+`wasi:webgpu` + `soil:present` + `soil:records`, and writes the presented frame
+out:
 
 ```sh
 # from the soil checkout; SPORES names this checkout
-cargo run -q -p soil-webgpu --bin soil-webgpu -- \
-  --records-dir .soil-dev/records \
-  --frame /tmp/vitals.bgr --size 1280x900 \
-  "$SPORES/spores/vitals-view/module.wasm"
+soil spore run "$SPORES/spores/vitals-view" \
+  --surface frame --frame /tmp/vitals.png --size 1280x900 \
+  --records .soil-dev/records --collection vitals.view --book dev/personal/telemetry
 ```
 
 `vitals.view` is keyed by wearer and written by `vitals once`. This renderer
