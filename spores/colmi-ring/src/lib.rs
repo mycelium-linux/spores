@@ -335,6 +335,7 @@ fn claim(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String
             "device_id": id,
             "handle": target.handle,
             "name": target.name,
+            "rssi": target.rssi,
             "updated_at_monotonic_ms": now,
         });
     });
@@ -462,6 +463,7 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
         Ok(json!({
             "handle": device.handle,
             "name": device.name,
+            "rssi": device.rssi,
             "device_id": device.device_id,
             "serial": serial_text,
             "model": model,
