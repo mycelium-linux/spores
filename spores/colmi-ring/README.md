@@ -59,6 +59,24 @@ The serial comes from the standard Device Information service. A ring that
 exposes none needs `--device <provisioned-id>`; the BLE address is never used
 as identity.
 
+**Verified on two COLMI Ring 2 units (2026-11-14, macOS/btleplug):**
+
+| DIS characteristic | present | read |
+| --- | --- | --- |
+| 2A25 serial | yes | **0 bytes** on both units |
+| 2A24 model | no | — |
+| 2A27 hardware | yes | fails unpaired (`io`) |
+| 2A26 firmware | yes | fails unpaired (`io`) |
+
+So these units carry **no usable device identity**. Two rings are told apart
+only by the platform address (host-local) or by provisioning, which is why
+`--device` is mandatory here rather than a fallback. `probe` reports the raw
+length and hex of each read so a blank serial is never mistaken for a missing
+characteristic.
+
+The vendor UART service is confirmed present on the hardware:
+`6e40fff0-…` with write `6e400002-…` and notify `6e400003-…`.
+
 ## Local development
 
 ```sh

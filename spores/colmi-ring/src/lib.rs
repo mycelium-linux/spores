@@ -248,10 +248,68 @@ fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
 fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, String> {
     let link = ble::connect(device.handle).map_err(ble_err)?;
     let result = (|| {
-        let model = read_string(link, proto::MODEL_NUMBER).unwrap_or_default();
-        let firmware = read_string(link, proto::FIRMWARE_REVISION).unwrap_or_default();
-        let hardware = read_string(link, proto::HARDWARE_REVISION).unwrap_or_default();
-        let serial = read_string(link, proto::SERIAL_NUMBER).unwrap_or_default();
+        // GATT presence first: "2A25 absent" and "2A25 present but empty" are
+        // different answers, and only one of them means provision an id.
+        let services = ble::services(link).map_err(ble_err)?;
+        let has = |uuid: &str| {
+            services
+                .iter()
+                .flat_map(|service| service.characteristics.iter())
+                .any(|characteristic| characteristic.uuid.eq_ignore_ascii_case(uuid))
+        };
+        let device_info = json!({
+            "model": has(proto::MODEL_NUMBER),
+            "serial": has(proto::SERIAL_NUMBER),
+            "hardware": has(proto::HARDWARE_REVISION),
+            "firmware": has(proto::FIRMWARE_REVISION),
+        });
+        let uart = json!({
+            "service": services
+                .iter()
+                .any(|service| service.uuid.eq_ignore_ascii_case(proto::UART_SERVICE)),
+            "write": has(proto::UART_WRITE),
+            "notify": has(proto::UART_NOTIFY),
+        });
+        let service_uuids: Vec<&str> = services
+            .iter()
+            .map(|service| service.uuid.as_str())
+            .collect();
+
+        // Report each read's outcome, not just its value: absent, empty, and
+        // timed-out are three different answers for identity.
+        let read = |uuid: &str| match ble::read(link, uuid, 64) {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes)
+                    .trim_end_matches('\0')
+                    .trim()
+                    .to_string();
+                let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                json!({"ok": true, "len": bytes.len(), "hex": hex, "value": text})
+            }
+            Err(error) => json!({"ok": false, "error": ble_err(error)}),
+        };
+        let reads = json!({
+            "model": read(proto::MODEL_NUMBER),
+            "serial": read(proto::SERIAL_NUMBER),
+            "hardware": read(proto::HARDWARE_REVISION),
+            "firmware": read(proto::FIRMWARE_REVISION),
+        });
+        let model = reads["model"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let firmware = reads["firmware"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let hardware = reads["hardware"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let serial = reads["serial"]["value"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let battery = request_battery(link).ok();
 
         // Battery is device state, not a body signal; only a ring that named
@@ -270,6 +328,10 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
             "hardware": hardware,
             "battery_percent": battery.map(|battery| battery.percent),
             "charging": battery.map(|battery| battery.charging),
+            "device_info": device_info,
+            "reads": reads,
+            "uart": uart,
+            "services": service_uuids,
         }))
     })();
     let _ = ble::disconnect(link);
@@ -287,8 +349,7 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
     // ring that exposes no serial needs `--device`; inventing one from the
     // platform handle would split the same ring into a new device per host.
     let device_id = watch_core::device_id(&serial, args.device.as_deref()).ok_or_else(|| {
-        "COLMI ring exposed no DIS serial; pass --device <provisioned-id> instead of using the BLE address"
-            .to_string()
+        "COLMI ring returned an empty DIS serial (2A25 is present but blank on Ring 2); pass --device <provisioned-id> instead of using the BLE address".to_string()
     })?;
 
     let mut counts: Counts = Counts::default();
