@@ -97,7 +97,7 @@ impl Default for Args {
             sunset_min: proto::SUN_UNKNOWN,
             forecast: Vec::new(),
             read_back: false,
-            streams: Stream::ALL.to_vec(),
+            streams: PROFILE.streams().to_vec(),
             from_record: false,
             record_id: None,
             weather_flags: Vec::new(),
@@ -165,7 +165,9 @@ impl Args {
                 "--track" => args.track = value.clone(),
                 "--album" => args.album = value.clone(),
                 "--playing" => args.playing = matches!(value.as_str(), "true" | "1" | "yes"),
-                "--streams" => args.streams = Stream::parse(value)?,
+                "--streams" => {
+                    args.streams = Stream::parse_from(value, PROFILE.streams())?;
+                }
                 "--epoch" => {
                     args.epoch = Some(
                         value
@@ -436,15 +438,17 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
     Ok(())
 }
 
-/// The characteristics a stream comes from.
-fn characteristic(stream: Stream) -> &'static str {
+/// The characteristic a stream comes from, when this watch has one. A stream
+/// another profile owns (a ring's SpO2) is absent here rather than invented.
+fn characteristic(stream: Stream) -> Option<&'static str> {
     match stream {
-        Stream::HeartRate => proto::HEART_RATE_MEASUREMENT,
-        Stream::Steps => proto::STEP_COUNT,
-        Stream::Motion => proto::MOTION_VALUES,
-        Stream::Media => proto::MUSIC_EVENT,
-        Stream::Calls => proto::NOTIFICATION_EVENT,
-        Stream::Battery => proto::BATTERY_LEVEL,
+        Stream::HeartRate => Some(proto::HEART_RATE_MEASUREMENT),
+        Stream::Steps => Some(proto::STEP_COUNT),
+        Stream::Motion => Some(proto::MOTION_VALUES),
+        Stream::Media => Some(proto::MUSIC_EVENT),
+        Stream::Calls => Some(proto::NOTIFICATION_EVENT),
+        Stream::Battery => Some(proto::BATTERY_LEVEL),
+        Stream::Spo2 => None,
     }
 }
 
@@ -453,7 +457,9 @@ fn characteristic(stream: Stream) -> &'static str {
 /// calls and battery are optional, because older firmware may not expose them.
 fn subscribe(link: Link, streams: &[Stream]) -> Result<(), String> {
     for stream in streams {
-        let uuid = characteristic(*stream);
+        let Some(uuid) = characteristic(*stream) else {
+            continue;
+        };
         match ble::subscribe(link, uuid) {
             Ok(()) => {}
             Err(error) if matches!(stream, Stream::HeartRate | Stream::Steps | Stream::Motion) => {

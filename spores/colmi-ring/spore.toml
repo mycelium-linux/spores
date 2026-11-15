@@ -1,0 +1,47 @@
+# The COLMI ring Spore. The ring is not a watch: no screen, no media service,
+# one UART service, and measurements that are request/response.
+schema = 1
+
+[spore]
+id = "dev.fungos.colmi-ring"
+name = "colmi-ring"
+version = "0.1.0"
+license = "MIT"
+summary = "COLMI ring heart rate, SpO2, steps, and battery over soil:ble"
+description = "Streams real-time heart rate and SpO2 from a COLMI (QRing) ring, reads the day's activity buckets and battery level, and stores typed device/signal records for JARVIS. The radio transport and per-device lease stay in soil-ble-host; this Spore never sees an address or a raw radio handle."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { ble = "1.1.0", time = "1.0.0", records = "0.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:ble" = "observe (scan/read/subscribe/next-event), connect (take the device's lease), and write (start/stop real-time readings, battery and step requests)"
+"soil:records" = "write device.state.v1 and signal.sample.v1 records"
+"soil:time" = "stamp observations with the host's monotonic clock; no wall clock"
+# Rust std on wasm32-wasip2 pulls these in even though this Spore does no file or
+# network I/O. They are declared rather than hidden; the module's only writes go
+# through soil:records and soil:ble.
+"wasi:cli" = "Rust std stdio for the host's log stream"
+"wasi:clocks" = "Rust std runtime dependency; observations use soil:time, not the wall clock"
+"wasi:io" = "Rust std runtime I/O primitives"
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "wall-clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["colmi", "ring", "qring", "ble", "health", "wearable"]
+
+[presentation]
+badge = "C"
+color = "#f0a35e"

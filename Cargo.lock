@@ -200,6 +200,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "colmi"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "watch-core",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -33,6 +33,7 @@
 # soil-commit: 335800a (soil main; soil:ble@1.1.0 link handles)
 
 spores/pinetime/wit/deps/soil-ble.wit 852b098388728ed063ffb441331b44c10c3af791
+spores/colmi-ring/wit/deps/soil-ble.wit 852b098388728ed063ffb441331b44c10c3af791
 
 # --- soil-records.wit -------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-records.wit
@@ -44,6 +45,7 @@ spores/unibus/wit/deps/soil-records/soil-records.wit 898cb3a58c473488e877a624e65
 spores/rooms/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/jarvis-telemetry/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/pinetime/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/colmi-ring/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 apps/doc-shell/guest/wit/deps/soil-records/package.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals-view/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb

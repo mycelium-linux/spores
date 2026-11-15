@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stream {
     HeartRate,
+    Spo2,
     Steps,
     Motion,
     Media,
@@ -23,8 +24,9 @@ pub enum Stream {
 }
 
 impl Stream {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::HeartRate,
+        Self::Spo2,
         Self::Steps,
         Self::Motion,
         Self::Media,
@@ -36,6 +38,7 @@ impl Stream {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::HeartRate => "hr",
+            Self::Spo2 => "spo2",
             Self::Steps => "steps",
             Self::Motion => "motion",
             Self::Media => "media",
@@ -50,6 +53,7 @@ impl Stream {
     pub const fn kind(self) -> Option<&'static str> {
         match self {
             Self::HeartRate => Some("body.hr.v1"),
+            Self::Spo2 => Some("body.spo2.v1"),
             Self::Steps => Some("body.steps.v1"),
             Self::Motion => Some("body.motion.v1"),
             Self::Media => Some("media.event.v1"),
@@ -58,19 +62,27 @@ impl Stream {
         }
     }
 
-    /// Parse `hr,steps` or `all`. An unknown name is an error that names it; a
-    /// typo must not silently subscribe to everything.
+    /// Parse `hr,steps` or `all` against every stream defined here. Prefer
+    /// [`Self::parse_from`] when a profile defines a narrower set: a watch
+    /// must not accept `spo2` merely because a ring can emit it.
     pub fn parse(value: &str) -> Result<Vec<Self>, String> {
+        Self::parse_from(value, &Self::ALL)
+    }
+
+    /// Parse against the streams one profile can actually emit. `all` means
+    /// every stream that profile has.
+    pub fn parse_from(value: &str, available: &[Self]) -> Result<Vec<Self>, String> {
         let mut streams = Vec::new();
         for token in value.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if token.eq_ignore_ascii_case("all") {
-                return Ok(Self::ALL.to_vec());
+                return Ok(available.to_vec());
             }
-            let stream = Self::ALL
-                .into_iter()
+            let stream = available
+                .iter()
+                .copied()
                 .find(|stream| stream.as_str() == token.to_ascii_lowercase())
                 .ok_or_else(|| {
-                    let known: Vec<_> = Self::ALL.iter().map(|s| s.as_str()).collect();
+                    let known: Vec<_> = available.iter().map(|s| s.as_str()).collect();
                     format!("unknown stream {token:?}; known: {}", known.join(", "))
                 })?;
             if !streams.contains(&stream) {
@@ -247,9 +259,24 @@ mod tests {
     }
 
     #[test]
+    fn a_profile_narrows_the_vocabulary() {
+        // `spo2` exists, but only a profile that can emit it may accept it.
+        let watch = [Stream::HeartRate, Stream::Steps];
+        assert_eq!(
+            Stream::parse_from("spo2", &watch).expect_err("watch has no spo2"),
+            "unknown stream \"spo2\"; known: hr, steps"
+        );
+        assert_eq!(
+            Stream::parse_from("all", &watch).expect("all means this profile\'s"),
+            watch.to_vec()
+        );
+    }
+
+    #[test]
     fn battery_is_device_state_not_a_signal() {
         assert_eq!(Stream::Battery.kind(), None);
         assert_eq!(Stream::HeartRate.kind(), Some("body.hr.v1"));
+        assert_eq!(Stream::Spo2.kind(), Some("body.spo2.v1"));
     }
 
     #[test]
