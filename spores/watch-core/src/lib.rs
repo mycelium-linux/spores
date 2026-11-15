@@ -115,6 +115,17 @@ impl Signal {
     }
 }
 
+/// The records namespace one wearer's data lives in.
+///
+/// The host maps each `<collection>:<wearer>` namespace to that wearer's own
+/// book (`personal/<wearer>/telemetry`), so this name is the only place a
+/// Spore can select a book — and a wearer the host has not granted fails
+/// `denied` instead of quietly writing into somebody else's records.
+#[must_use]
+pub fn namespace(collection: &str, wearer: &str) -> String {
+    format!("{collection}:{wearer}")
+}
+
 /// The signal envelope every watch Spore writes, whatever the hardware.
 #[must_use]
 pub fn signal_body(
@@ -303,6 +314,19 @@ mod tests {
         assert_eq!(body["value"]["bpm"], 61);
         assert_eq!(body["signal_id"], "pt-1:body.hr.v1:1000:7");
         assert_eq!(body["privacy_class"], "health");
+    }
+
+    #[test]
+    fn one_wearer_never_shares_another_wearers_namespace() {
+        assert_eq!(namespace("signal", "ange"), "signal:ange");
+        assert_ne!(
+            namespace("signal", "ajm"),
+            namespace("signal", "ange"),
+            "two wearers must not resolve to one book"
+        );
+        // The collection is part of the name, so a grant for one collection
+        // does not carry the others.
+        assert_ne!(namespace("signal", "ange"), namespace("device.state", "ange"));
     }
 
     #[test]

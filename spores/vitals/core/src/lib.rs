@@ -918,7 +918,7 @@ pub struct SeedRecord {
 /// watch and a ring; the guest has a second ring so the wearer boundary is
 /// exercised by real data rather than a test-only branch.
 #[must_use]
-pub fn seed(now: u64) -> Vec<SeedRecord> {
+pub fn seed(now: u64, wearer: &str) -> Vec<SeedRecord> {
     let observed = now.saturating_sub(1_000);
     let mut records = Vec::new();
     let mut push =
@@ -954,7 +954,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-pinetime",
         "dev.fungos.pinetime",
-        "owner",
+        wearer,
         "body.hr.v1",
         json!({"bpm": 64, "contact": true}),
         "health",
@@ -962,7 +962,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-pinetime",
         "dev.fungos.pinetime",
-        "owner",
+        wearer,
         "body.steps.v1",
         json!({"count": 4_231}),
         "health",
@@ -970,7 +970,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-pinetime",
         "dev.fungos.pinetime",
-        "owner",
+        wearer,
         "body.motion.v1",
         json!({"x": 12, "y": -4, "z": 1_002}),
         "health",
@@ -980,7 +980,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.hr.v1",
         json!({"bpm": 58, "contact": true}),
         "health",
@@ -988,7 +988,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.hrv.v1",
         json!({"rmssd_ms": 48, "sdnn_ms": 52}),
         "health",
@@ -996,7 +996,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.spo2.v1",
         json!({"percent": 97}),
         "health",
@@ -1004,7 +1004,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.temp.v1",
         json!({"celsius": 36.6}),
         "health",
@@ -1049,7 +1049,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.sleep.v1",
         build_sleep(&ring_layout),
         "health",
@@ -1057,7 +1057,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-pinetime",
         "dev.fungos.pinetime",
-        "owner",
+        wearer,
         "body.sleep.v1",
         build_sleep(&watch_layout),
         "health",
@@ -1065,7 +1065,7 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     push(
         "sim-ring",
         "dev.fungos.colmi-ring",
-        "owner",
+        wearer,
         "body.steps.v1",
         json!({"count": 9_000}),
         "health",
@@ -1090,8 +1090,8 @@ pub fn seed(now: u64) -> Vec<SeedRecord> {
     );
 
     for (device, wearer, battery) in [
-        ("sim-pinetime", "owner", 82),
-        ("sim-ring", "owner", 74),
+        ("sim-pinetime", wearer, 82),
+        ("sim-ring", wearer, 74),
         ("sim-ring-guest", "guest", 61),
     ] {
         records.push(SeedRecord {
@@ -1117,7 +1117,7 @@ mod tests {
     use super::*;
 
     fn seeded(now: u64) -> Vec<Signal> {
-        seed(now)
+        seed(now, "owner")
             .into_iter()
             .filter(|record| record.collection == "signal")
             .filter_map(|record| Signal::from_record(&record.body))
@@ -1229,7 +1229,7 @@ mod tests {
 
     #[test]
     fn seed_is_deterministic() {
-        assert_eq!(seed(42), seed(42));
+        assert_eq!(seed(42, "owner"), seed(42, "owner"));
     }
 
     #[test]

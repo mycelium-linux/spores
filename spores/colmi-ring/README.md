@@ -130,3 +130,11 @@ command/response protocol):
 ```sh
 SOIL_HOST_ID=dev soil-dev-host module.wasm watch --wearer owner --hold-ms 1000
 ```
+
+## Wearers and records
+
+`--wearer NAME` selects that person's records book. The Spore writes the
+`<collection>:<wearer>` namespace (`signal:ange`, `device.state:ange`, …) and
+the host maps it to `personal/<wearer>/telemetry`; a wearer the host was not
+started with (`--wearers ajm,ange`) is denied by name rather than writing into
+someone else's book. Two rings, two wearers, two stores.

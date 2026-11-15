@@ -67,9 +67,12 @@ impl Guest for Component {
 }
 
 fn load_view() -> Result<Value, String> {
+    // The view is per wearer. This Spore renders the default wearer until a
+    // per-instance setting exists; the namespace is where that choice lands.
+    const WEARER: &str = "owner";
     let key = records::Key {
-        collection: "vitals.view".to_string(),
-        id: "owner".to_string(),
+        collection: watch_core::namespace("vitals.view", WEARER),
+        id: WEARER.to_string(),
     };
     let entry = match records::get(&key) {
         Ok(entry) => entry,

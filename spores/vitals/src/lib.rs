@@ -117,7 +117,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
     let now = args.now.unwrap_or(time::monotonic_ms().map_err(time_err)?);
     match args.command.as_str() {
         "seed" => {
-            let count = seed(now)?;
+            let count = seed(now, &args.wearer)?;
             set_snapshot(json!({
                 "ok": true,
                 "command": "seed",
@@ -158,26 +158,29 @@ fn run_loop(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-fn seed(now: u64) -> Result<u64, String> {
-    let records = core::seed(now);
+fn seed(now: u64, wearer: &str) -> Result<u64, String> {
+    let records = core::seed(now, wearer);
     let mut count = 0;
     for record in &records {
-        upsert_record(record)?;
+        upsert_record(record, wearer)?;
         count += 1;
     }
     Ok(count)
 }
 
 fn once(now: u64, args: &Args) -> Result<Value, String> {
-    let signals = read_signals()?;
+    let signals = read_signals(&args.wearer)?;
     let vitals = core::fuse(&signals, &args.wearer, now, core::Policy::default());
     let summary = vitals.to_json();
     let view = vitals.to_view();
 
     let summary_id = format!("{}:{now}", args.wearer);
-    upsert("vitals.summary", &summary_id, core::SCHEMA, &summary)?;
-    upsert("vitals.latest", &args.wearer, core::SCHEMA, &summary)?;
-    upsert("vitals.view", &args.wearer, "vitals.view.v1", &view)?;
+    let summary_ns = watch_core::namespace("vitals.summary", &args.wearer);
+    let latest_ns = watch_core::namespace("vitals.latest", &args.wearer);
+    let view_ns = watch_core::namespace("vitals.view", &args.wearer);
+    upsert(&summary_ns, &summary_id, core::SCHEMA, &summary)?;
+    upsert(&latest_ns, &args.wearer, core::SCHEMA, &summary)?;
+    upsert(&view_ns, &args.wearer, "vitals.view.v1", &view)?;
     publish_summary(&summary)?;
 
     VIEW.with(|slot| *slot.borrow_mut() = view);
@@ -189,11 +192,12 @@ fn once(now: u64, args: &Args) -> Result<Value, String> {
     Ok(summary)
 }
 
-fn read_signals() -> Result<Vec<core::Signal>, String> {
+fn read_signals(wearer: &str) -> Result<Vec<core::Signal>, String> {
     let mut signals = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..20 {
-        let page = records::scan("signal", cursor.as_deref(), 200)
+        let namespace = watch_core::namespace("signal", wearer);
+        let page = records::scan(&namespace, cursor.as_deref(), 200)
             .map_err(|error| format!("scan signal: {error:?}"))?;
         for entry in page.entries {
             let Ok(body) = serde_json::from_slice::<Value>(&entry.body) else {
@@ -218,8 +222,9 @@ fn publish_summary(summary: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn upsert_record(record: &core::SeedRecord) -> Result<(), String> {
-    upsert(record.collection, &record.id, record.schema, &record.body)
+fn upsert_record(record: &core::SeedRecord, wearer: &str) -> Result<(), String> {
+    let namespace = watch_core::namespace(record.collection, wearer);
+    upsert(&namespace, &record.id, record.schema, &record.body)
 }
 
 fn upsert(collection: &str, id: &str, schema: &str, body: &Value) -> Result<(), String> {

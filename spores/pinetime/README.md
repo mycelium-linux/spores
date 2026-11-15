@@ -182,3 +182,11 @@ SOIL_BLE_SIM=1 soil-ble-host module.wasm watch --wearer owner --hold-ms 1000
 - The records host is required for persistence; without it `run` fails loudly.
 - Continuous overnight HR logging is not implemented in stock InfiniTime; this
   Spore consumes the notifications the firmware actually emits.
+
+## Wearers and records
+
+`--wearer NAME` selects that person's records book. The Spore writes the
+`<collection>:<wearer>` namespace (`signal:ange`, `device.state:ange`, …) and
+the host maps it to `personal/<wearer>/telemetry`; a wearer the host was not
+started with (`--wearers ajm,ange`) is denied by name rather than writing into
+someone else's book. Two rings, two wearers, two stores.

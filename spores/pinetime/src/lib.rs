@@ -862,7 +862,12 @@ fn upsert_device_state(
         battery,
         now,
     );
-    upsert("device.state", device_id, "device.state.v1", &body)
+    upsert(
+        &watch_core::namespace("device.state", wearer),
+        device_id,
+        "device.state.v1",
+        &body,
+    )
 }
 
 fn note_signal(device_id: &str, wearer: &str, signal: &watch_core::Signal) -> Result<(), String> {
@@ -882,7 +887,12 @@ fn note_signal(device_id: &str, wearer: &str, signal: &watch_core::Signal) -> Re
         sequence,
     );
     let signal_id = body["signal_id"].as_str().unwrap_or_default().to_string();
-    upsert("signal", &signal_id, "signal.sample.v1", &body)
+    upsert(
+        &watch_core::namespace("signal", wearer),
+        &signal_id,
+        "signal.sample.v1",
+        &body,
+    )
 }
 
 fn upsert(collection: &str, id: &str, schema: &str, body: &Value) -> Result<(), String> {
