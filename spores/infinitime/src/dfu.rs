@@ -101,6 +101,11 @@ impl<'a> Dfu<'a> {
 
     /// What to do next. `AwaitControl` stays put until `on_control` advances
     /// the phase, so a caller can loop on it without losing its place.
+    ///
+    /// Named `next` because that is what a caller does with it. It is not an
+    /// `Iterator`: it borrows mutably and returns an action, never a sequence,
+    /// and there is no `Item` to name.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Action {
         match self.phase {
             Phase::Start => {

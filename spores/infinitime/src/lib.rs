@@ -623,6 +623,10 @@ const WEATHER_LOCATION_BYTES: usize = 32;
 ///
 /// Temperatures are degrees Celsius x100 as `i16`; the location is a fixed
 /// 32-byte zero-padded field, so a shorter name is not a shorter frame.
+///
+/// Eight arguments is what the frame is: one per field it carries. Naming them
+/// in a struct would only move the same eight fields one line up.
+#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn current_weather_packet(
     timestamp: u64,
