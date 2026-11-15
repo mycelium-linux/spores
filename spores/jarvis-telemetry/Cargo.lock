@@ -340,6 +340,7 @@ version = "0.1.0"
 dependencies = [
  "jarvis-telemetry-core",
  "serde_json",
+ "watch-core",
  "wit-bindgen",
 ]
 
@@ -645,6 +646,13 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
+]
+
+[[package]]
+name = "watch-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 jarvis-telemetry-core = { path = "core" }
 serde_json = "1"
+watch-core = { path = "../watch-core" }
 wit-bindgen = "0.41"
 
 [workspace]

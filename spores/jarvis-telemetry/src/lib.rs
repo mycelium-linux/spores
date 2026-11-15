@@ -133,7 +133,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
 }
 
 fn run_once(now: u64, args: &Args) -> Result<(), String> {
-    let signals = read_signals()?;
+    let signals = read_signals(&args.wearer)?;
     let fused = core::fuse(
         &signals,
         &args.wearer,
@@ -157,7 +157,7 @@ fn run_loop(args: &Args) -> Result<(), String> {
     let mut last = None;
     for iteration in 0..iterations {
         let now = args.now.unwrap_or(time::monotonic_ms().map_err(time_err)?);
-        let signals = read_signals()?;
+        let signals = read_signals(&args.wearer)?;
         let fused = core::fuse(
             &signals,
             &args.wearer,
@@ -195,11 +195,14 @@ fn seed(now: u64) -> Result<u64, String> {
     Ok(count)
 }
 
-fn read_signals() -> Result<Vec<core::Signal>, String> {
+fn read_signals(wearer: &str) -> Result<Vec<core::Signal>, String> {
     let mut signals = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..20 {
-        let page = records::scan("signal", cursor.as_deref(), 200)
+        // Records are one book per wearer; the namespace is the only place a
+        // Spore can say whose signals it is reading.
+        let namespace = watch_core::namespace("signal", wearer);
+        let page = records::scan(&namespace, cursor.as_deref(), 200)
             .map_err(|error| format!("scan signal: {error:?}"))?;
         for entry in page.entries {
             let Ok(body) = serde_json::from_slice::<Value>(&entry.body) else {
