@@ -30,14 +30,24 @@ colmi-ring claim   <id> [--handle N] [--scan-ms N]
 `--streams steps` polls the day's activity buckets after the drain. `steps`
 polls without streaming anything.
 
-## Two identical rings
+## Rings in a shared room
 
-Both advertise the same name and expose no serial, so nothing in a scan tells
-them apart. Claim each one once, with an id you choose:
+Two identical rings advertise the same name and expose no serial, so nothing in
+a scan tells them apart. Claim each one once, with an id you choose:
 
 ```sh
 colmi-ring claim ring-left      # with the other ring out of range
 colmi-ring claim ring-right     # the only unclaimed ring left
+```
+
+If someone else's ring is also in range, narrow by model instead of moving
+hardware around — the advertised names differ ("COLMI Ring 2" vs
+"COLMI R02_3101"):
+
+```sh
+colmi-ring claim ring-right --match "COLMI Ring 2"
+colmi-ring claim gf-ring    --match "COLMI R02"
+colmi-ring claim ring-left  --match "COLMI Ring 2" --handle 2   # explicit one
 ```
 
 Soil stores the binding (id ↔ platform address) in its session file, and every
@@ -50,8 +60,9 @@ one ring matches, instead of picking one:
 or run `colmi-ring claim <id>` once per ring
 ```
 
-`probe` lists handles if you would rather say which one directly, but handles
-are per scan; the physical ceremony above is the reliable way to bind each unit.
+`probe` lists handles and RSSI if you would rather say which one directly, but
+handles are per scan, and RSSI is what tells an arm's-length ring from one on
+the other side of the room.
 
 ## Identity
 

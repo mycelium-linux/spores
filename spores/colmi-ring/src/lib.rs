@@ -49,6 +49,10 @@ struct Args {
     /// `claim --handle N`: a specific scan handle, for when several rings are
     /// in range and the wearer knows which one is which.
     handle: Option<u32>,
+    /// `--match NAME`: narrow candidates to an advertised name. Two people's
+    /// rings in one room advertise different names ("COLMI Ring 2" vs
+    /// "COLMI R02_3101"), which is the cheapest way to tell them apart.
+    match_name: Option<String>,
 }
 
 impl Default for Args {
@@ -63,6 +67,7 @@ impl Default for Args {
             streams: PROFILE.streams().to_vec(),
             claim_id: None,
             handle: None,
+            match_name: None,
         }
     }
 }
@@ -104,6 +109,7 @@ impl Args {
                         .map_err(|_| format!("--day: {:?} is not a number", raw[index]))?
                 }
                 "--streams" => args.streams = Stream::parse_from(&value()?, PROFILE.streams())?,
+                "--match" => args.match_name = Some(value()?),
                 "--handle" => {
                     args.handle = Some(
                         value()?
@@ -137,7 +143,7 @@ impl Args {
 fn usage() -> String {
     "usage: colmi-ring <watch|battery|steps|probe> [--wearer W] [--device ID] \
      [--scan-ms N] [--hold-ms N] [--day N] [--streams hr,spo2,steps]\n\
-     \x20      colmi-ring claim <id> [--handle N] [--scan-ms N]"
+     \x20      colmi-ring claim <id> [--match NAME] [--handle N] [--scan-ms N]"
         .to_string()
 }
 
@@ -175,7 +181,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
     if args.device.is_none() {
         let matching: Vec<_> = devices
             .iter()
-            .filter(|device| name_matches(device))
+            .filter(|device| name_matches(device, args.match_name.as_deref()))
             .collect();
         if matching.len() > 1 {
             return Err(format!(
@@ -289,7 +295,7 @@ fn claim(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String
             .collect(),
         None => devices
             .iter()
-            .filter(|device| name_matches(device))
+            .filter(|device| name_matches(device, args.match_name.as_deref()))
             .collect(),
     };
     if candidates.is_empty() {
@@ -313,13 +319,13 @@ fn claim(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String
                 1 => unclaimed[0],
                 0 => {
                     return Err(format!(
-                        "all {} matching ring(s) are already claimed; pass --handle <N> to re-claim one",
+                        "all {} matching ring(s) are already claimed; pass --match NAME or --handle <N> to pick one",
                         candidates.len()
                     ));
                 }
                 many => {
                     return Err(format!(
-                        "{many} unclaimed rings match; put the others out of range, or pass --handle <N> (probe lists handles)"
+                        "{many} unclaimed rings match; pass --match NAME (e.g. your model), --handle <N>, or put the others out of range"
                     ));
                 }
             }
@@ -342,11 +348,17 @@ fn claim(devices: &[soil::ble::types::Device], args: &Args) -> Result<(), String
     Ok(())
 }
 
-fn name_matches(device: &soil::ble::types::Device) -> bool {
-    device
-        .name
-        .as_deref()
-        .is_some_and(|name| name.to_ascii_lowercase().contains("colmi"))
+/// Does this device match the requested model? `--match` narrows to one
+/// advertised name; without it, anything that looks like a COLMI ring.
+fn name_matches(device: &soil::ble::types::Device, needle: Option<&str>) -> bool {
+    let Some(name) = device.name.as_deref() else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    match needle {
+        Some(needle) => name.contains(&needle.to_ascii_lowercase()),
+        None => name.contains("colmi"),
+    }
 }
 
 fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
@@ -357,10 +369,7 @@ fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
                 .as_deref()
                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted));
     }
-    device
-        .name
-        .as_deref()
-        .is_some_and(|name| name.to_ascii_lowercase().contains("colmi"))
+    name_matches(device, args.match_name.as_deref())
 }
 
 fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, String> {
