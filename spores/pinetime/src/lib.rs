@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use infinitime as proto;
 use serde_json::{json, Value};
 use soil::ble::ble;
-use soil::ble::types::Event;
+use soil::ble::types::{Event, Link};
 use soil::records::records::{self, Entry, Key};
 use soil::time::time;
 use watch_core::{Intent, Stream, WatchProfile};
@@ -261,10 +261,10 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
     let handle = target.handle;
     let advertised_name = target.name.clone().unwrap_or_default();
 
-    ble::connect(handle).map_err(ble_err)?;
-    let result = run_connected(&args, &advertised_name);
+    let link = ble::connect(handle).map_err(ble_err)?;
+    let result = run_connected(link, &args, &advertised_name);
     // A Spore should not keep the radio leased after a failed command either.
-    let _ = ble::disconnect();
+    let _ = ble::disconnect(link);
     result
 }
 
@@ -289,10 +289,10 @@ fn find_target<'a>(
     })
 }
 
-fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
-    let model = read_string(proto::DIS_MODEL).unwrap_or_else(|_| advertised_name.to_string());
-    let firmware = read_string(proto::DIS_FIRMWARE).unwrap_or_default();
-    let serial = read_string(proto::DIS_SERIAL).unwrap_or_default();
+fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), String> {
+    let model = read_string(link, proto::DIS_MODEL).unwrap_or_else(|_| advertised_name.to_string());
+    let firmware = read_string(link, proto::DIS_FIRMWARE).unwrap_or_default();
+    let serial = read_string(link, proto::DIS_SERIAL).unwrap_or_default();
 
     // Identity comes from the device, never from the rotating BLE address. If
     // the firmware exposes no serial, an explicit provisioning id is the only
@@ -313,14 +313,15 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
         }
     }
 
-    let battery = read_battery()?;
+    let battery = read_battery(link)?;
     upsert_device_state(&device_id, &model, &firmware, battery, &args.wearer)?;
 
     let mut writes: Vec<Written> = Vec::new();
     let counts = match args.command.as_str() {
         "watch" => {
-            subscribe(&args.streams)?;
+            subscribe(link, &args.streams)?;
             drain(
+                link,
                 &device_id,
                 &args.wearer,
                 args.hold_ms,
@@ -335,6 +336,7 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
             let packet = proto::notification_packet(category.as_u8(), &args.title, &args.body);
             proto::ensure_notification_packet(&packet).map_err(|error| error.to_string())?;
             writes.push(write_characteristic(
+                link,
                 proto::NEW_ALERT,
                 &packet,
                 args.read_back,
@@ -342,9 +344,10 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
             Counts::default()
         }
         "media" => {
-            write_media(args, &mut writes)?;
-            ble::subscribe(proto::MUSIC_EVENT).map_err(ble_err)?;
+            write_media(link, args, &mut writes)?;
+            ble::subscribe(link, proto::MUSIC_EVENT).map_err(ble_err)?;
             drain(
+                link,
                 &device_id,
                 &args.wearer,
                 args.hold_ms,
@@ -356,6 +359,7 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
         "find" => {
             // Immediate Alert level 2 (high) makes the watch vibrate.
             writes.push(write_characteristic(
+                link,
                 proto::ALERT_LEVEL,
                 &[2],
                 args.read_back,
@@ -368,6 +372,7 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
             let packet = proto::current_time_packet(epoch(args)?, args.offset_min)
                 .map_err(|error| error.to_string())?;
             writes.push(write_characteristic(
+                link,
                 proto::CURRENT_TIME,
                 &packet,
                 args.read_back,
@@ -382,7 +387,7 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
                 progress: args.progress,
             };
             for (uuid, bytes) in navigation.packets().map_err(|error| error.to_string())? {
-                writes.push(write_characteristic(uuid, &bytes, args.read_back)?);
+                writes.push(write_characteristic(link, uuid, &bytes, args.read_back)?);
             }
             Counts::default()
         }
@@ -393,12 +398,14 @@ fn run_connected(args: &Args, advertised_name: &str) -> Result<(), String> {
                 weather_from_flags(args)?
             };
             writes.push(write_characteristic(
+                link,
                 proto::WEATHER_DATA,
                 &current,
                 args.read_back,
             )?);
             if let Some(forecast) = forecast {
                 writes.push(write_characteristic(
+                    link,
                     proto::WEATHER_DATA,
                     &forecast,
                     args.read_back,
@@ -444,10 +451,10 @@ fn characteristic(stream: Stream) -> &'static str {
 /// Subscribe only to the streams the wearer asked for. The health streams are
 /// required — without them a watch session has nothing to show — while music,
 /// calls and battery are optional, because older firmware may not expose them.
-fn subscribe(streams: &[Stream]) -> Result<(), String> {
+fn subscribe(link: Link, streams: &[Stream]) -> Result<(), String> {
     for stream in streams {
         let uuid = characteristic(*stream);
-        match ble::subscribe(uuid) {
+        match ble::subscribe(link, uuid) {
             Ok(()) => {}
             Err(error) if matches!(stream, Stream::HeartRate | Stream::Steps | Stream::Motion) => {
                 return Err(ble_err(error));
@@ -459,6 +466,7 @@ fn subscribe(streams: &[Stream]) -> Result<(), String> {
 }
 
 fn drain(
+    link: Link,
     device_id: &str,
     wearer: &str,
     hold_ms: u64,
@@ -476,7 +484,7 @@ fn drain(
             break;
         }
         let wait = (deadline - now).min(1_000) as u32;
-        match ble::next_event(wait).map_err(ble_err)? {
+        match ble::next_event(link, wait).map_err(ble_err)? {
             Some(Event::Notification(notification)) => {
                 handle_notification(
                     device_id,
@@ -550,10 +558,15 @@ enum Verified {
     Unsupported,
 }
 
-fn write_characteristic(uuid: &str, data: &[u8], read_back: bool) -> Result<Written, String> {
-    ble::write(uuid, data).map_err(ble_err)?;
+fn write_characteristic(
+    link: Link,
+    uuid: &str,
+    data: &[u8],
+    read_back: bool,
+) -> Result<Written, String> {
+    ble::write(link, uuid, data).map_err(ble_err)?;
     let verified = if read_back {
-        Some(match ble::read(uuid, data.len().max(1) as u32) {
+        Some(match ble::read(link, uuid, data.len().max(1) as u32) {
             Ok(value) if value == data => Verified::Matched,
             Ok(_) => Verified::Mismatched,
             Err(_) => Verified::Unsupported,
@@ -568,9 +581,10 @@ fn write_characteristic(uuid: &str, data: &[u8], read_back: bool) -> Result<Writ
     })
 }
 
-fn write_media(args: &Args, writes: &mut Vec<Written>) -> Result<(), String> {
+fn write_media(link: Link, args: &Args, writes: &mut Vec<Written>) -> Result<(), String> {
     let status = [proto::music_status(args.playing)];
     writes.push(write_characteristic(
+        link,
         proto::MUSIC_STATUS,
         &status,
         args.read_back,
@@ -582,6 +596,7 @@ fn write_media(args: &Args, writes: &mut Vec<Written>) -> Result<(), String> {
     ] {
         if !value.is_empty() {
             writes.push(write_characteristic(
+                link,
                 uuid,
                 value.as_bytes(),
                 args.read_back,
@@ -811,16 +826,16 @@ fn forecast(value: &str) -> Result<Vec<proto::ForecastDay>, String> {
     Ok(days)
 }
 
-fn read_string(uuid: &str) -> Result<String, String> {
-    let bytes = ble::read(uuid, 128).map_err(ble_err)?;
+fn read_string(link: Link, uuid: &str) -> Result<String, String> {
+    let bytes = ble::read(link, uuid, 128).map_err(ble_err)?;
     Ok(String::from_utf8_lossy(&bytes)
         .trim_end_matches('\0')
         .trim()
         .to_string())
 }
 
-fn read_battery() -> Result<u8, String> {
-    let bytes = ble::read(proto::BATTERY_LEVEL, 1).map_err(ble_err)?;
+fn read_battery(link: Link) -> Result<u8, String> {
+    let bytes = ble::read(link, proto::BATTERY_LEVEL, 1).map_err(ble_err)?;
     proto::parse_battery(&bytes).map_err(|error| error.to_string())
 }
 

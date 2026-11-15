@@ -4,17 +4,29 @@
 // receives Soil-issued device handles and characteristic UUIDs, never a MAC,
 // path, socket, permission, or radio handle it can forge.
 //
+// A Spore may hold several links at once — two rings, a watch, a necklace — so
+// every link-scoped call names the link it applies to. Each link owns its own
+// event queue: a device that streams audio cannot starve a quiet one's
+// notifications.
+//
 // Limits (Soil-enforced, not expressible in WIT):
 // - at most 64 devices per scan, 8 subscribed characteristics per link
+// - at most `max-links` concurrent links; further links fail `over-budget`
+// - one live radio lease per device, held by one host at a time
 // - scan <= 30 s; next-event bounded per call; every call has a deadline
 // - read <= 512 B per call; write <= 512 B per call; the Spore chunks frames
-// - at most one link and one live radio lease per Soil host
 // - no fs, net, clock, env, or device enumeration beyond scan results
-package soil:ble@1.0.0;
+package soil:ble@1.1.0;
 
 interface types {
-  /// Soil-issued handle for a scan result. Opaque; not an address.
+  /// Soil-issued handle for a scan result. Opaque; not an address. Valid only
+  /// until the next scan.
   type device-handle = u32;
+
+  /// Soil-issued handle for one live link. Opaque; not an address and not a
+  /// radio handle. Stale handles fail `not-connected`; they are never reused
+  /// within a Spore run.
+  type link = u32;
 
   record device {
     handle: device-handle,
@@ -51,7 +63,7 @@ interface types {
 }
 
 interface ble {
-  use types.{device, device-handle, service, event};
+  use types.{device, device-handle, link, service, event};
 
   enum error {
     /// The capability or radio lease was not granted to this Spore.
@@ -77,22 +89,29 @@ interface ble {
   /// Active scan for `timeout-ms`, returning Soil-issued handles.
   scan: func(timeout-ms: u32) -> result<list<device>, error>;
 
-  /// Connect to a previously scanned handle. The host takes the radio lease.
-  connect: func(device: device-handle) -> result<_, error>;
-  disconnect: func() -> result<_, error>;
+  /// Concurrent links this host will grant. Callers that need several devices
+  /// plan against this instead of discovering the ceiling by failing.
+  max-links: func() -> u32;
 
-  /// Discovered GATT tree on the current link.
-  services: func() -> result<list<service>, error>;
+  /// Connect to a previously scanned handle, returning a link handle. The host
+  /// takes that device's radio lease. Reconnecting to a device already linked
+  /// returns the existing link; when the budget is spent the call fails
+  /// `over-budget` before any handshake starts.
+  connect: func(device: device-handle) -> result<link, error>;
+  disconnect: func(link: link) -> result<_, error>;
+
+  /// Discovered GATT tree on that link.
+  services: func(link: link) -> result<list<service>, error>;
 
   /// Read at most `max-bytes` from a characteristic. `0` is `invalid`.
-  read: func(char-uuid: string, max-bytes: u32) -> result<list<u8>, error>;
-  write: func(char-uuid: string, data: list<u8>) -> result<_, error>;
+  read: func(link: link, char-uuid: string, max-bytes: u32) -> result<list<u8>, error>;
+  write: func(link: link, char-uuid: string, data: list<u8>) -> result<_, error>;
 
-  /// Enable notifications for a characteristic. Events are drained with
-  /// `next-event`.
-  subscribe: func(char-uuid: string) -> result<_, error>;
+  /// Enable notifications for a characteristic on that link. Events are
+  /// drained with `next-event` for the same link.
+  subscribe: func(link: link, char-uuid: string) -> result<_, error>;
 
-  /// Wait up to `timeout-ms` for one event; `none` means the deadline expired
-  /// and is not an error.
-  next-event: func(timeout-ms: u32) -> result<option<event>, error>;
+  /// Wait up to `timeout-ms` for one event from that link's own queue; `none`
+  /// means the deadline expired and is not an error.
+  next-event: func(link: link, timeout-ms: u32) -> result<option<event>, error>;
 }
