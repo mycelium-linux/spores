@@ -57,4 +57,5 @@ transport = ["socket", "quic", "iroh"]
 [presentation]
 badge = "X"
 color = "#7fb2a8"
-icon = "ipfs://bafkreih7oumklmwkpbjdnqllt5eaqnmpsczbenruvvjye5yqrjnsgex7ve"
+mark = "assets/icon.svg"
+icon = "ipfs://bafkreibee3jr7rxafsww3hd56mi2punqdzb3x3wjcdrhc7sgedwllcxcxu"
