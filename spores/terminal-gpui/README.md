@@ -28,16 +28,14 @@ The guest uses the `headless` feature added to
 ```sh
 cargo build --release --target wasm32-wasip2
 
-# soil's WebGPU runner provides wasi:webgpu and soil:present.
-soil-webgpu --frame term.bgr --size 1000x700 \
-  target/wasm32-wasip2/release/terminal_gpui.wasm
+# one frame, through soil's WebGPU host: wasi:webgpu and soil:present.
+soil spore run . --surface frame --frame term.png --size 1000x700
 
-# canvas-winit provides the live window and keyboard input.
-canvas-winit target/wasm32-wasip2/release/terminal_gpui.wasm
+# the live window and keyboard input, same runner, same package.
+soil spore run . --surface window
 ```
 
-`soil-webgpu` writes BGR24; the screenshot above is that frame converted to
-PNG.
+The screenshot above is a `.png` frame written by the `frame` surface.
 
 ## What the host owns
 
@@ -76,11 +74,12 @@ thing that knows which hosts exist:
 
 ## Running a different shell on the pty
 
-`canvas-winit --command "<line>"` runs that command line on the pty instead of a
-login shell, through `sh -c`. That is how a Spore gets a **mush** shell today:
+`--command "<line>"` on the `window` surface runs that command line on the pty
+instead of a login shell, through `sh -c`. That is how a Spore gets a **mush**
+shell today:
 
 ```sh
-canvas-winit terminal_gpui.wasm --command "mush"
+soil spore run . --surface window --command "mush"
 ```
 
 `mush` resolves its VFS root (`--root`, `MUSH_ROOT`, or

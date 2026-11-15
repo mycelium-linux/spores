@@ -52,16 +52,15 @@ inside it produced a 149 MB Spore instead of a 500 KB one.
 
 ## Check the render without a window
 
-The frame is presented to Canvas, so the way to look at it in CI is the WebGPU
-runner, which writes the presented frame back out:
+The frame is presented to Canvas, so the way to look at it in CI is the `frame`
+surface of `soil`, which writes the presented frame back out:
 
 ```sh
-cargo run -q -p soil-webgpu --bin soil-webgpu -- \
-  --frame /tmp/dfm.bgr --size 1280x900 module.wasm
+soil spore run . --surface frame --frame /tmp/dfm.png --size 1280x900
 ```
 
-`.bgr` is raw 24-bit BGR, top-down. Converting to BMP is a header plus a row flip;
-that is how the shading was verified.
+A `.png` path gets a PNG; a `.bgr` path gets raw 24-bit BGR, top-down. That is how
+the shading was verified.
 
 The scene is baked in at build time. A guest has no filesystem unless it imports
 `soil:vfs`, and the canvas runner links only `wasi:webgpu` and `soil:canvas-gpu`.

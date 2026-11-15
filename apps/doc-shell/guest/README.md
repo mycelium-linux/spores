@@ -129,19 +129,16 @@ the namespace: they arrive as `soil:vfs-mut` with their own review. See
 cargo build --release --target wasm32-wasip2
 fungos-vfs --root /tmp/vfsroot ingest /tmp/vault --prefix ""
 records init --root /tmp/recbook
-soil-webgpu --frame /tmp/doc.bgr --size 1280x800 \
-  --root /tmp/vfsroot --records /tmp/recbook \
-  --collection comment.pending --book doc-shell --actor "$USER" \
-  target/wasm32-wasip2/release/doc_shell_guest.wasm
+soil spore run . --surface frame --frame /tmp/doc.png --size 1280x800 \
+  --vfs-root /tmp/vfsroot --records /tmp/recbook \
+  --collection comment.pending --book doc-shell --actor "$USER"
 
 # the arrangement alone, no vault needed
 cargo build --release --target wasm32-wasip2 --features demo
-soil-webgpu --frame /tmp/demo.bgr --size 1280x800 \
-  target/wasm32-wasip2/release/doc_shell_guest.wasm
+soil spore run . --surface frame --frame /tmp/demo.png --size 1280x800
 ```
 
-The first command is what the frame above shows minus the vault: `soil-webgpu`
-grants `soil:vfs` (one workspace), `soil:records` (one collection) and
+`soil` grants `soil:vfs` (one workspace), `soil:records` (one collection) and
 `soil:principal` (the attested author), and each is `denied` when it is not
 passed.
 
