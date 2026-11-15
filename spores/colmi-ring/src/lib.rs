@@ -248,8 +248,31 @@ fn is_candidate(device: &soil::ble::types::Device, args: &Args) -> bool {
 fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, String> {
     let link = ble::connect(device.handle).map_err(ble_err)?;
     let result = (|| {
-        // GATT presence first: "2A25 absent" and "2A25 present but empty" are
-        // different answers, and only one of them means provision an id.
+        // This ring answers about one GATT round trip per connection and then
+        // stops responding; a second read times out, and an immediate
+        // reconnect times out too. The identity read therefore goes first,
+        // and the rest are best-effort. Nothing here blurs "no answer" into
+        // "no data": each read reports its own outcome.
+        let read = |uuid: &str| match ble::read(link, uuid, 64) {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes)
+                    .trim_end_matches('\0')
+                    .trim()
+                    .to_string();
+                let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                json!({"ok": true, "len": bytes.len(), "hex": hex, "value": text})
+            }
+            Err(error) => json!({"ok": false, "error": ble_err(error)}),
+        };
+
+        let serial = read(proto::SERIAL_NUMBER);
+        let reads = json!({
+            "serial": serial,
+            "model": read(proto::MODEL_NUMBER),
+            "hardware": read(proto::HARDWARE_REVISION),
+            "firmware": read(proto::FIRMWARE_REVISION),
+        });
+
         let services = ble::services(link).map_err(ble_err)?;
         let has = |uuid: &str| {
             services
@@ -275,54 +298,26 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
             .map(|service| service.uuid.as_str())
             .collect();
 
-        // Report each read's outcome, not just its value: absent, empty, and
-        // timed-out are three different answers for identity.
-        let read = |uuid: &str| match ble::read(link, uuid, 64) {
-            Ok(bytes) => {
-                let text = String::from_utf8_lossy(&bytes)
-                    .trim_end_matches('\0')
-                    .trim()
-                    .to_string();
-                let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-                json!({"ok": true, "len": bytes.len(), "hex": hex, "value": text})
-            }
-            Err(error) => json!({"ok": false, "error": ble_err(error)}),
-        };
-        let reads = json!({
-            "model": read(proto::MODEL_NUMBER),
-            "serial": read(proto::SERIAL_NUMBER),
-            "hardware": read(proto::HARDWARE_REVISION),
-            "firmware": read(proto::FIRMWARE_REVISION),
-        });
-        let model = reads["model"]["value"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let firmware = reads["firmware"]["value"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let hardware = reads["hardware"]["value"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let serial = reads["serial"]["value"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let text = |read: &Value| read["value"].as_str().unwrap_or_default().to_string();
+        let serial_text = text(&reads["serial"]);
+        let model = text(&reads["model"]);
+        let firmware = text(&reads["firmware"]);
+        let hardware = text(&reads["hardware"]);
+
         let battery = request_battery(link).ok();
 
         // Battery is device state, not a body signal; only a ring that named
         // itself can own the record.
-        if let Some(serial) = watch_core::device_id(&serial, None) {
+        if let Some(serial) = watch_core::device_id(&serial_text, None) {
             if let Some(battery) = battery {
                 upsert_device_state(&serial, &model, &firmware, battery.percent, wearer)?;
             }
         }
+
         Ok(json!({
             "handle": device.handle,
             "name": device.name,
-            "serial": serial,
+            "serial": serial_text,
             "model": model,
             "firmware": firmware,
             "hardware": hardware,

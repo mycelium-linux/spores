@@ -63,16 +63,25 @@ as identity.
 
 | DIS characteristic | present | read |
 | --- | --- | --- |
-| 2A25 serial | yes | **0 bytes** on both units |
+| 2A25 serial | yes | reads as **0 bytes** |
 | 2A24 model | no | — |
-| 2A27 hardware | yes | fails unpaired (`io`) |
-| 2A26 firmware | yes | fails unpaired (`io`) |
+| 2A27 hardware | yes | `RT12CR2_V1.0` when it is the first read |
+| 2A26 firmware | yes | same constraint; not captured yet |
 
-So these units carry **no usable device identity**. Two rings are told apart
-only by the platform address (host-local) or by provisioning, which is why
-`--device` is mandatory here rather than a fallback. `probe` reports the raw
-length and hex of each read so a blank serial is never mistaken for a missing
-characteristic.
+The ring answers about **one GATT round trip per connection** and then stops
+responding: a second read times out, and an immediate reconnect times out too
+(~15 s). That is why `probe` takes one connection and reads the identity
+characteristic first — it is the answer that decides whether a `--device` is
+needed at all. Every read still reports its own outcome, so "no answer" is
+never shown as "no data".
+
+So these units carry **no usable device identity**: the serial characteristic
+exists, answers, and is empty. Two rings are told apart only by a host-local
+address or by provisioning, which is why `--device` is mandatory here rather
+than a fallback.
+
+This is a property of the ring, not of two rings sharing a room: the same
+per-read behaviour reproduces with a single ring in range.
 
 The vendor UART service is confirmed present on the hardware:
 `6e40fff0-…` with write `6e400002-…` and notify `6e400003-…`.
