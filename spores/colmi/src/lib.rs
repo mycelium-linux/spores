@@ -23,6 +23,21 @@ pub const UART_SERVICE: &str = "6e40fff0-b5a3-f393-e0a9-e50e24dcca9e";
 pub const UART_WRITE: &str = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 pub const UART_NOTIFY: &str = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
+/// Firmware-update service exposed by the RF03 bootloader in this ring family.
+/// It is a separate channel from the UART command set above, and this crate
+/// only names it: a probe reports what the service exposes, and any future
+/// writer lives in its own module.
+///
+/// Source: <https://github.com/atc1441/ATC_RF03_Ring> (bootloader dump,
+/// firmware images, and the browser flasher that drives these UUIDs).
+pub const OTA_SERVICE: &str = "de5bf728-d711-4e47-af26-65e3012a5dc7";
+pub const OTA_WRITE: &str = "de5bf72a-d711-4e47-af26-65e3012a5dc7";
+pub const OTA_NOTIFY: &str = "de5bf729-d711-4e47-af26-65e3012a5dc7";
+
+/// Vendor service that sits beside the UART and OTA services on these rings.
+/// Purpose unknown; named so a probe shows it and nobody mistakes it for OTA.
+pub const VENDOR_SERVICE: &str = "0000fee7-0000-1000-8000-00805f9b34fb";
+
 /// Standard Device Information service. A ring that exposes it answers here
 /// instead of inventing its own identity characteristic.
 pub const DEVICE_INFO_SERVICE: &str = "0000180a-0000-1000-8000-00805f9b34fb";

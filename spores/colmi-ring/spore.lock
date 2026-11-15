@@ -1,6 +1,6 @@
 spore-lock 1
 spore dev.fungos.colmi-ring
 version 0.1.0
-file fdf5b6b2f0e6dd9b0f048a56993b8b826e54f6a9b130e6029c53b965ef2c1042 280418 module.wasm
+file bbdbc6cb8f6aa41fc0eef07aa713c3924bb849be7ae4e24c702782074ccd953f 285438 module.wasm
 file e00a2766ad71b393b4d485ac60d0548d335d4a5f1ea695f432320a53eeec24fd 1872 spore.toml
-digest c6798f93c4bba11a192f28df7bdb87688ca1e34c4bf2db8864e57d832f4dda30
+digest fa62677556086d46a11b9d18ef0aacb30a6c4f96d871e5fe00d9facb6cf273d8

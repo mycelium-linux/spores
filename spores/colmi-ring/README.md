@@ -74,6 +74,31 @@ responding: a second read times out, and an immediate reconnect times out too
 characteristic first. Every read still reports its own outcome, so "no answer"
 is never shown as "no data".
 
+## Firmware update channel (probe only)
+
+Beside the UART pair the rings expose a second service:
+
+| UUID | role |
+| --- | --- |
+| `de5bf728-d711-4e47-af26-65e3012a5dc7` | OTA service |
+| `de5bf72a-d711-4e47-af26-65e3012a5dc7` | write, not notifiable |
+| `de5bf729-d711-4e47-af26-65e3012a5dc7` | notify, not writable |
+| `0000fee7-…` | vendor service, purpose unknown |
+
+Verified on both Ring 2 units; `probe` reports the service and each
+characteristic's properties. Nothing in this Spore writes firmware — the
+service is named so the next step can build on a measured fact instead of
+a guess.
+
+The channel is the BlueX RF03 bootloader, documented with dumps, official
+images, and a working flasher at
+<https://github.com/atc1441/ATC_RF03_Ring>. Its framing is
+`BC | type | len u16 | crc16 u16 | payload`, CRC-16/MODBUS, staged: image
+length and checksum, then acked chunks. The vendor app (QRing) contains
+the same five UUIDs and its OTA response carries `hardwareVersion`,
+`version`, and `downloadUrl` — so the image is chosen **server-side** from
+the ring's 2A27 value (`RT12CR2_V1.0`), not from a table inside the app.
+
 This is a property of the ring, not of two rings sharing a room: the same
 per-read behaviour reproduces with a single ring in range. The simulator models
 a ring with an empty 2A25, so the claim path is what gets exercised in tests.

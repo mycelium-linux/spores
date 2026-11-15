@@ -415,6 +415,32 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
             .map(|service| service.uuid.as_str())
             .collect();
 
+        // The update channel is a different service from the command channel,
+        // so report what it actually exposes rather than assuming the flasher's
+        // UUIDs are wired the same way on this variant.
+        let ota_service = services
+            .iter()
+            .find(|service| service.uuid.eq_ignore_ascii_case(proto::OTA_SERVICE));
+        let ota = json!({
+            "service": ota_service.is_some(),
+            "write": has(proto::OTA_WRITE),
+            "notify": has(proto::OTA_NOTIFY),
+            "characteristics": ota_service
+                .map(|service| {
+                    service
+                        .characteristics
+                        .iter()
+                        .map(|characteristic| json!({
+                            "uuid": characteristic.uuid,
+                            "readable": characteristic.readable,
+                            "writable": characteristic.writable,
+                            "notifiable": characteristic.notifiable,
+                        }))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        });
+
         let text = |read: &Value| read["value"].as_str().unwrap_or_default().to_string();
         let serial_text = text(&reads["serial"]);
         let model = text(&reads["model"]);
@@ -446,6 +472,7 @@ fn probe_one(device: &soil::ble::types::Device, wearer: &str) -> Result<Value, S
             "device_info": device_info,
             "reads": reads,
             "uart": uart,
+            "ota": ota,
             "services": service_uuids,
         }))
     })();
