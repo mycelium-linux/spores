@@ -13,6 +13,9 @@
 //! `0x02 0x01` closes it, `0x08 <n>` sets the receipt interval in segments,
 //! `0x03` begins the image, `0x04` validates and `0x05` activates.
 
+// See the note in `lib.rs`: test modules sit next to the code they cover.
+#![allow(clippy::items_after_test_module)]
+
 use std::fmt;
 
 pub const CONTROL_POINT: &str = "00001531-1212-efde-1523-785feabcd123";

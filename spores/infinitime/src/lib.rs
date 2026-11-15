@@ -12,6 +12,11 @@
 //! - <https://github.com/InfiniTimeOrg/InfiniTime/blob/main/src/components/ble/AlertNotificationService.cpp>
 //! - <https://github.com/InfiniTimeOrg/InfiniTime/blob/main/src/components/ble/MusicService.h>
 
+// Test modules sit next to the code they cover here, so a few items follow a
+// `mod tests`. The lint arrived with clippy 1.100; reordering the file is a
+// separate cleanup and not worth mixing into another change.
+#![allow(clippy::items_after_test_module)]
+
 pub mod dfu;
 
 use std::fmt;
