@@ -67,6 +67,30 @@ struct Row {
     directory: bool,
     size: u64,
     hydrated: bool,
+    /// What the host says the file is. Empty when it did not say.
+    media_type: String,
+    /// When the entry last changed, in epoch milliseconds; 0 when unknown.
+    updated_ms: u64,
+}
+
+/// How the list is drawn.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    /// Icon and name: what a Finder window looks like, good for recognising.
+    Tiles,
+    /// One line per entry with size, kind and age: what a file manager is *for*
+    /// once a directory has two hundred things in it.
+    List,
+}
+
+/// What the list is ordered by. Directories stay on top in every order, because
+/// a folder is a place and a file is a thing, and mixing them makes neither scan.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sort {
+    Name,
+    Size,
+    Recent,
+    Kind,
 }
 
 /// What the pane on the right is showing.
@@ -90,6 +114,10 @@ impl Preview {
 
 /// One window of the file manager.
 struct Finder {
+    /// How the entries are drawn, and how they are ordered. Both are view state:
+    /// the namespace does not care, and the next listing keeps them.
+    view: View,
+    sort: Sort,
     /// Workspace-relative path of the directory being listed; empty is the root.
     path: String,
     entries: Vec<Row>,
@@ -104,6 +132,8 @@ struct Finder {
 impl Finder {
     fn open() -> Self {
         let mut finder = Self {
+            view: View::Tiles,
+            sort: Sort::Name,
             path: String::new(),
             entries: Vec::new(),
             selected: 0,
@@ -242,6 +272,115 @@ impl Finder {
         }
     }
 
+    /// Re-order the entries in place after `s`.
+    ///
+    /// Directories first in every order: a folder is a place and a file is a
+    /// thing, and mixing them makes neither scan. Ties fall back to the name so
+    /// the order is stable between redraws.
+    fn resort(&mut self) {
+        let sort = self.sort;
+        self.entries.sort_by(|left, right| {
+            right
+                .directory
+                .cmp(&left.directory)
+                .then_with(|| match sort {
+                    Sort::Name => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
+                    Sort::Size => right.size.cmp(&left.size),
+                    Sort::Recent => right.updated_ms.cmp(&left.updated_ms),
+                    Sort::Kind => left
+                        .media_type
+                        .cmp(&right.media_type)
+                        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
+                })
+        });
+        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+    }
+
+    /// The list view: one line per entry, columns for what a finder is asked to
+    /// answer — how big, what kind, how old.
+    fn list_rows(
+        &self,
+        muted: gpui::Hsla,
+        border: gpui::Hsla,
+        accent: gpui::Hsla,
+        ink: gpui::Hsla,
+    ) -> gpui::AnyElement {
+        let header = h_flex()
+            .gap_2()
+            .px_2()
+            .pb_1()
+            .text_xs()
+            .text_color(muted)
+            .child(gpui::div().flex_1().child("name"))
+            .child(gpui::div().w(px(80.0)).child("size"))
+            .child(gpui::div().w(px(120.0)).child("kind"))
+            .child(gpui::div().w(px(90.0)).child("changed"));
+
+        let rows: Vec<gpui::AnyElement> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                let selected = index == self.selected;
+                h_flex()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .when(selected, |this| this.bg(accent))
+                    .child(
+                        gpui::div()
+                            .flex_1()
+                            .text_color(ink)
+                            .child(if row.directory {
+                                format!("{}/", row.name)
+                            } else {
+                                row.name.clone()
+                            }),
+                    )
+                    .child(
+                        gpui::div()
+                            .w(px(80.0))
+                            .text_color(muted)
+                            .child(if row.directory {
+                                String::new()
+                            } else {
+                                human_size(row.size)
+                            }),
+                    )
+                    .child(
+                        gpui::div()
+                            .w(px(120.0))
+                            .text_color(muted)
+                            .child(if row.directory {
+                                "directory".to_owned()
+                            } else if row.media_type.is_empty() {
+                                kind_hint(&row.name)
+                            } else {
+                                row.media_type.clone()
+                            }),
+                    )
+                    .child(
+                        gpui::div()
+                            .w(px(90.0))
+                            .text_color(muted)
+                            .child(age(row.updated_ms, row.hydrated)),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+
+        v_flex()
+            .w_full()
+            .p_3()
+            .gap_0p5()
+            .border_r_1()
+            .border_color(border)
+            .child(header)
+            .children(rows)
+            .into_any_element()
+    }
+
     fn handle_key(&mut self, key: &str) -> bool {
         match key {
             "arrow-right" | "l" => {
@@ -270,6 +409,25 @@ impl Finder {
             }
             "r" => {
                 self.reload();
+                true
+            }
+            // `v` and `s` are the two view decisions a finder needs: how it
+            // looks, and what it is ordered by.
+            "v" => {
+                self.view = match self.view {
+                    View::Tiles => View::List,
+                    View::List => View::Tiles,
+                };
+                true
+            }
+            "s" => {
+                self.sort = match self.sort {
+                    Sort::Name => Sort::Size,
+                    Sort::Size => Sort::Recent,
+                    Sort::Recent => Sort::Kind,
+                    Sort::Kind => Sort::Name,
+                };
+                self.resort();
                 true
             }
             _ => false,
@@ -334,6 +492,44 @@ fn describe(path: &str) -> String {
         "/".to_owned()
     } else {
         path.to_owned()
+    }
+}
+
+/// What a file is, from its name. A hint, not a claim: the host's media type
+/// wins when it has one, and the preview is where the truth is.
+fn kind_hint(name: &str) -> String {
+    match name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+    {
+        Some(extension) if !extension.is_empty() => extension,
+        _ => "file".to_owned(),
+    }
+}
+
+/// How old an entry is, as a person would say it. A placeholder says so in the
+/// same column, because "three days old" and "not on this machine" are both
+/// answers to "should I open this".
+fn age(updated_ms: u64, hydrated: bool) -> String {
+    let said = if updated_ms == 0 {
+        "unknown".to_owned()
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_millis() as u64)
+            .unwrap_or(updated_ms);
+        let seconds = now.saturating_sub(updated_ms) / 1000;
+        match seconds {
+            0..=59 => format!("{seconds}s"),
+            60..=3599 => format!("{}m", seconds / 60),
+            3600..=86399 => format!("{}h", seconds / 3600),
+            _ => format!("{}d", seconds / 86400),
+        }
+    };
+    if hydrated {
+        said
+    } else {
+        format!("{said} · off-machine")
     }
 }
 
@@ -512,6 +708,8 @@ impl Render for Finder {
                                         .child("this directory is empty")
                                         .into_any_element(),
                                 ]
+                            } else if self.view == View::List {
+                                vec![self.list_rows(muted, border, theme.accent, theme.foreground)]
                             } else {
                                 tiles
                             }),
@@ -579,12 +777,19 @@ impl Render for Finder {
                             },
                         ),
                     ))
-                    .child(
-                        gpui::div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("d theme · q quits"),
-                    ),
+                    .child(gpui::div().text_xs().text_color(muted).child(format!(
+                        "v {} · s {} · d theme · q quits",
+                        match self.view {
+                            View::Tiles => "list",
+                            View::List => "tiles",
+                        },
+                        match self.sort {
+                            Sort::Name => "name",
+                            Sort::Size => "size",
+                            Sort::Recent => "recent",
+                            Sort::Kind => "kind",
+                        }
+                    ))),
             )
     }
 }
