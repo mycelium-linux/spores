@@ -26,6 +26,8 @@ pub fn ls(path: &str) -> Result<Vec<Row>, String> {
                     directory: matches!(entry.kind, vfs::Kind::Directory),
                     size: entry.size,
                     hydrated: matches!(entry.hydration, vfs::Hydration::Present),
+                    media_type: entry.media_type,
+                    updated_ms: entry.updated_at_ms,
                 })
                 .collect(),
         )),
@@ -66,6 +68,8 @@ pub fn ls(path: &str) -> Result<Vec<Row>, String> {
         directory,
         size,
         hydrated: true,
+        media_type: String::new(),
+        updated_ms: 0,
     };
     let rows = match path {
         "" => vec![
