@@ -392,6 +392,7 @@ name = "pinetime-spore"
 version = "0.1.0"
 dependencies = [
  "infinitime",
+ "serde",
  "serde_json",
  "watch-core",
  "weather-protocol",

@@ -14,7 +14,7 @@ homepage = "https://github.com/fungOS-linux/spores"
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { ble = "1.2.0", time = "1.0.0", records = "0.1.0" }
+abi = { ble = "1.2.0", time = "1.0.0", records = "0.1.0", unibus = "0.1.0" }
 
 [module]
 path = "module.wasm"
@@ -27,7 +27,8 @@ surfaces = ["native"]
 # The package is the host-link unit; the reason names the verbs this Spore
 # actually calls. There is no socket, path, environment, or wall clock.
 "soil:ble" = "observe (scan/services/read/subscribe/next-event), connect (take the radio lease), and write (notifications, media, find)"
-"soil:records" = "read the previous device state and write device.state.v1 and signal.sample.v1 records"
+"soil:records" = "read the previous device state and write device.state.v1, signal.sample.v1, and the bridge's active decision/dedupe state"
+"soil:unibus" = "observe jarvis decision/notice/reply frames and publish delivery and resolution frames"
 "soil:time" = "stamp observations with the host's monotonic clock; no wall clock"
 # Rust std on wasm32-wasip2 pulls these in even though this Spore does no file or
 # network I/O. They are declared rather than hidden; the module's only writes go
