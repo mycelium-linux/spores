@@ -1,0 +1,45 @@
+# Inbox triage. Deterministic rules, one decision per message, no outbound.
+schema = 1
+
+[spore]
+id = "dev.fungos.jarvis-inbox"
+name = "jarvis-inbox"
+version = "0.1.0"
+license = "MIT"
+summary = "Classify incoming messages into curated notifications and decided records"
+description = "Reads raw messages from inbox.raw:<wearer>, applies deterministic triage rules (VIP senders, breakthrough words, questions, sensitive tokens, thread windows, tray focus), publishes curated soil:notify items, and writes one inbox.decision.v1 record per message. It never sends a reply: outbound belongs to fungos:actions with an approval."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { records = "0.1.0", time = "1.0.0", notify = "1.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:records" = "read inbox.raw:<wearer> and write inbox:<wearer> decisions"
+"soil:notify" = "publish and update curated items; read the host's focus profile"
+"soil:time" = "stamp decisions with the host's monotonic clock; no wall clock"
+# Rust std on wasm32-wasip2 pulls these in even though this Spore does no file or
+# network I/O.
+"wasi:cli" = "Rust std stdio for the host's log stream"
+"wasi:clocks" = "Rust std runtime dependency; decisions use soil:time"
+"wasi:io" = "Rust std runtime I/O primitives"
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "wall-clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["inbox", "triage", "notifications", "jarvis"]
+
+[presentation]
+badge = "J"
+color = "#8bd5a0"

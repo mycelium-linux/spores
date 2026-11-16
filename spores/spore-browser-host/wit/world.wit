@@ -2,7 +2,7 @@
 package fungos:spore-browser@0.1.0;
 
 world spore-browser {
-  import soil:spore/catalog@0.1.0;
+  import soil:spore/catalog@0.2.0;
 
   /// Installed Spore catalog as JSON bytes.
   export snapshot: func() -> result<list<u8>, string>;

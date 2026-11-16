@@ -1,0 +1,18 @@
+// The morning brief: one notification composed from local records.
+//
+// It reads what other Spores already wrote — vitals, inbox decisions, weather —
+// and summarises with provenance. It has no network, no radio and no clock of
+// its own, and it never fills a missing reading with a zero.
+package fungos:jarvis-brief@0.1.0;
+
+world jarvis-brief {
+  import soil:records/records@0.1.0;
+  import soil:time/time@1.0.0;
+  import soil:notify/publisher@1.1.0;
+
+  /// `once`; see README.md.
+  export run: func(args: list<string>) -> result<_, string>;
+
+  /// The last brief, as JSON.
+  export snapshot: func() -> result<list<u8>, string>;
+}

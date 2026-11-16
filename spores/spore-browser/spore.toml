@@ -24,7 +24,7 @@ keywords = ["spores", "launcher", "catalog", "browser"]
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { spore = "0.1.0", canvas = "1.0.0" }
+abi = { spore = "0.1.0", canvas = "1.0.0", present = "0.1.0", webgpu = "0.3.0-rc.2" }
 
 [module]
 path = "module.wasm"
@@ -41,6 +41,10 @@ surfaces = ["canvas", "web", "native"]
 [grants]
 "soil:spore" = "list installed Spore packages; launch a declared Spore surface"
 "soil:canvas" = "present the browser"
+# The GPUI launcher draws its own tiles and hands the host one rendered
+# texture, so it needs the compositor surface rather than the Lua one.
+"soil:present" = "hand each rendered frame to the host's window"
+"wasi:webgpu" = "render the grid and its text into a host-owned texture"
 
 "wasi:cli" = "Rust std diagnostics; no args, environment, or process launch"
 "wasi:clocks" = "monotonic timing for the guest's scheduler"

@@ -35,6 +35,14 @@
 spores/pinetime/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
 spores/colmi-ring/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
 
+# --- soil-notify.wit --------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-notify.wit
+# soil-commit: 2885c31 (soil main; tray, inbox, focus, ringer)
+
+spores/notify/wit/deps/soil-notify.wit e38d502fedd46e97948516dc14fa9a52b970f181
+spores/jarvis-brief/wit/deps/soil-notify.wit e38d502fedd46e97948516dc14fa9a52b970f181
+spores/jarvis-inbox/wit/deps/soil-notify.wit e38d502fedd46e97948516dc14fa9a52b970f181
+
 # --- soil-records.wit -------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-records.wit
 # soil-commit: a7f23664f0912b31809cae50c97752a95df18ca7 (soil main)
@@ -46,6 +54,8 @@ spores/rooms/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/jarvis-telemetry/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/pinetime/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/colmi-ring/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/jarvis-inbox/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/jarvis-brief/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 apps/doc-shell/guest/wit/deps/soil-records/package.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals-view/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
@@ -53,7 +63,11 @@ spores/weather/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bc
 
 # --- soil-spore.wit ---------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-spore.wit
-# soil-commit: 35d960cdcdbc0db61cef34734f53316dca44fe38 (soil main)
+# soil-commit: 0d2504c (soil main, catalog 0.2.0)
+#
+# `launch` now answers with a `failure` (a code plus the host's sentence), and
+# the catalogue gained `running` and `stop`. 0.2.0 is a deliberate break, so
+# every copy moved to the same blob at soil `0d2504c`.
 #
 # `title` joined the catalog entry: a package names how it is shown (a window
 # title, a launcher row) without turning its slug into a label. Every copy moved
@@ -63,20 +77,32 @@ spores/weather/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bc
 # `surface` and `surface-kind` landed here: a Spore declares the views it ships,
 # and a host can tell before opening anything whether it can present one.
 #
-# All four copies moved together. They could not have moved separately: the two
+# Every copy moved together. They could not have moved separately: the two
 # hosts were built on `soil-spore-host`, a crate that exists only at soil
 # `4d4271b` -- a commit that is not on soil's main and predates both this
 # contract and the `spores-public` submodule. Recording one copy and leaving
 # the rest behind is the lie this file exists to prevent, so this section stayed
 # empty until `spores/spore-catalog` put both hosts back on soil's main.
 
-spores/launcher/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/launcher-gpui/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/launcher-host/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/spore-browser/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/spore-browser-host/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/probe-gpui/wit/deps/soil-spore/spore.wit 82ded7b51f179d87565874fa96621127e9135373
-spores/store/wit/deps/soil-spore.wit 188fc0eb288c6ffbff39bb4af97736b4b2fda039
+spores/launcher/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/launcher-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/launcher-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/spore-browser/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/spore-browser-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/probe-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/store/wit/deps/soil-spore.wit 291873df2dc7a564e7850452c132a878edece03a
+
+# --- soil-unibus.wit --------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-unibus.wit
+# soil-commit: f1787c5 (soil main; soil:unibus@0.1.0 poll/publish)
+#
+# The watch bridge observes decisions and notices and publishes delivery and
+# resolution frames. Every copy is the same blob.
+
+spores/jarvis-telemetry/wit/deps/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
+spores/pinetime/wit/deps/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
+spores/unibus/wit/deps/soil-unibus/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
+spores/vitals/wit/deps/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
 
 # --- soil-surface-import.wit ------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-surface-import.wit

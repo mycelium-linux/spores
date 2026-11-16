@@ -27,6 +27,7 @@ pinetime weather --from-record [--id ID]
 pinetime weather --epoch UNIX --icon NAME --temp-c C --min-c C --max-c C
                  [--location L] [--sunrise-min N] [--sunset-min N]
                  [--forecast "min,max,icon;min,max,icon"]
+pinetime bridge  [--wearer W] [--person P] [--device ID] [--hold-ms N] [--poll-ms N]
 ```
 
 - `watch` reads DIS model/firmware/serial and battery, subscribes to heart rate,
@@ -61,6 +62,31 @@ pinetime weather --epoch UNIX --icon NAME --temp-c C --min-c C --max-c C
 Every write command reports what it sent. `--read-back` also reads each
 characteristic immediately after the write and records `true`, `"mismatch"`, or
 `"unsupported"` (write-only on that firmware) in the snapshot.
+
+### Bridge: JARVIS on the wrist
+
+`bridge` polls Unibus for `jarvis.notice.v1`, `jarvis.decision.v1`,
+`jarvis.reply.v1`, and `jarvis.decision.resolve.v1`. A notice or a final reply
+addressed to the watch becomes an ANS SimpleAlert; a canonical yes/no decision
+becomes an ANS Call notification. A tap publishes
+`jarvis.decision.resolve.v1` with `by.surface: "watch"`, and a small
+`Approved`/`Declined`/`Muted` receipt follows so the wrist does not look stuck.
+The adapter also publishes `jarvis.delivery.v1` on shown/resolved/muted/expired.
+Only one decision is active at a time; up to eight wait in a queue. `--person`
+filters by owner (default: the wearer), and `--hold-ms 0` runs until stopped.
+
+Decisions with more than two options, or binary choices that are not canonical
+yes/no/approve/deny, are SimpleAlerts rather than two misleading buttons. The
+third ANS header byte is a display hint (`0` plain, `1` approval); stock
+InfiniTime skips it and shows the Call screen, while the fork can render thumbs.
+The watch does not consume `jarvis.query.v1`: it has no free-text input. A
+question that needs a wrist answer is a decision (or an agent prompt normalized
+into one).
+
+The active decision and the content hashes already applied persist in the
+`bridge/jarvis.state` record; a guest restart re-shows an unanswered decision.
+Mute is a surface decision, not an answer: it clears the watch and leaves the
+domain decision open for another surface.
 
 ## Spec coverage
 
@@ -128,6 +154,9 @@ would rekey records readers and per-app Canvas settings.
   model, firmware, battery, wearer, and monotonic observation time.
 - `weather.current` (read only, written by the `weather` Spore): the current
   conditions this Spore sends with `weather --from-record`.
+- `bridge` collection: one `jarvis.state.v1` record holding the active
+  decision, the bounded queue, the content hashes already applied, and the
+  wall-clock anchor used to honour `expires_at_ms` without a wall-clock grant.
 - `signal` collection: append-only `signal.sample.v1` records for
   `body.hr.v1`, `body.steps.v1`, `body.motion.v1`, `media.event.v1`, and
   `call.response.v1`.
@@ -140,8 +169,9 @@ would rekey records readers and per-app Canvas settings.
 | Grant | Why |
 |---|---|
 | `soil:ble` | observe (scan/services/read/subscribe/next-event), connect (take the radio lease), write (notifications, media, find) |
-| `soil:records` | read previous state and the weather record, and write device/signal records |
-| `soil:time` | monotonic observation timestamps |
+| `soil:records` | read previous state and the weather record, and write device/signal/bridge records |
+| `soil:unibus` | observe JARVIS decision/notice/reply frames and publish delivery/resolution frames |
+| `soil:time` | monotonic observation timestamps and bridge poll timing |
 | `wasi:cli`, `wasi:clocks`, `wasi:io` | Rust std runtime on `wasm32-wasip2`; no file or network I/O |
 
 No socket, process, secret, environment, raw filesystem, or wall-clock grant.
@@ -149,21 +179,36 @@ No socket, process, secret, environment, raw filesystem, or wall-clock grant.
 ## Build
 
 ```sh
-cargo test -p pinetime-protocol
+cargo test -p pinetime-spore
+cargo test -p infinitime
 cargo build -p pinetime-spore --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/pinetime_spore.wasm module.wasm
 ```
 
-The protocol crate is pure Rust and runs on the host. The Spore crate is the thin
-BLE/records wrapper. `soil-spore check .` verifies the manifest against the
-module's real imports.
+The pure bridge mapping and wire protocol tests run on the host. The Spore crate
+is the thin BLE/records wrapper. `soil-spore check .` verifies the manifest
+against the module's real imports.
 
 ## Host requirement
 
-The module imports `soil:ble`, `soil:records`, and `soil:time`. On desktop,
-`soil-dev-host` composes those with `soil:unibus` and runs this Spore against
+The module imports `soil:ble`, `soil:records`, `soil:time`, and `soil:unibus`.
+On desktop, `soil-dev-host` composes exactly those and runs this Spore against
 the paced simulator (or `--real` for CoreBluetooth/BlueZ). `soil-ble-host`
-remains the single-protocol BLE CLI and links only `soil:ble` + WASI.
+remains the single-protocol BLE CLI and links only `soil:ble` + WASI; `bridge`
+belongs in the composed host.
+
+```sh
+cargo build -p soil-dev-host
+
+target/debug/soil-dev-host \
+  --bus-fixture /tmp/decisions.jsonl \
+  --ble-device sim-pinetime \
+  spores/pinetime/module.wasm \
+  bridge --wearer owner --person owner --hold-ms 3000 --poll-ms 100
+```
+
+Each fixture line is `{"kind": "jarvis.decision.v1", "body": {...}}`; the dev
+host publishes it into its in-memory Unibus before the guest starts.
 
 ## Simulator
 
@@ -173,15 +218,38 @@ replayable golden records. Run the host with `SOIL_BLE_SIM=1` to exercise this
 Spore without a radio:
 
 ```sh
-SOIL_BLE_SIM=1 soil-ble-host module.wasm watch --wearer owner --hold-ms 1000
+target/debug/soil-dev-host --records-dir .soil-dev/records \
+  module.wasm watch --wearer owner --hold-ms 1000
 ```
 
 ## Status
 
-- The protocol mapping and the wasm component build are covered by tests.
+- The protocol mapping, bridge mapping, and wasm component build are covered by
+  tests.
 - The records host is required for persistence; without it `run` fails loudly.
+- `bridge` is verified end to end against `soil-dev-host` and the paced
+  simulator: a fixture decision is shown, the simulator's call-response event
+  resolves it, and the resolve/delivery frames appear on the bus.
 - Continuous overnight HR logging is not implemented in stock InfiniTime; this
   Spore consumes the notifications the firmware actually emits.
+- Stock InfiniTime has no remote dismiss. A resolved decision's original ANS
+  entry remains in the watch's notification list until dismissed by hand; the
+  adapter does not send a replacement.
+
+## Watch faces
+
+Faces are authored on the host in Lua and compiled to a compact WF1 descriptor
+for the native renderer. Lua does not run on the watch; the face only describes
+widgets and bindings. [`faces/glance.lua`](faces/glance.lua) is the deployable
+single-page reference; [`faces/atlas.lua`](faces/atlas.lua) is the three-page
+design preview (home, rings, agenda) for the next WF1 contract. See
+[`docs/watchface.md`](../../docs/watchface.md).
+
+```sh
+lua tools/watchface.lua faces/glance.lua --json
+lua tools/watchface.lua faces/glance.lua --bin /tmp/glance.wf
+lua tools/watchface_test.lua
+```
 
 ## Wearers and records
 

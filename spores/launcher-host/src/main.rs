@@ -70,29 +70,49 @@ impl soil::spore::catalog::Host for State {
         &mut self,
         id: String,
         surface: String,
-    ) -> Result<soil::spore::catalog::Launched, soil::spore::catalog::Error> {
-        let entry = self
-            .catalog
-            .get(&id)
-            .cloned()
-            .ok_or(soil::spore::catalog::Error::NotFound)?;
+    ) -> Result<soil::spore::catalog::Launched, soil::spore::catalog::Failure> {
+        let entry =
+            self.catalog
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| soil::spore::catalog::Failure {
+                    code: soil::spore::catalog::Error::NotFound,
+                    detail: format!("no Spore named {id}"),
+                })?;
         // Which surfaces exist, and whether this host can present one, is the
         // manifest's answer -- not a second one written here.
-        let target =
-            entry
-                .resolve(&surface, &SystemLauncher::KINDS)
-                .map_err(|error| match error.code() {
+        let target = entry
+            .resolve(&surface, &SystemLauncher::KINDS)
+            .map_err(|error| soil::spore::catalog::Failure {
+                code: match error.code() {
                     "not-found" => soil::spore::catalog::Error::NotFound,
                     _ => soil::spore::catalog::Error::Unsupported,
-                })?;
-        let opened = self
-            .launcher
-            .launch(&entry, &target)
-            .map_err(|_| soil::spore::catalog::Error::Unsupported)?;
+                },
+                detail: error.to_string(),
+            })?;
+        let opened = self.launcher.launch(&entry, &target).map_err(|detail| {
+            soil::spore::catalog::Failure {
+                code: soil::spore::catalog::Error::Io,
+                detail,
+            }
+        })?;
         Ok(soil::spore::catalog::Launched {
             id,
             surface,
             target: opened,
+        })
+    }
+
+    fn running(&mut self) -> Vec<String> {
+        // This host hands the launch to canvasctl or the browser and owns no
+        // child to reap, so it has nothing it can honestly call running.
+        Vec::new()
+    }
+
+    fn stop(&mut self, id: String) -> Result<(), soil::spore::catalog::Failure> {
+        Err(soil::spore::catalog::Failure {
+            code: soil::spore::catalog::Error::NotFound,
+            detail: format!("{id} was not started by this host"),
         })
     }
 }
