@@ -17,6 +17,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 pub use soil_spore::{LaunchError, LaunchTarget, Manifest, Surface, SurfaceKind};
 
+/// How large a mark may be. A tile draws it at a few hundred pixels, so a file
+/// past this is not an icon — and reading it anyway is how a package would make
+/// every launcher on the machine spend the memory on it.
+const MARK_LIMIT: usize = 256 * 1024;
+
+/// The package's mark, as the SVG source a launcher draws on its tile.
+///
+/// The manifest names a path inside the package; this reads it. A launcher that
+/// asks a store for a content id instead is a different question — this is the
+/// no-network answer, which is the one a tile needs.
+fn read_mark(root: &Path, manifest: &Manifest) -> Option<String> {
+    let path = manifest.presentation.as_ref()?.mark.as_deref()?;
+    let svg = std::fs::read_to_string(root.join(path)).ok()?;
+    (svg.len() <= MARK_LIMIT && svg.contains("<svg")).then_some(svg)
+}
+
 /// One installed Spore, with the manifest that was parsed to find it.
 #[derive(Debug, Clone)]
 pub struct SporeEntry {
@@ -32,6 +48,11 @@ pub struct SporeEntry {
     /// Where the package is installed.
     pub root: PathBuf,
     pub manifest: Manifest,
+    /// The package's `[presentation] mark`, as the SVG source a launcher draws
+    /// on its tile. `None` when the package ships none, names a file it does
+    /// not carry, or ships something other than text SVG — a launcher falls
+    /// back to the badge in that case rather than to a blank tile.
+    pub mark: Option<String>,
 }
 
 /// A declared surface, flattened for a host's own generated binding.
@@ -119,6 +140,7 @@ impl SporeCatalog {
             }
             let manifest = Manifest::load(&package)
                 .with_context(|| format!("load Spore {}", package.display()))?;
+            let mark = read_mark(&package, &manifest);
             entries.push(SporeEntry {
                 id: manifest.spore.id.clone(),
                 name: manifest.spore.name.clone(),
@@ -127,6 +149,7 @@ impl SporeCatalog {
                 workspace: Some(format!("{}-dev", manifest.spore.name)),
                 root: package,
                 manifest,
+                mark,
             });
         }
         entries.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));

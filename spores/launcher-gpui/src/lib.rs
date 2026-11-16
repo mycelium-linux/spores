@@ -14,8 +14,9 @@ wit_bindgen::generate!({
 });
 
 use gpui::{
-    AnyElement, AnyWindowHandle, AppContext as _, Context, FontWeight, HeadlessAppContext,
-    IntoElement, PlatformTextSystem, Render, SharedString, Window, div, prelude::*, px, rgb, rgba,
+    AnyElement, AnyWindowHandle, AppContext as _, Context, DevicePixels, FontWeight,
+    HeadlessAppContext, ImageSource, IntoElement, ObjectFit, PlatformTextSystem, Render,
+    RenderImage, SharedString, SvgRenderer, SvgSize, Window, div, img, prelude::*, px, rgb, rgba,
     size,
 };
 use gpui_wgpu::{CosmicTextSystem, WgpuContext, WgpuHeadlessRenderer};
@@ -31,6 +32,8 @@ const LIST_PAD: f32 = 24.0;
 const TILE: f32 = 104.0;
 const TILE_GAP: f32 = 28.0;
 const LABEL_H: f32 = 26.0;
+/// The size a tile draws a package's mark at, in logical pixels.
+const MARK_PX: f32 = 56.0;
 
 
 /// The colour an app gets when it does not ship one: a hue from its id, at a
@@ -63,6 +66,22 @@ fn hsl_to_rgb(hue: f32, saturation: f32, lightness: f32) -> u32 {
     (channel(r) << 16) | (channel(g) << 8) | channel(b)
 }
 
+/// A package's mark, as pixels.
+///
+/// `[presentation] mark` arrives as SVG source, and nothing on this render path
+/// paints SVG: `gpui_wgpu` has no renderer for it, so `svg()` lays out nothing.
+/// The rasteriser does ship in `gpui` itself, though, so a mark is parsed once,
+/// drawn at twice the size a tile shows it, and painted as the image it became.
+fn mark_pixels(svg: &str, renderer: &SvgRenderer) -> Option<Arc<RenderImage>> {
+    let parsed = renderer.parse_svg(svg.as_bytes()).ok()?;
+    // `SvgSize::Size` reads the width and keeps the mark's own aspect ratio, so
+    // a wide mark and a square one both stay themselves.
+    let side = DevicePixels((MARK_PX * 2.0) as i32);
+    renderer
+        .render_parsed(&parsed, SvgSize::Size(size(side, side)))
+        .ok()
+}
+
 const LILEX: &[u8] = include_bytes!("../assets/Lilex-Regular.ttf");
 const LILEX_BOLD: &[u8] = include_bytes!("../assets/Lilex-Bold.ttf");
 
@@ -74,9 +93,10 @@ struct Row {
     version: SharedString,
     summary: SharedString,
     default_surface: SharedString,
-    /// The package's `[presentation] mark`, as SVG source. A tile draws it; a
-    /// package that ships none falls back to its initial.
-    mark: Option<SharedString>,
+    /// The package's `[presentation] mark`, already rasterised (see
+    /// [`mark_pixels`]). A tile draws it; a package that ships none falls back
+    /// to its initial.
+    mark: Option<Arc<RenderImage>>,
 }
 
 struct LauncherView {
@@ -106,6 +126,9 @@ impl LauncherView {
         match catalog::entries() {
             Ok(entries) => {
                 let count = entries.len();
+                // One rasteriser for the whole grid: the parse is the cost, and
+                // no mark needs a second pass.
+                let renderer = SvgRenderer::new(Arc::new(()));
                 let rows: Vec<Row> = entries
                     .into_iter()
                     .map(|entry| Row {
@@ -114,7 +137,10 @@ impl LauncherView {
                         version: SharedString::from(entry.version),
                         summary: SharedString::from(entry.summary),
                         default_surface: SharedString::from(entry.default_surface),
-                        mark: entry.mark.map(SharedString::from),
+                        mark: entry
+                            .mark
+                            .as_deref()
+                            .and_then(|svg| mark_pixels(svg, &renderer)),
                     })
                     .collect();
                 let visible = (0..rows.len()).collect();
@@ -385,17 +411,22 @@ impl LauncherView {
                     .justify_center()
                     .rounded(px(24.0))
                     .bg(rgb(background));
-                // The catalogue now carries each package's `[presentation] mark`
-                // (`row.mark`), and this renderer cannot draw it: `gpui_wgpu`
-                // implements no SVG renderer, so `svg()` lays out nothing. The
-                // monogram is the honest fallback until the mark arrives as
-                // pixels - a blank tile is worse than a letter.
-                let art: AnyElement = div()
-                    .text_size(px(40.0))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(0xffff_ffff))
-                    .child(SharedString::from(glyph))
-                    .into_any_element();
+                // The catalogue carries each package's `[presentation] mark`
+                // (`row.mark`), rasterised once when the list was read. A
+                // package that ships none keeps its initial: a blank tile is
+                // worse than a letter.
+                let art: AnyElement = match row.mark.clone() {
+                    Some(image) => img(ImageSource::Render(image))
+                        .size(px(MARK_PX))
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element(),
+                    None => div()
+                        .text_size(px(40.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(rgb(0xffff_ffff))
+                        .child(SharedString::from(glyph))
+                        .into_any_element(),
+                };
                 if selected {
                     tile = tile.border_2().border_color(rgb(0x7d_8b_99));
                 }

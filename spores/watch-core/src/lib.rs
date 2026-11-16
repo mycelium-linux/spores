@@ -326,7 +326,10 @@ mod tests {
         );
         // The collection is part of the name, so a grant for one collection
         // does not carry the others.
-        assert_ne!(namespace("signal", "ange"), namespace("device.state", "ange"));
+        assert_ne!(
+            namespace("signal", "ange"),
+            namespace("device.state", "ange")
+        );
     }
 
     #[test]

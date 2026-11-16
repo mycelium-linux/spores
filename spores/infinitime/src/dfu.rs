@@ -13,6 +13,9 @@
 //! `0x02 0x01` closes it, `0x08 <n>` sets the receipt interval in segments,
 //! `0x03` begins the image, `0x04` validates and `0x05` activates.
 
+// See the note in `lib.rs`: test modules sit next to the code they cover.
+#![allow(clippy::items_after_test_module)]
+
 use std::fmt;
 
 pub const CONTROL_POINT: &str = "00001531-1212-efde-1523-785feabcd123";
@@ -98,6 +101,11 @@ impl<'a> Dfu<'a> {
 
     /// What to do next. `AwaitControl` stays put until `on_control` advances
     /// the phase, so a caller can loop on it without losing its place.
+    ///
+    /// Named `next` because that is what a caller does with it. It is not an
+    /// `Iterator`: it borrows mutably and returns an action, never a sequence,
+    /// and there is no `Item` to name.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Action {
         match self.phase {
             Phase::Start => {
