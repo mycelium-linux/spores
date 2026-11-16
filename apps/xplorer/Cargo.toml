@@ -22,11 +22,11 @@ demo = []
 
 [dependencies]
 anyhow = "1"
-gpui = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "60ebb175729ad2a17acf59d8e988e794ff4b7eb4", package = "gpui", default-features = false, features = ["headless"] }
-gpui_wgpu = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "60ebb175729ad2a17acf59d8e988e794ff4b7eb4", package = "gpui_wgpu", features = ["headless"] }
+gpui = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "88679a2cdb4d255710256921238e45fa25c8b751", package = "gpui", default-features = false, features = ["headless"] }
+gpui_wgpu = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "88679a2cdb4d255710256921238e45fa25c8b751", package = "gpui_wgpu", features = ["headless"] }
 wgpu = { version = "30", default-features = false, features = ["wgsl"] }
 wgpu-wasi-webgpu = { git = "https://github.com/fungOS-linux/wgpu-wasi-webgpu", rev = "bec921356c366450408d5faee2d206b6a1b8061b" }
 wit-bindgen = "0.57"
 # The house component library: the fork branch that pins the same `gpui` 0.2.2
 # rev a Spore builds against, so its elements are our elements.
-gpui-component = { git = "https://github.com/fungOS-linux/gpui-kit", rev = "8feed9ee6526d0ee8e7b3e11349290b3d38319ed", package = "gpui-component", default-features = false }
+gpui-component = { git = "https://github.com/fungOS-linux/gpui-kit", rev = "2f73b8d1d2f81e39338ace470fe77058fb1057fa", package = "gpui-component", default-features = false }
