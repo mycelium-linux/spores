@@ -35,6 +35,13 @@
 spores/pinetime/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
 spores/colmi-ring/wit/deps/soil-ble.wit cad8710d3cd696b0ce0c0cd6be9564185d0b5e42
 
+# --- soil-notify.wit --------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-notify.wit
+# soil-commit: 2885c31 (soil main; tray, inbox, focus, ringer)
+
+spores/notify/wit/deps/soil-notify.wit e38d502fedd46e97948516dc14fa9a52b970f181
+spores/jarvis-inbox/wit/deps/soil-notify.wit e38d502fedd46e97948516dc14fa9a52b970f181
+
 # --- soil-records.wit -------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-records.wit
 # soil-commit: a7f23664f0912b31809cae50c97752a95df18ca7 (soil main)
@@ -46,6 +53,7 @@ spores/rooms/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/jarvis-telemetry/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/pinetime/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/colmi-ring/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/jarvis-inbox/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 apps/doc-shell/guest/wit/deps/soil-records/package.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals-view/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb

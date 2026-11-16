@@ -1,0 +1,6 @@
+spore-lock 1
+spore dev.fungos.jarvis-inbox
+version 0.1.0
+file f5660d0a19f57c6bb90748851a505f21d402651e3da583c4a3ba443a89803f7f 247767 module.wasm
+file 10550936ce9599c220bf4b24c97634a4b5e475de4c9fa6500ca014919fd1d75c 1666 spore.toml
+digest 0012e12505b9adfde9b6f6895080f7e9cfba8c651352b429df6d623a51dc890b

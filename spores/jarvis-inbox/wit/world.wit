@@ -1,0 +1,19 @@
+// Inbox triage: raw messages in, one decision per message out.
+//
+// The Spore classifies and groups. Attention policy — quiet hours, holding,
+// rollup — belongs to the tray host (`soil:notify/focus`), which is why this
+// world imports focus read-only through `get` rather than re-implementing it.
+package fungos:jarvis-inbox@0.1.0;
+
+world jarvis-inbox {
+  import soil:records/records@0.1.0;
+  import soil:time/time@1.0.0;
+  import soil:notify/publisher@1.1.0;
+  import soil:notify/focus@1.1.0;
+
+  /// `seed` or `once`; see README.md.
+  export run: func(args: list<string>) -> result<_, string>;
+
+  /// The last run's counts, as JSON.
+  export snapshot: func() -> result<list<u8>, string>;
+}
