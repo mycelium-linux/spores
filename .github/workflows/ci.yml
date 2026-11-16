@@ -13,6 +13,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # rustc through sccache: the fleet cache when SCCACHE_SERVER_URL is set,
+      # the Actions cache otherwise. One install, shared by every repo.
+      - uses: FuturePresentLabs/bob@9ef2160
+        with:
+          server-url: ${{ vars.SCCACHE_SERVER_URL }}
+
       # A vendored soil contract that drifted from its record is a Spore built
       # against an interface the host may no longer have. Cheap and offline, so
       # it runs before anything that has to compile.
