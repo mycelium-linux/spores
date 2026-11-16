@@ -6,12 +6,17 @@
 
 use std::cell::RefCell;
 
+mod bridge;
+
+use bridge::{Decision, WatchResponse};
 use infinitime as proto;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use soil::ble::ble;
 use soil::ble::types::{Event, Link};
 use soil::records::records::{self, Entry, Key};
 use soil::time::time;
+use soil::unibus::bus;
 use watch_core::{Intent, Stream, WatchProfile};
 use weather_protocol as weather;
 
@@ -24,8 +29,9 @@ const PROFILE: proto::Profile = proto::Profile;
 const MODEL_VERSION: &str = "pinetime-spore@0.2.0";
 
 thread_local! {
-    static SNAPSHOT: RefCell<Value> = RefCell::new(Value::Null);
-    static SEQUENCE: RefCell<u64> = RefCell::new(0);
+    static SNAPSHOT: RefCell<Value> = const { RefCell::new(Value::Null) };
+    static BRIDGE_SUMMARY: RefCell<Value> = const { RefCell::new(Value::Null) };
+    static SEQUENCE: RefCell<u64> = const { RefCell::new(0) };
 }
 
 struct Component;
@@ -66,6 +72,8 @@ struct Args {
     record_id: Option<String>,
     /// Weather flags the caller passed. They conflict with `--from-record`.
     weather_flags: Vec<String>,
+    person: Option<String>,
+    poll_ms: u32,
 }
 
 impl Default for Args {
@@ -101,6 +109,8 @@ impl Default for Args {
             from_record: false,
             record_id: None,
             weather_flags: Vec::new(),
+            person: None,
+            poll_ms: 500,
         }
     }
 }
@@ -196,15 +206,21 @@ impl Args {
                 "--sunset-min" => args.sunset_min = count(value, "--sunset-min")?,
                 "--forecast" => args.forecast = forecast(value)?,
                 "--id" => args.record_id = Some(value.clone()),
+                "--person" => args.person = Some(value.clone()),
+                "--poll-ms" => {
+                    args.poll_ms = value
+                        .parse()
+                        .map_err(|_| format!("--poll-ms: {value:?} is not a number"))?
+                }
                 other => return Err(format!("unknown argument {other:?}")),
             }
             index += 2;
         }
         match args.command.as_str() {
-            "watch" | "notify" | "media" | "find" | "time" | "nav" | "weather" => {}
+            "watch" | "notify" | "media" | "find" | "time" | "nav" | "weather" | "bridge" => {}
             other => {
                 return Err(format!(
-                    "unknown command {other:?}; expected watch, notify, media, find, time, nav, or weather"
+                    "unknown command {other:?}; expected watch, notify, media, find, time, nav, weather, or bridge"
                 ))
             }
         }
@@ -231,6 +247,10 @@ struct Counts(std::collections::BTreeMap<&'static str, u64>);
 impl Counts {
     fn bump(&mut self, stream: Stream) {
         *self.0.entry(stream.as_str()).or_default() += 1;
+    }
+
+    fn bump_key(&mut self, key: &'static str) {
+        *self.0.entry(key).or_default() += 1;
     }
 
     fn json(&self) -> Value {
@@ -283,10 +303,11 @@ fn find_target<'a>(
                     .as_deref()
                     .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
         } else {
-            device
-                .name
-                .as_deref()
-                .is_some_and(|name| name.to_ascii_lowercase().contains("pinetime"))
+            // InfiniTime advertises the firmware name, not the hardware name.
+            device.name.as_deref().is_some_and(|name| {
+                let name = name.to_ascii_lowercase();
+                name.contains("pinetime") || name.contains("infinitime")
+            })
         }
     })
 }
@@ -415,6 +436,14 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
             }
             Counts::default()
         }
+        "bridge" => {
+            // The call-response characteristic is the only inbound channel the
+            // bridge needs. Health streams stay off so a decision loop cannot
+            // turn into a telemetry firehose.
+            ble::subscribe(link, proto::NOTIFICATION_EVENT).map_err(ble_err)?;
+            eprintln!("pinetime: subscribed to call responses");
+            bridge_loop(link, &args.wearer, args)?
+        }
         other => return Err(format!("unknown command {other:?}")),
     };
 
@@ -431,6 +460,7 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
             "profile": PROFILE.name(),
             "streams": args.streams.iter().map(|stream| stream.as_str()).collect::<Vec<_>>(),
             "signals": counts.json(),
+            "bridge": BRIDGE_SUMMARY.with(|slot| slot.borrow().clone()),
             "writes": write_report(&writes),
             "updated_at_monotonic_ms": now,
         });
@@ -928,6 +958,495 @@ fn set_error(error: &str) {
     SNAPSHOT.with(|slot| {
         *slot.borrow_mut() = json!({"ok": false, "error": error});
     });
+}
+
+const JARVIS_DECISION: &str = "jarvis.decision.v1";
+const JARVIS_NOTICE: &str = "jarvis.notice.v1";
+const JARVIS_REPLY: &str = "jarvis.reply.v1";
+const JARVIS_RESOLVE: &str = "jarvis.decision.resolve.v1";
+const JARVIS_DELIVERY: &str = "jarvis.delivery.v1";
+const BRIDGE_KINDS: [&str; 4] = [JARVIS_DECISION, JARVIS_NOTICE, JARVIS_REPLY, JARVIS_RESOLVE];
+const BRIDGE_QUEUE_MAX: usize = 8;
+const BRIDGE_SEEN_MAX: usize = 256;
+const BRIDGE_TTL_MS: u64 = 60_000;
+
+fn bridge_namespace(wearer: &str) -> String {
+    watch_core::namespace("bridge", wearer)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActiveDecision {
+    decision: Decision,
+    /// Monotonic receipt time, used to age the frame's wall-clock stamp.
+    received_mono_ms: u64,
+    /// The bus frame's wall-clock stamp when it was published.
+    issued_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WallAnchor {
+    mono_ms: u64,
+    wall_ms: u64,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct BridgeRuntime {
+    /// Content hashes already applied. Live Unibus drains; the dev MemoryBus
+    /// retains frames, so this keeps a poll loop idempotent on both.
+    seen: Vec<String>,
+    active: Option<ActiveDecision>,
+    queue: std::collections::VecDeque<ActiveDecision>,
+    anchor: Option<WallAnchor>,
+}
+
+fn bridge_loop(link: Link, wearer: &str, args: &Args) -> Result<Counts, String> {
+    let mut runtime = load_bridge_state(wearer);
+    let mut counts = Counts::default();
+    let start = time::monotonic_ms().map_err(time_err)?;
+    // Monotonic values are process-local. Reset the persisted wall anchor and
+    // receipt time so a restored item is not expired across two epochs.
+    runtime.anchor = None;
+    if let Some(active) = &mut runtime.active {
+        active.received_mono_ms = start;
+    }
+    let person = args.person.as_deref().unwrap_or(wearer);
+    let poll_ms = u64::from(args.poll_ms.max(50));
+    let deadline = if args.hold_ms == 0 {
+        u64::MAX
+    } else {
+        start.saturating_add(args.hold_ms)
+    };
+    let mut next_poll = start;
+
+    let restored_wall = runtime
+        .active
+        .as_ref()
+        .map_or(start, |active| active.issued_at_ms);
+    if let Some(active) = runtime.active.clone() {
+        show_decision(link, &active)?;
+        publish_delivery(&active.decision.id, "shown", restored_wall)?;
+        counts.bump_key("decisions_shown");
+    }
+    show_next(link, &mut runtime, &mut counts, restored_wall)?;
+    save_bridge_state(wearer, &runtime)?;
+
+    loop {
+        let now = time::monotonic_ms().map_err(time_err)?;
+        if now >= deadline {
+            break;
+        }
+        if now >= next_poll {
+            poll_bridge(link, &mut runtime, wearer, person, &mut counts)?;
+            next_poll = now.saturating_add(poll_ms);
+        }
+
+        let wall = wall_now(&runtime, now);
+        if runtime.anchor.is_some() {
+            if let Some(active) = runtime.active.clone() {
+                if is_expired(&active, wall) {
+                    publish_delivery(&active.decision.id, "expired", wall)?;
+                    runtime.active = None;
+                    save_bridge_state(wearer, &runtime)?;
+                }
+            }
+        }
+        show_next(link, &mut runtime, &mut counts, wall)?;
+
+        let wait = deadline.saturating_sub(now).min(poll_ms).clamp(1, 1_000) as u32;
+        match ble::next_event(link, wait).map_err(ble_err)? {
+            Some(Event::Notification(notification)) => {
+                eprintln!(
+                    "pinetime: notification {} {} byte(s)",
+                    notification.char_uuid,
+                    notification.data.len()
+                );
+                if same(&notification.char_uuid, proto::NOTIFICATION_EVENT) {
+                    handle_tap(link, &mut runtime, wearer, &notification.data, &mut counts)?;
+                }
+            }
+            Some(Event::Disconnected(reason)) => {
+                return Err(format!("PineTime disconnected: {reason}"));
+            }
+            None => {}
+        }
+    }
+
+    save_bridge_state(wearer, &runtime)?;
+    BRIDGE_SUMMARY.with(|slot| {
+        *slot.borrow_mut() = json!({
+            "active_decision_id": runtime.active.as_ref().map(|active| active.decision.id.clone()),
+            "queued": runtime.queue.len(),
+            "seen": runtime.seen.len(),
+        });
+    });
+    Ok(counts)
+}
+
+fn poll_bridge(
+    link: Link,
+    runtime: &mut BridgeRuntime,
+    wearer: &str,
+    person: &str,
+    counts: &mut Counts,
+) -> Result<(), String> {
+    let kinds = BRIDGE_KINDS
+        .iter()
+        .map(|kind| (*kind).to_string())
+        .collect::<Vec<_>>();
+    let page = bus::poll(&kinds, None, 32).map_err(|error| format!("unibus poll: {error:?}"))?;
+    let now = time::monotonic_ms().map_err(time_err)?;
+    let mut wall = wall_now(runtime, now);
+    let mut changed = false;
+
+    for frame in page.frames {
+        let key = frame_key(&frame.kind, &frame.body);
+        if runtime.seen.iter().any(|seen| seen == &key) {
+            continue;
+        }
+        changed = true;
+        runtime.seen.push(key);
+        while runtime.seen.len() > BRIDGE_SEEN_MAX {
+            runtime.seen.remove(0);
+        }
+
+        if runtime.anchor.is_none() && frame.issued_at_ms > 0 {
+            runtime.anchor = Some(WallAnchor {
+                mono_ms: now,
+                wall_ms: frame.issued_at_ms,
+            });
+            wall = frame.issued_at_ms;
+        }
+
+        let Ok(value) = serde_json::from_slice::<Value>(&frame.body) else {
+            eprintln!("pinetime: ignoring malformed {} body", frame.kind);
+            continue;
+        };
+
+        match frame.kind.as_str() {
+            JARVIS_DECISION => {
+                let Some(decision) = bridge::parse_decision(&value) else {
+                    continue;
+                };
+                if !person_matches(decision.person.as_deref(), person) {
+                    continue;
+                }
+                let active = ActiveDecision {
+                    decision,
+                    received_mono_ms: now,
+                    issued_at_ms: frame.issued_at_ms,
+                };
+                if runtime.queue.len() >= BRIDGE_QUEUE_MAX {
+                    publish_delivery(&active.decision.id, "dropped", wall)?;
+                } else {
+                    runtime.queue.push_back(active);
+                }
+            }
+            JARVIS_NOTICE => {
+                let Some(notice) = bridge::parse_notice(&value) else {
+                    continue;
+                };
+                if !person_matches(notice.person.as_deref(), person) {
+                    continue;
+                }
+                if notice
+                    .expires_at_ms
+                    .is_some_and(|expires| expires > 0 && wall >= expires)
+                {
+                    publish_delivery(&notice.id, "expired", wall)?;
+                    continue;
+                }
+                match show_notice(link, &notice) {
+                    Ok(()) => {
+                        publish_delivery(&notice.id, "shown", wall)?;
+                        counts.bump_key("notices_shown");
+                    }
+                    Err(error) => {
+                        eprintln!("pinetime: notice {} not shown: {error}", notice.id);
+                        publish_delivery(&notice.id, "failed", wall)?;
+                    }
+                }
+            }
+            JARVIS_REPLY => {
+                let Some(reply) = bridge::parse_reply(&value) else {
+                    continue;
+                };
+                if !reply.state.eq_ignore_ascii_case("final") {
+                    continue;
+                }
+                if let Some(surface) = reply.surface.as_deref() {
+                    if !surface.eq_ignore_ascii_case("watch")
+                        && !surface.eq_ignore_ascii_case("all")
+                    {
+                        continue;
+                    }
+                }
+                if !person_matches(reply.person.as_deref(), person) {
+                    continue;
+                }
+                let notice = bridge::Notice {
+                    id: reply.id,
+                    title: "JARVIS".to_string(),
+                    body: reply.text,
+                    person: reply.person,
+                    created_at_ms: reply.at_ms,
+                    expires_at_ms: None,
+                };
+                match show_notice(link, &notice) {
+                    Ok(()) => {
+                        publish_delivery(&notice.id, "shown", wall)?;
+                        counts.bump_key("notices_shown");
+                    }
+                    Err(error) => {
+                        eprintln!("pinetime: reply {} not shown: {error}", notice.id);
+                        publish_delivery(&notice.id, "failed", wall)?;
+                    }
+                }
+            }
+            JARVIS_RESOLVE => {
+                let Some(resolution) = bridge::parse_resolution(&value) else {
+                    continue;
+                };
+                if resolution.surface.eq_ignore_ascii_case("watch") {
+                    continue;
+                }
+                if runtime
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active.decision.id == resolution.decision_id)
+                {
+                    publish_delivery(&resolution.decision_id, "resolved", wall)?;
+                    runtime.active = None;
+                } else {
+                    runtime
+                        .queue
+                        .retain(|active| active.decision.id != resolution.decision_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    show_next(link, runtime, counts, wall)?;
+    if changed {
+        save_bridge_state(wearer, runtime)?;
+    }
+    Ok(())
+}
+
+fn handle_tap(
+    link: Link,
+    runtime: &mut BridgeRuntime,
+    wearer: &str,
+    data: &[u8],
+    counts: &mut Counts,
+) -> Result<(), String> {
+    let Some(byte) = data.first().copied() else {
+        return Ok(());
+    };
+    let Some(response) = WatchResponse::from_byte(byte) else {
+        eprintln!("pinetime: unknown call response 0x{byte:02x}");
+        return Ok(());
+    };
+    eprintln!("pinetime: call response {response:?}");
+    let Some(active) = runtime.active.clone() else {
+        return Ok(());
+    };
+
+    // Only an approval decision has a call screen with these buttons. A
+    // response byte can also come from a real incoming call, or from a
+    // notification the user dismissed; do not let those clear a plain alert.
+    if !bridge::is_approval(&active.decision.options) {
+        eprintln!(
+            "pinetime: {} is a plain alert; ignoring {response:?}",
+            active.decision.id
+        );
+        return Ok(());
+    }
+
+    let now = time::monotonic_ms().map_err(time_err)?;
+    let wall = wall_now(runtime, now);
+    if runtime.anchor.is_some() && is_expired(&active, wall) {
+        publish_delivery(&active.decision.id, "expired", wall)?;
+        runtime.active = None;
+        show_next(link, runtime, counts, wall)?;
+        save_bridge_state(wearer, runtime)?;
+        return Ok(());
+    }
+    match response {
+        WatchResponse::Mute => {
+            publish_delivery(&active.decision.id, "muted", wall)?;
+        }
+        WatchResponse::Accept | WatchResponse::Reject => {
+            let Some(answer) = bridge::answer_for(response, &active.decision.options) else {
+                return Ok(());
+            };
+            let body = bridge::resolution(&active.decision.id, &answer, wearer, wall);
+            publish_json(JARVIS_RESOLVE, &body)?;
+            publish_delivery(&active.decision.id, "resolved", wall)?;
+            eprintln!("pinetime: resolved {} as {answer}", active.decision.id);
+            if let Err(error) = show_resolution_notice(link, response, &active.decision) {
+                eprintln!("pinetime: resolution notice failed: {error}");
+            }
+            counts.bump_key("resolutions");
+        }
+    }
+
+    runtime.active = None;
+    show_next(link, runtime, counts, wall)?;
+    save_bridge_state(wearer, runtime)?;
+    Ok(())
+}
+
+fn show_next(
+    link: Link,
+    runtime: &mut BridgeRuntime,
+    counts: &mut Counts,
+    wall: u64,
+) -> Result<(), String> {
+    while runtime.active.is_none() {
+        let Some(active) = runtime.queue.pop_front() else {
+            break;
+        };
+        if is_expired(&active, wall) {
+            publish_delivery(&active.decision.id, "expired", wall)?;
+            continue;
+        }
+        match show_decision(link, &active) {
+            Ok(()) => {
+                publish_delivery(&active.decision.id, "shown", wall)?;
+                counts.bump_key("decisions_shown");
+                runtime.active = Some(active);
+            }
+            Err(error) => {
+                eprintln!(
+                    "pinetime: decision {} not shown: {error}",
+                    active.decision.id
+                );
+                publish_delivery(&active.decision.id, "failed", wall)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn show_decision(link: Link, active: &ActiveDecision) -> Result<(), String> {
+    let (category, kind) = if bridge::is_approval(&active.decision.options) {
+        (
+            proto::AlertCategory::Call.as_u8(),
+            proto::DisplayKind::Approval,
+        )
+    } else {
+        (
+            proto::AlertCategory::Simple.as_u8(),
+            proto::DisplayKind::Plain,
+        )
+    };
+    let packet = proto::notification_packet_with_kind(
+        category,
+        kind,
+        &active.decision.summary,
+        &active.decision.detail,
+    );
+    ble::write(link, proto::NEW_ALERT, &packet).map_err(ble_err)
+}
+
+fn show_notice(link: Link, notice: &bridge::Notice) -> Result<(), String> {
+    let packet = proto::notification_packet_with_kind(
+        proto::AlertCategory::Simple.as_u8(),
+        proto::DisplayKind::Plain,
+        &notice.title,
+        &notice.body,
+    );
+    ble::write(link, proto::NEW_ALERT, &packet).map_err(ble_err)
+}
+
+fn show_resolution_notice(
+    link: Link,
+    response: WatchResponse,
+    decision: &Decision,
+) -> Result<(), String> {
+    let (title, body) = match response {
+        WatchResponse::Accept => ("Approved", decision.summary.as_str()),
+        WatchResponse::Reject => ("Declined", decision.summary.as_str()),
+        WatchResponse::Mute => ("Muted", "Decision left open"),
+    };
+    let packet = proto::notification_packet_with_kind(
+        proto::AlertCategory::Simple.as_u8(),
+        proto::DisplayKind::Plain,
+        title,
+        body,
+    );
+    ble::write(link, proto::NEW_ALERT, &packet).map_err(ble_err)
+}
+
+fn publish_delivery(item_id: &str, state: &str, at_ms: u64) -> Result<(), String> {
+    publish_json(JARVIS_DELIVERY, &bridge::delivery(item_id, state, at_ms))
+}
+
+fn publish_json(kind: &str, body: &Value) -> Result<(), String> {
+    let bytes =
+        serde_json::to_vec(body).map_err(|error| format!("publish {kind} JSON: {error}"))?;
+    bus::publish(kind, &bytes, None, BRIDGE_TTL_MS)
+        .map(|_| ())
+        .map_err(|error| format!("unibus publish {kind}: {error:?}"))
+}
+
+fn wall_now(runtime: &BridgeRuntime, now_mono: u64) -> u64 {
+    if let Some(anchor) = &runtime.anchor {
+        return anchor
+            .wall_ms
+            .saturating_add(now_mono.saturating_sub(anchor.mono_ms));
+    }
+    if let Some(active) = &runtime.active {
+        return active
+            .issued_at_ms
+            .saturating_add(now_mono.saturating_sub(active.received_mono_ms));
+    }
+    now_mono
+}
+
+fn is_expired(active: &ActiveDecision, wall_ms: u64) -> bool {
+    active
+        .decision
+        .expires_at_ms
+        .is_some_and(|expires| expires > 0 && wall_ms >= expires)
+}
+
+fn person_matches(person: Option<&str>, wanted: &str) -> bool {
+    person.is_none_or(|person| person.eq_ignore_ascii_case(wanted))
+}
+
+fn frame_key(kind: &str, body: &[u8]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in body {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{kind}:{hash:016x}")
+}
+
+fn load_bridge_state(wearer: &str) -> BridgeRuntime {
+    let mut runtime = records::get(&Key {
+        collection: bridge_namespace(wearer),
+        id: "jarvis.state".to_string(),
+    })
+    .ok()
+    .and_then(|entry| serde_json::from_slice::<BridgeRuntime>(&entry.body).ok())
+    .unwrap_or_default();
+    runtime.anchor = None;
+    runtime
+}
+
+fn save_bridge_state(wearer: &str, runtime: &BridgeRuntime) -> Result<(), String> {
+    let value =
+        serde_json::to_value(runtime).map_err(|error| format!("bridge state JSON: {error}"))?;
+    upsert(
+        &bridge_namespace(wearer),
+        "jarvis.state",
+        "jarvis.state.v1",
+        &value,
+    )
 }
 
 #[cfg(test)]

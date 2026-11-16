@@ -280,6 +280,66 @@ pub fn notification_packet(category: u8, title: &str, body: &str) -> Vec<u8> {
     out
 }
 
+/// The third ANS header byte is skipped by stock InfiniTime. We use it as a
+/// display hint: stock still renders the category's normal screen; the fork can
+/// render a thumbs-up/down decision without changing the category or the reply
+/// byte. `Plain` must stay zero so existing packets keep stock behaviour.
+pub const WATCH_NOTIFICATION_TEXT_MAX: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum DisplayKind {
+    Plain = 0x00,
+    Approval = 0x01,
+    Choice = 0x02,
+}
+
+/// Trim title and body to what InfiniTime can display. The title is kept whole
+/// when it fits; the body gets the remainder. Truncation lands on a UTF-8
+/// boundary so a multi-byte character is never split.
+#[must_use]
+pub fn fit_notification_text(title: &str, body: &str) -> (String, String) {
+    fit_notification_text_to(title, body, WATCH_NOTIFICATION_TEXT_MAX)
+}
+
+#[must_use]
+pub fn fit_notification_text_to(title: &str, body: &str, max_bytes: usize) -> (String, String) {
+    if title.len() + body.len() <= max_bytes {
+        return (title.to_string(), body.to_string());
+    }
+    let title = truncate_utf8(title, max_bytes).to_string();
+    let remaining = max_bytes.saturating_sub(title.len());
+    let body = truncate_utf8(body, remaining).to_string();
+    (title, body)
+}
+
+fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
+    if text.len() <= max_bytes {
+        return text;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// A New Alert packet with a display hint in the third header byte.
+#[must_use]
+pub fn notification_packet_with_kind(
+    category: u8,
+    kind: DisplayKind,
+    title: &str,
+    body: &str,
+) -> Vec<u8> {
+    let (title, body) = fit_notification_text(title, body);
+    let mut out = vec![category, 1, kind as u8];
+    out.extend_from_slice(title.as_bytes());
+    out.push(0);
+    out.extend_from_slice(body.as_bytes());
+    out
+}
+
 pub fn ensure_notification_packet(data: &[u8]) -> Result<(), ProtocolError> {
     if data.len() > 512 {
         return Err(ProtocolError::MessageTooLong(data.len()));
@@ -831,6 +891,33 @@ mod tests {
                 z: 998
             }
         );
+    }
+
+    #[test]
+    fn display_kind_rides_in_the_skipped_header_byte() {
+        let packet = notification_packet_with_kind(
+            AlertCategory::Call.as_u8(),
+            DisplayKind::Approval,
+            "Deploy?",
+            "yes/no",
+        );
+        assert_eq!(&packet[..3], &[3, 1, 1]);
+        assert_eq!(&packet[3..], b"Deploy?\0yes/no");
+    }
+
+    #[test]
+    fn notification_text_is_trimmed_to_the_watch_budget() {
+        let (title, body) = fit_notification_text_to("Deploy?", &"x".repeat(200), 20);
+        assert_eq!(title, "Deploy?");
+        assert_eq!(title.len() + body.len(), 20);
+        assert_eq!(body, "x".repeat(13));
+    }
+
+    #[test]
+    fn notification_text_never_splits_a_utf8_character() {
+        let (title, body) = fit_notification_text_to("yes", "ééé", 5);
+        assert_eq!(title, "yes");
+        assert_eq!(body, "é");
     }
 
     #[test]
