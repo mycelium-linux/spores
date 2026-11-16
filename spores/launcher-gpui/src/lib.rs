@@ -22,7 +22,7 @@ use gpui::{
 use gpui_wgpu::{CosmicTextSystem, WgpuContext, WgpuHeadlessRenderer};
 use soil::present::{cursor, input, surface};
 use soil::spore::catalog;
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc, time::Instant};
 
 /// One geometry, two readers: the grid lays tiles out with these numbers and the
 /// pointer hit-tests with them. Keeping them shared is what makes a click land
@@ -31,9 +31,25 @@ const HEADER_H: f32 = 56.0;
 const LIST_PAD: f32 = 24.0;
 const TILE: f32 = 104.0;
 const TILE_GAP: f32 = 28.0;
-const LABEL_H: f32 = 26.0;
+const LABEL_H: f32 = 34.0;
 /// The size a tile draws a package's mark at, in logical pixels.
 const MARK_PX: f32 = 56.0;
+
+/// How long a tile that started something lifts for, and how high.
+const BOUNCE_SECS: f32 = 0.9;
+const BOUNCE_PIXELS: f32 = 16.0;
+/// The dot a running tile carries.
+const RUNNING_DOT: f32 = 6.0;
+
+/// A host's sentence about a failed call, or its code when it had nothing to
+/// add. One rule for launch and stop, so the two cannot drift apart.
+fn detail_of(failure: &catalog::Failure) -> String {
+    if failure.detail.trim().is_empty() {
+        format!("{:?}", failure.code).to_lowercase()
+    } else {
+        failure.detail.clone()
+    }
+}
 
 
 /// The colour an app gets when it does not ship one: a hue from its id, at a
@@ -119,6 +135,13 @@ struct LauncherView {
     error: Option<SharedString>,
     /// Set when the modal is acknowledged; the run loop closes the window.
     quit: bool,
+    /// Ids the host says it started and has not seen exit. The dot a tile draws
+    /// is this set, not a guess the window keeps for itself.
+    running: BTreeSet<String>,
+    /// The tile that just started something new, and when. It lifts and settles
+    /// the way an app leaving the Dock does, for the second it takes to be worth
+    /// noticing.
+    bounce: Option<(String, Instant)>,
 }
 
 impl LauncherView {
@@ -153,6 +176,8 @@ impl LauncherView {
                     status: SharedString::from(format!("{count} installed")),
                     error: None,
                     quit: false,
+                    running: catalog::running().into_iter().collect(),
+                    bounce: None,
                 }
             }
             Err(error) => Self {
@@ -168,6 +193,8 @@ impl LauncherView {
                     "The catalogue could not be read: {error:?}"
                 ))),
                 quit: false,
+                running: BTreeSet::new(),
+                bounce: None,
             },
         }
     }
@@ -289,20 +316,98 @@ impl LauncherView {
         let Some(row) = self.rows.get(row) else {
             return false;
         };
-        match catalog::launch(&row.id, &row.default_surface) {
+        let id = row.id.to_string();
+        let title = row.title.clone();
+        let surface = row.default_surface.clone();
+        let was_running = self.running.contains(&id);
+        match catalog::launch(&id, &surface) {
             Ok(launched) => {
                 self.status = SharedString::from(format!("opened {}", launched.target));
                 self.error = None;
+                // Only a launch that started something bounces: pointing at a
+                // window that is already up is not an event.
+                if !was_running {
+                    self.bounce = Some((id, Instant::now()));
+                }
             }
-            Err(error) => {
-                // The host refused. Say which app and why, and stop pretending
-                // the grid is the thing to be looking at.
-                let said = SharedString::from(format!("{} could not open: {error:?}", row.title));
+            Err(failure) => {
+                // The host's own sentence: it knows which capability is missing
+                // or which surface this machine cannot present, and the window
+                // does not.
+                let said =
+                    SharedString::from(format!("{title} could not open. {}", detail_of(&failure)));
                 self.status = said.clone();
                 self.error = Some(said);
             }
         }
+        self.refresh_running();
         true
+    }
+
+    /// Stop a running Spore, from the tile that is running it.
+    fn stop(&mut self, index: Option<usize>) -> bool {
+        let Some(index) = index else {
+            return false;
+        };
+        let Some(row) = self.visible.get(index).and_then(|row| self.rows.get(*row)) else {
+            return false;
+        };
+        let id = row.id.to_string();
+        let title = row.title.clone();
+        let stopped = match catalog::stop(&id) {
+            Ok(()) => {
+                self.status = SharedString::from(format!("stopped {title}"));
+                true
+            }
+            Err(failure) => {
+                self.status =
+                    SharedString::from(format!("could not stop {title}: {}", detail_of(&failure)));
+                false
+            }
+        };
+        self.refresh_running();
+        stopped
+    }
+
+    /// Re-read what the host is running. The host owns the processes, so this is
+    /// the only thing that can be true about them.
+    fn refresh_running(&mut self) -> bool {
+        let now: BTreeSet<String> = catalog::running().into_iter().collect();
+        if now == self.running {
+            return false;
+        }
+        self.running = now;
+        true
+    }
+
+    /// One loop turn: keep the running set current, and say whether a frame is
+    /// still owed to a bounce in flight.
+    fn tick(&mut self) -> bool {
+        let changed = self.refresh_running();
+        if let Some((_, started)) = &self.bounce
+            && started.elapsed().as_secs_f32() >= BOUNCE_SECS
+        {
+            self.bounce = None;
+            return true;
+        }
+        changed || self.bounce.is_some()
+    }
+
+    /// How far a tile lifts this frame, in pixels. Two hops that decay: an app
+    /// leaving the Dock, not a spinner.
+    fn bounce_lift(&self, id: &str) -> f32 {
+        let Some((bouncing, started)) = &self.bounce else {
+            return 0.0;
+        };
+        if bouncing != id {
+            return 0.0;
+        }
+        let t = started.elapsed().as_secs_f32() / BOUNCE_SECS;
+        if t >= 1.0 {
+            return 0.0;
+        }
+        let hop = (t * 2.0 * std::f32::consts::PI).sin().abs();
+        -(BOUNCE_PIXELS * hop * (1.0 - t))
     }
 
     fn click(&mut self, index: Option<usize>) -> bool {
@@ -397,6 +502,8 @@ impl LauncherView {
                 let hovered = self.hovered == Some(index);
                 let selected = self.selected == index;
                 let background = tile_color(&row.id, if hovered { 0.14 } else { 0.0 });
+                let running = self.running.contains(row.id.as_ref());
+                let lift = self.bounce_lift(&row.id);
                 let glyph: String = row
                     .title
                     .chars()
@@ -411,6 +518,11 @@ impl LauncherView {
                     .justify_center()
                     .rounded(px(24.0))
                     .bg(rgb(background));
+                if lift != 0.0 {
+                    // A relative offset, not a margin: the grid does not reflow
+                    // around a tile that is only visiting the air.
+                    tile = tile.relative().top(px(lift));
+                }
                 // The catalogue carries each package's `[presentation] mark`
                 // (`row.mark`), rasterised once when the list was read. A
                 // package that ships none keeps its initial: a blank tile is
@@ -450,6 +562,20 @@ impl LauncherView {
                             })
                             .child(row.title.clone()),
                     )
+                    // The dot is drawn whether or not the Spore is up, so the
+                    // grid does not jump the moment one opens: the space is
+                    // reserved and the colour is what changes.
+                    .child(
+                        div()
+                            .w(px(RUNNING_DOT))
+                            .h(px(RUNNING_DOT))
+                            .rounded_full()
+                            .bg(if running {
+                                rgb(0xffff_ffff)
+                            } else {
+                                rgba(0x00000000)
+                            }),
+                    )
                     .into_any_element();
                 cells.push(cell);
             }
@@ -481,7 +607,9 @@ impl LauncherView {
                     self.visible.len(),
                     if self.visible.len() == 1 { "" } else { "es" }
                 )),
-                None => SharedString::from("hjkl or arrows · enter open · ^P search · esc quit"),
+                None => SharedString::from(
+                    "hjkl or arrows · enter open · right-click stop · ^P search · esc quit",
+                ),
             })
             .child(
                 // What the pointer (or the keyboard) is on, so a tile can stay
@@ -682,6 +810,18 @@ fn run_launcher() -> anyhow::Result<()> {
             })?;
             dirty = true;
         }
+        // What the host is running, and how far a bounce has travelled, change
+        // without anyone touching the window: both are re-read every turn.
+        let ticking = window.update(&mut cx, |view, _, cx| {
+            let changed = view.tick();
+            if changed {
+                cx.notify();
+            }
+            changed
+        })?;
+        if ticking {
+            dirty = true;
+        }
         if dirty {
             cx.update_window(any, |_, window, app| {
                 let _ = window.draw(app);
@@ -780,7 +920,19 @@ fn run_launcher() -> anyhow::Result<()> {
                 }
             }
             Some(input::Event::Button(button)) => {
-                if button.pressed && button.button == input::PointerButton::Left {
+                // Right-click is the tile's own verb: stop what it started.
+                if button.pressed && button.button == input::PointerButton::Right {
+                    let width = surface::size().0 as f32;
+                    let changed = window.update(&mut cx, |view, _, cx| {
+                        let target = view.tile_at(button.x, button.y, width);
+                        let changed = view.stop(target);
+                        cx.notify();
+                        changed
+                    })?;
+                    if changed {
+                        dirty = true;
+                    }
+                } else if button.pressed && button.button == input::PointerButton::Left {
                     // The OK button, and anywhere the scrim covers: one click
                     // acknowledges a failure.
                     if window.update(&mut cx, |view, _, _| view.error.is_some())? {

@@ -3,7 +3,13 @@
 // A Spore never scans the filesystem, starts a process, or chooses a window.
 // The host validates packages, maps them to a launch target, and performs the
 // launch outside the guest.
-package soil:spore@0.1.0;
+//
+// 0.2.0 is a break, deliberately: `launch` answers with a `failure` (a code and
+// the host's own sentence) instead of a bare enum, and the catalogue gained
+// `running` and `stop`. A package built against 0.1.0 must fail as *too old* —
+// the host says which interface it speaks — rather than instantiate into an
+// arity mismatch that reads like a compiler bug in the window.
+package soil:spore@0.2.0;
 
 interface catalog {
   enum error {
@@ -61,7 +67,8 @@ interface catalog {
     /// Named views this package ships. Empty means the package declares none
     /// and the host chooses its own renderer.
     surfaces: list<surface>,
-    /// The package's mark, as SVG source.
+    /// The package's mark, as SVG source: what a launcher draws on its tile.
+    /// A host with no renderer ignores it; a package that ships none has none.
     mark: option<string>,
   }
 
@@ -71,14 +78,37 @@ interface catalog {
     target: string,
   }
 
+  /// Why a launch or a stop did not happen.
+  ///
+  /// `code` is what a program branches on and `detail` is what a person reads:
+  /// the host knows which import it does not link, which file a package claims
+  /// but does not carry, or why a stop was refused, and none of that survives
+  /// an enum. The sentence is the host's, so the window never has to guess at
+  /// one — and a host with nothing to add sends an empty string.
+  record failure {
+    code: error,
+    detail: string,
+  }
+
   entries: func() -> result<list<entry>, error>;
   /// Launch `surface` of `id`.
   ///
   /// Fails with `unsupported` when this host cannot present the surface's kind
   /// — a host without a browser view refuses a `web` surface rather than
   /// opening something it cannot render. A name the package does not declare
-  /// is `not-found`.
-  launch: func(id: string, surface: string) -> result<launched, error>;
+  /// is `not-found`. A package this host cannot start says so in `detail`.
+  launch: func(id: string, surface: string) -> result<launched, failure>;
+  /// The ids this host started and has not seen exit, in catalogue order.
+  ///
+  /// A launcher draws its running dot from this rather than from a pid file it
+  /// keeps itself: the host is what starts and reaps a Spore, so the host is
+  /// the only thing that knows whether one is still up.
+  running: func() -> list<string>;
+  /// Stop a Spore this host started.
+  ///
+  /// `not-found` when nothing by that id is running. Stopping is the host's
+  /// act — the guest names the tile, the host ends the process.
+  stop: func(id: string) -> result<_, failure>;
 }
 
 world spore-host {
