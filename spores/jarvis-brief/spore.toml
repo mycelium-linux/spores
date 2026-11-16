@@ -1,0 +1,43 @@
+# The morning brief: one composed notification from local records.
+schema = 1
+
+[spore]
+id = "dev.fungos.jarvis-brief"
+name = "jarvis-brief"
+version = "0.1.0"
+license = "MIT"
+summary = "Compose vitals, inbox and weather into one brief notification"
+description = "Reads the vitals view, inbox decisions and the newest weather record, writes jarvis.brief.v1, and publishes one tray item. Missing or stale sources are reported as unknown, never as zero, and nothing is estimated."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { records = "0.1.0", time = "1.0.0", notify = "1.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:records" = "read vitals.view:<wearer>, inbox:<wearer> and weather.current; write brief:<wearer>"
+"soil:notify" = "publish the brief to the tray"
+"soil:time" = "stamp the brief with the host's monotonic clock; no wall clock"
+"wasi:cli" = "Rust std stdio for the host's log stream"
+"wasi:clocks" = "Rust std runtime dependency; the brief uses soil:time"
+"wasi:io" = "Rust std runtime I/O primitives"
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "wall-clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["brief", "summary", "jarvis", "assistant"]
+
+[presentation]
+badge = "B"
+color = "#8bb7f0"
