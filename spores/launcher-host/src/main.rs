@@ -128,6 +128,37 @@ impl SystemLauncher {
 impl Launcher for SystemLauncher {
     fn launch(&mut self, entry: &SporeEntry, target: &LaunchTarget<'_>) -> Result<String, String> {
         match target.kind {
+            // `native` resolves to no kind on purpose: the package brings its own
+            // artifacts, so there is no host capability to be missing. What it
+            // needs is the runner, which is what a person types by hand --
+            // `soil spore run <package> --surface window`. The launcher only had
+            // arms for a Canvas workspace and a browser, so every Spore drawn by
+            // itself (the Skykeep apps among them) was refused here.
+            None => {
+                let soil = std::env::var("SOIL").unwrap_or_else(|_| "soil".into());
+                let mut command = Command::new(&soil);
+                command
+                    .arg("spore")
+                    .arg("run")
+                    .arg(&entry.root)
+                    .arg("--surface")
+                    .arg("window")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    // A window that fails to open should say why somewhere a
+                    // person can read, not vanish into a null.
+                    .stderr(Stdio::inherit());
+                // A photo view draws nothing without a workspace to read; the
+                // desktop keeps one at the same place soil defaults to.
+                let vfs = data_dir("vfs");
+                if vfs.is_dir() {
+                    command.arg("--vfs-root").arg(&vfs);
+                }
+                let child = command
+                    .spawn()
+                    .map_err(|error| format!("start {soil}: {error}"))?;
+                Ok(format!("native:{} pid={}", entry.name, child.id()))
+            }
             Some(SurfaceKind::Canvas) => {
                 let workspace = entry
                     .workspace
@@ -167,6 +198,14 @@ impl Launcher for SystemLauncher {
             None => Err(format!("unsupported launch surface {}", target.surface)),
         }
     }
+}
+
+/// Where this machine keeps a store the runner reads: the same
+/// `~/.local/share/fungos` every soil default names.
+fn data_dir(name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join(".local/share/fungos")
+        .join(name)
 }
 
 #[cfg(target_os = "macos")]
