@@ -19,7 +19,7 @@ keywords = ["shell", "terminal", "wasm", "vfs"]
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { vfs = "1.0.0", index = "1.1.0", vfs-mut = "0.1.0", command = "0.1.0" }
+abi = { vfs = "1.0.0", index = "1.1.0", vfs-mut = "0.1.0", command = "0.1.0", worktrees = "0.1.0" }
 
 [module]
 path = "module.wasm"
@@ -38,6 +38,7 @@ surfaces = ["native", "canvas", "web"]
 "soil:index" = "search the workspace and browse directories"
 "soil:vfs-mut" = "write, rename, unlink, mkdir, and rmdir in the workspace"
 "soil:command" = "run installed wasm commands with explicit args and no host PATH"
+"soil:worktrees" = "read the checkouts this Desktop knows: project identity, path, branch, commit, base, role"
 "soil:net" = "resolve names and probe TCP ports through the host"
 "soil:http" = "bounded HTTP through the host allowlist, with no credentials by default"
 "wasi:cli" = "Rust std diagnostics; no args, environment, or process launch"
