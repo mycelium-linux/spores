@@ -322,7 +322,26 @@ impl Finder {
             .enumerate()
             .map(|(index, row)| {
                 let selected = index == self.selected;
+                // A press selects; a second press on the row that is already
+                // selected descends, which is what a double click means in
+                // every finder. GPUI routes the press from the element tree, so
+                // there is no geometry to record here.
+                let press = cx.listener(
+                    move |this: &mut Self,
+                          event: &gpui::ClickEvent,
+                          _window: &mut Window,
+                          cx: &mut Context<Self>| {
+                        this.selected = index;
+                        if event.click_count() >= 2 {
+                            this.enter();
+                        }
+                        cx.notify();
+                    },
+                );
                 h_flex()
+                    .id(("row", index))
+                    .cursor_pointer()
+                    .on_click(press)
                     .gap_2()
                     .px_2()
                     .py_1()
