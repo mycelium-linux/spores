@@ -150,3 +150,12 @@ spores/deadwax/wit/deps/soil-playback/package.wit c5a143830575b16c20ac68148fb6c9
 # only and its `open`/`rooms` calls are unchanged.
 
 spores/sfx/wit/deps/soil-audio.wit 8e18b76ae8da44bb0278ad42ac16f3119d77d614
+
+# --- soil-worktrees.wit -----------------------------------------------------
+# source:      mycelium-linux/soil, wit/soil-worktrees.wit
+# soil-commit: new package; lands with the soil pointer bump that implements it
+#
+# The Desktop's checkouts as the host records them. `mush` asks over this
+# instead of guessing a project from a directory name.
+
+spores/mush/wit/deps/soil-worktrees/package.wit 65b1b15607c4d032902db0f872cc016ef3807a6e
