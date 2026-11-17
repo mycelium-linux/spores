@@ -137,9 +137,16 @@ fn play_playlist(owner: &str, name: &str) -> Result<(), String> {
 
 /// The cover for a local track, by content address: the Spore knows a CID, not a
 /// path, so the catalog is what joins them.
-fn fetch_art(cid: &str) -> Option<Image> {
+/// The cover for a track, by whichever name it has: a catalog row carries a
+/// CID, an MPD queue entry carries its URI. Both resolve to the same album art.
+fn fetch_art(id: &str) -> Option<Image> {
+    let query = if id.contains('/') {
+        format!("uri={}", urlencode(id))
+    } else {
+        format!("cid={}", urlencode(id))
+    };
     let response = http::fetch(&http::Request {
-        url: format!("{CATALOG}/mpd/art?cid={}", urlencode(cid)),
+        url: format!("{CATALOG}/mpd/art?{query}"),
         method: http::Method::Get,
         headers: vec![],
         body: None,

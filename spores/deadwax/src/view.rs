@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Entity, Image, IntoElement, ObjectFit, Render, SharedString, StyledImage as _,
-    Window, div, img, prelude::*, px, rgb,
+    AnyElement, Context, Entity, Image, IntoElement, Render, SharedString, Window, div, prelude::*, px,
+    rgb,
 };
 use gpui_component::slider::{Slider, SliderState};
 use gpui_component::tag::Tag;
@@ -839,14 +839,14 @@ impl Deck {
 
         panel = panel.child(
             div()
-                .px(px(18.0))
-                .pb(px(12.0))
+                .px(px(20.0))
                 .flex()
                 .flex_col()
-                .gap(px(3.0))
+                .gap(px(2.0))
                 .child(
                     div()
-                        .text_size(px(15.0))
+                        .text_size(px(19.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(rgb(TEXT))
                         .child(SharedString::from(
                             current
@@ -856,7 +856,7 @@ impl Deck {
                 )
                 .child(
                     div()
-                        .text_size(px(11.0))
+                        .text_size(px(13.0))
                         .text_color(rgb(MUTED))
                         .child(SharedString::from(
                             current
@@ -866,7 +866,7 @@ impl Deck {
                 )
                 .child(
                     div()
-                        .text_size(px(10.0))
+                        .text_size(px(11.0))
                         .text_color(rgb(FAINT))
                         .child(SharedString::from(
                             current
@@ -880,7 +880,8 @@ impl Deck {
         // control the native controller uses, over MPD's own position.
         panel = panel.child(
             div()
-                .px(px(18.0))
+                .px(px(20.0))
+                .pt(px(16.0))
                 .flex_none()
                 .child(
                     div().children(self.seek_slider.as_ref().map(|slider| {
@@ -889,7 +890,7 @@ impl Deck {
                 )
                 .child(
                     div()
-                        .mt(px(4.0))
+                        .mt(px(2.0))
                         .flex()
                         .justify_between()
                         .text_size(px(9.0))
@@ -906,22 +907,52 @@ impl Deck {
 
         panel = panel.child(
             div()
-                .px(px(18.0))
-                .py(px(10.0))
+                .px(px(20.0))
+                .py(px(14.0))
                 .flex()
                 .items_center()
-                .gap(px(14.0))
+                .justify_center()
+                .gap(px(22.0))
                 .child(self.transport_button("prev", "◀◀", cx, Request::Previous))
-                .child(self.transport_button(
-                    "toggle",
-                    if playing { "❚❚" } else { "▶" },
-                    cx,
-                    Request::Toggle,
-                ))
-                .child(self.transport_button("next", "▶▶", cx, Request::Next))
+                .child(self.play_button(playing, cx))
+                .child(self.transport_button("next", "▶▶", cx, Request::Next)),
+        );
+
+        panel = panel.child(
+            div()
+                .px(px(20.0))
+                .pb(px(12.0))
+                .flex()
+                .items_center()
+                .gap(px(8.0))
                 .child(
                     div()
-                        .flex_1()
+                        .text_size(px(9.0))
+                        .text_color(rgb(FAINT))
+                        .child("vol"),
+                )
+                .child({
+                    let mut row = div().flex().items_center();
+                    if let Some(slider) = &self.volume_slider {
+                        row = row.child(div().w(px(150.0)).child(Slider::new(slider).horizontal()));
+                    }
+                    row
+                })
+                .child(
+                    div()
+                        .text_size(px(9.0))
+                        .text_color(rgb(FAINT))
+                        .child(format!(
+                            "{}%",
+                            snapshot
+                                .and_then(|s| s.volume)
+                                .map(|level| format!("{:.0}", level * 100.0))
+                                .unwrap_or_else(|| "--".into())
+                        )),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
                         .text_size(px(9.0))
                         .text_color(rgb(FAINT))
                         .child(match snapshot.map(|s| s.repeat) {
@@ -929,25 +960,7 @@ impl Deck {
                             Some(RepeatMode::Queue) => "repeat queue".to_string(),
                             _ => String::new(),
                         }),
-                )
-                .child({
-                    let mut row = div().flex().items_center().gap(px(6.0));
-                    if let Some(slider) = &self.volume_slider {
-                        row = row.child(div().w(px(96.0)).child(Slider::new(slider).horizontal()));
-                    }
-                    row.child(
-                        div()
-                            .text_size(px(9.0))
-                            .text_color(rgb(FAINT))
-                            .child(format!(
-                                "vol {}",
-                                snapshot
-                                    .and_then(|s| s.volume)
-                                    .map(|level| format!("{:.0}%", level * 100.0))
-                                    .unwrap_or_else(|| "--".into())
-                            )),
-                    )
-                }),
+                ),
         );
 
         if !self.playlists.is_empty() {
@@ -1102,65 +1115,71 @@ impl Deck {
 
     /// The disc: the album's cover when the catalog could name one, else the
     /// vinyl drawing this view has always had.
+    /// The cover, big. Apple Music's one idea worth copying here: the record is
+    /// the object, so it gets the space; text and transport sit under it.
     fn disc(&self, current: Option<&Track>) -> AnyElement {
-        if let Some(track) = current
-            && let Some(image) = self.art_for(&track.id)
-        {
-            return div()
-                .flex_none()
-                .h(px(210.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(rgb(PANEL))
-                .child(
-                    img(image)
-                        .w(px(164.0))
-                        .h(px(164.0))
-                        .rounded(px(10.0))
-                        .object_fit(ObjectFit::Cover),
-                )
-                .into_any_element();
-        }
-        let label = current
-            .map(|track| track.title.chars().take(1).collect::<String>())
-            .unwrap_or_else(|| "·".into());
-        div()
-            .flex_none()
-            .h(px(210.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(rgb(PANEL))
-            .child(
+        const SIZE: f32 = 300.0;
+        let inner = match current.and_then(|track| self.art_for(&track.id)) {
+            // The bindings are here and the bytes arrive, but this host's image
+            // primitive paints its quad outside the element (a window-sized,
+            // skewed cover), so the tile is what can be drawn today. Flip this
+            // back to `img()` once the renderer places an image inside bounds.
+            Some(_image) => {
+                let label = current
+                    .map(|track| track.title.chars().take(1).collect::<String>())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| "·".into());
                 div()
-                    .w(px(164.0))
-                    .h(px(164.0))
-                    .rounded_full()
-                    .bg(rgb(0x0a0908))
+                    .w(px(SIZE))
+                    .h(px(SIZE))
+                    .rounded(px(12.0))
+                    .bg(rgb(PANEL_HI))
                     .border_1()
-                    .border_color(rgb(0x1f1b15))
+                    .border_color(rgb(LINE))
                     .flex()
                     .items_center()
                     .justify_center()
                     .child(
                         div()
-                            .w(px(62.0))
-                            .h(px(62.0))
-                            .rounded_full()
-                            .bg(rgb(ACCENT))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                div()
-                                    .text_size(px(22.0))
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(rgb(0x1a1409))
-                                    .child(SharedString::from(label)),
-                            ),
-                    ),
-            )
+                            .text_size(px(76.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(rgb(ACCENT))
+                            .child(SharedString::from(label)),
+                    )
+                    .into_any_element()
+            }
+            None => {
+                let label = current
+                    .map(|track| track.title.chars().take(1).collect::<String>())
+                    .filter(|label| !label.is_empty())
+                    .unwrap_or_else(|| "·".into());
+                div()
+                    .w(px(SIZE))
+                    .h(px(SIZE))
+                    .rounded(px(12.0))
+                    .bg(rgb(PANEL_HI))
+                    .border_1()
+                    .border_color(rgb(LINE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(px(76.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(rgb(ACCENT))
+                            .child(SharedString::from(label)),
+                    )
+                    .into_any_element()
+            }
+        };
+        div()
+            .flex_none()
+            .w_full()
+            .px(px(20.0))
+            .pt(px(20.0))
+            .pb(px(16.0))
+            .child(inner)
             .into_any_element()
     }
 
@@ -1173,15 +1192,15 @@ impl Deck {
     ) -> AnyElement {
         div()
             .id(id)
-            .w(px(34.0))
-            .h(px(26.0))
-            .rounded(px(4.0))
+            .w(px(38.0))
+            .h(px(32.0))
+            .rounded(px(6.0))
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(11.0))
-            .text_color(rgb(TEXT))
-            .bg(rgb(PANEL_HI))
+            .text_size(px(13.0))
+            .text_color(rgb(MUTED))
+            .hover(|style| style.bg(rgb(PANEL_HI)).text_color(rgb(TEXT)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |this, _: &gpui::MouseDownEvent, _window, cx| {
@@ -1190,6 +1209,31 @@ impl Deck {
                 }),
             )
             .child(glyph)
+            .into_any_element()
+    }
+
+    /// Play/pause is the one control that gets weight: a filled circle, like a
+    /// thumb on the hardware.
+    fn play_button(&self, playing: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("toggle")
+            .w(px(54.0))
+            .h(px(54.0))
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgb(ACCENT))
+            .text_size(px(20.0))
+            .text_color(rgb(0x1a1409))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this, _: &gpui::MouseDownEvent, _window, cx| {
+                    this.request(Request::Toggle);
+                    cx.notify();
+                }),
+            )
+            .child(if playing { "❚❚" } else { "▶" })
             .into_any_element()
     }
 
