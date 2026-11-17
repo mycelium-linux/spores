@@ -250,6 +250,16 @@ impl Finder {
         }
     }
 
+    /// How far one vertical step moves: a whole row of tiles, or the next row
+    /// of a list. The arrangement owns the answer, so a view that lays out one
+    /// entry per line cannot inherit the grid's stride.
+    fn vertical_step(&self) -> isize {
+        match self.view {
+            View::Tiles => self.columns.max(1) as isize,
+            View::List => 1,
+        }
+    }
+
     fn move_selection(&mut self, delta: isize) {
         if self.entries.is_empty() {
             return;
@@ -331,22 +341,26 @@ impl Finder {
             .child(gpui::div().w(px(120.0)).child("kind"))
             .child(gpui::div().w(px(90.0)).child("changed"));
 
+        // A hover is the pointer saying where it is without committing to it:
+        // faint enough that it never competes with the selection it sits beside.
+        let hover = gpui::Hsla { a: 0.10, ..accent };
+
         let rows: Vec<gpui::AnyElement> = self
             .entries
             .iter()
             .enumerate()
             .map(|(index, row)| {
                 let selected = index == self.selected;
-                // A press selects; a second press on the row that is already
-                // selected descends, which is what a double click means in
-                // every finder. GPUI routes the press from the element tree, so
-                // there is no geometry to record here.
+                // A press selects through `select`, not by assigning the index:
+                // the preview is part of what selecting means, and a row that
+                // highlights while the pane keeps showing the last file is a
+                // window disagreeing with itself.
                 let press = cx.listener(
                     move |this: &mut Self,
                           event: &gpui::ClickEvent,
                           _window: &mut Window,
                           cx: &mut Context<Self>| {
-                        this.selected = index;
+                        this.select(index);
                         if event.click_count() >= 2 {
                             this.enter();
                         }
@@ -357,6 +371,7 @@ impl Finder {
                     .id(("row", index))
                     .cursor_pointer()
                     .on_click(press)
+                    .when(!selected, |this| this.hover(move |style| style.bg(hover)))
                     .gap_2()
                     .px_2()
                     .py_1()
@@ -417,20 +432,32 @@ impl Finder {
 
     fn handle_key(&mut self, key: &str) -> bool {
         match key {
+            // Left and right are a grid: they mean "the tile beside this one",
+            // which a list does not have. In list mode the only axis is up and
+            // down, so the key is consumed and moves nothing rather than
+            // jumping the selection somewhere the eye is not looking.
             "arrow-right" | "l" => {
+                if self.view == View::List {
+                    return true;
+                }
                 self.move_selection(1);
                 true
             }
             "arrow-left" | "h" => {
+                if self.view == View::List {
+                    return true;
+                }
                 self.move_selection(-1);
                 true
             }
             "arrow-down" | "j" => {
-                self.move_selection(self.columns.max(1) as isize);
+                let step = self.vertical_step();
+                self.move_selection(step);
                 true
             }
             "arrow-up" | "k" => {
-                self.move_selection(-(self.columns.max(1) as isize));
+                let step = self.vertical_step();
+                self.move_selection(-step);
                 true
             }
             "enter" => {
@@ -608,6 +635,10 @@ impl Render for Finder {
         // whole of `render` cannot live alongside that. Copying a handful of
         // colours once per frame is cheaper than threading the borrow around.
         let theme = cx.theme().clone();
+        let hover = gpui::Hsla {
+            a: 0.10,
+            ..theme.accent
+        };
         let muted = theme.muted_foreground;
         let border = theme.border;
 
@@ -697,7 +728,7 @@ impl Render for Finder {
                           event: &gpui::ClickEvent,
                           _window: &mut Window,
                           cx: &mut Context<Self>| {
-                        this.selected = index;
+                        this.select(index);
                         if event.click_count() >= 2 {
                             this.enter();
                         }
@@ -708,6 +739,7 @@ impl Render for Finder {
                     .id(("tile", index))
                     .cursor_pointer()
                     .on_click(press)
+                    .when(!selected, |this| this.hover(move |style| style.bg(hover)))
                     .w(px(TILE))
                     .h(px(TILE + 8.0))
                     .items_center()
@@ -976,11 +1008,25 @@ fn run_xplorer() -> anyhow::Result<()> {
                 })?;
                 dirty |= changed;
             }
+            // A hover is a hit test, and GPUI only hit-tests the element tree
+            // from its own dispatch: a move the host hands us has to be replayed
+            // into the window before `hover` and `cursor_pointer` can fire.
+            // Without this the list reads as inert under the pointer even though
+            // every row carries a handler.
             Some(input::Event::Moved(pointer)) => {
-                // The list is not hit-tested yet, so the pointer reports nothing it
-                // can act on rather than pretending a hover is a selection.
-                let _ = pointer;
+                let position = gpui::point(gpui::px(pointer.x), gpui::px(pointer.y));
+                window.update(&mut cx, |_, window, cx| {
+                    window.dispatch_event(
+                        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                            position,
+                            pressed_button: None,
+                            modifiers: Default::default(),
+                        }),
+                        cx,
+                    );
+                })?;
                 let _ = cursor::set(cursor::CursorStyle::Default);
+                dirty = true;
             }
             // A press is not a key: GPUI hit-tests the element tree from its own
             // mouse dispatch, so a button event has to be replayed into the
