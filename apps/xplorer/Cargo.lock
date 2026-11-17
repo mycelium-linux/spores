@@ -611,7 +611,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "gpui_util",
  "indexmap",
@@ -847,7 +847,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1544,7 +1544,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -1610,7 +1610,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.9.1"
-source = "git+https://github.com/fungOS-linux/gpui-kit?rev=8feed9ee6526d0ee8e7b3e11349290b3d38319ed#8feed9ee6526d0ee8e7b3e11349290b3d38319ed"
+source = "git+https://github.com/fungOS-linux/gpui-kit?rev=2f73b8d1d2f81e39338ace470fe77058fb1057fa#2f73b8d1d2f81e39338ace470fe77058fb1057fa"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -1651,7 +1651,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.9.1"
-source = "git+https://github.com/fungOS-linux/gpui-kit?rev=8feed9ee6526d0ee8e7b3e11349290b3d38319ed#8feed9ee6526d0ee8e7b3e11349290b3d38319ed"
+source = "git+https://github.com/fungOS-linux/gpui-kit?rev=2f73b8d1d2f81e39338ace470fe77058fb1057fa#2f73b8d1d2f81e39338ace470fe77058fb1057fa"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1697,7 +1697,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.9.1"
-source = "git+https://github.com/fungOS-linux/gpui-kit?rev=8feed9ee6526d0ee8e7b3e11349290b3d38319ed#8feed9ee6526d0ee8e7b3e11349290b3d38319ed"
+source = "git+https://github.com/fungOS-linux/gpui-kit?rev=2f73b8d1d2f81e39338ace470fe77058fb1057fa#2f73b8d1d2f81e39338ace470fe77058fb1057fa"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1708,7 +1708,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.9.1"
-source = "git+https://github.com/fungOS-linux/gpui-kit?rev=8feed9ee6526d0ee8e7b3e11349290b3d38319ed#8feed9ee6526d0ee8e7b3e11349290b3d38319ed"
+source = "git+https://github.com/fungOS-linux/gpui-kit?rev=2f73b8d1d2f81e39338ace470fe77058fb1057fa#2f73b8d1d2f81e39338ace470fe77058fb1057fa"
 dependencies = [
  "anyhow",
  "gpui",
@@ -1800,7 +1800,7 @@ checksum = "85701631a9bbecf47e6d19f145e85e57767e7c50f7192d5b1bf65b5ef43cb373"
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1811,7 +1811,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "schemars",
  "serde",
@@ -1821,7 +1821,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "anyhow",
  "log",
@@ -1831,7 +1831,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2015,7 +2015,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3950,7 +3950,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "derive_refineable",
 ]
@@ -4303,7 +4303,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "async-task",
  "backtrace",
@@ -4761,7 +4761,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "heapless",
  "rayon",
@@ -6552,7 +6552,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 dependencies = [
  "tracing",
  "ztracing_macro",
@@ -6561,7 +6561,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/fungOS-linux/gpui-fast?rev=60ebb175729ad2a17acf59d8e988e794ff4b7eb4#60ebb175729ad2a17acf59d8e988e794ff4b7eb4"
+source = "git+https://github.com/fungOS-linux/gpui-fast?rev=88679a2cdb4d255710256921238e45fa25c8b751#88679a2cdb4d255710256921238e45fa25c8b751"
 
 [[package]]
 name = "zune-core"

@@ -46,6 +46,50 @@ pub fn read(path: &str, max: u32) -> Result<(Vec<u8>, String, bool), String> {
     }
 }
 
+/// What a repository says about the directory the window is in.
+///
+/// `None` covers both "the host refused `soil:git`" and "this is not a
+/// repository". The window shows nothing in either case: a browser that guessed
+/// between them would be describing a tree it cannot see.
+pub struct Repo {
+    pub branch: String,
+    pub head: String,
+    pub dirty: bool,
+    pub changed: u32,
+    pub ahead: u32,
+    pub behind: u32,
+    pub has_upstream: bool,
+}
+
+#[cfg(not(feature = "demo"))]
+pub fn git(path: &str) -> Option<Repo> {
+    use crate::soil::git::git;
+    let status = git::status(path).ok()?;
+    Some(Repo {
+        branch: status.branch,
+        head: status.head,
+        dirty: status.dirty,
+        changed: status.changed,
+        ahead: status.ahead,
+        behind: status.behind,
+        has_upstream: status.has_upstream,
+    })
+}
+
+/// A fixed repository for the harness, so the captured frame shows the chip.
+#[cfg(feature = "demo")]
+pub fn git(path: &str) -> Option<Repo> {
+    path.ends_with("projects").then(|| Repo {
+        branch: "main".to_owned(),
+        head: "9c1de2f".to_owned(),
+        dirty: true,
+        changed: 2,
+        ahead: 1,
+        behind: 0,
+        has_upstream: true,
+    })
+}
+
 fn sort(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| {
         b.directory

@@ -1,0 +1,52 @@
+// Git status for the repository a workspace path is inside.
+//
+// A Spore cannot run git, and it must not learn where this machine keeps a
+// checkout. It names a canonical workspace-relative path and receives what the
+// repository says about itself: a branch, a commit, and counts. No host path,
+// no remote URL, no commit message crosses the boundary.
+//
+// Status is read when it is asked for, never cached: a branch that changed a
+// second ago would otherwise be reported with yesterday's name.
+package soil:git@0.1.0;
+
+interface git {
+  enum error {
+    /// The host was not given a workspace, or the path left it.
+    denied,
+    /// No repository at or above the path, on this machine.
+    not-a-repository,
+    /// The path is not a canonical workspace-relative path.
+    invalid,
+    /// Git is missing or the repository could not be read.
+    io,
+  }
+
+  record repository {
+    /// Workspace-relative root of the repository. Empty when the workspace root
+    /// is itself the repository root.
+    root: string,
+    /// Current branch. Empty when HEAD is detached: a commit is not a branch,
+    /// and inventing a name for it would hide that HEAD is not on one.
+    branch: string,
+    /// Abbreviated head commit id.
+    head: string,
+    /// True when the worktree or the index differs from HEAD.
+    dirty: bool,
+    /// Changed paths: worktree and untracked, counted from the same status the
+    /// branch came from.
+    changed: u32,
+    /// Commits ahead of and behind the upstream. Zero when there is no upstream
+    /// to compare with, which is why `has-upstream` exists rather than making
+    /// a caller read two zeroes as "in sync".
+    ahead: u32,
+    behind: u32,
+    has-upstream: bool,
+  }
+
+  /// Status of the repository containing `path`.
+  status: func(path: string) -> result<repository, error>;
+}
+
+world host {
+  import git;
+}

@@ -126,3 +126,4 @@ spores/chrome/wit/deps/soil-surface.wit e58932babc960328edb94267bbb13f24000709d4
 spores/dragshift/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 spores/chrome/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 spores/surface-probe/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
+apps/xplorer/wit/deps/soil-git/package.wit aca0fea64c75020a96f3d9b8baaeaec3d6208ff2

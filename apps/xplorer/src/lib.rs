@@ -42,6 +42,10 @@ use gpui::{
     AppContext as _, Context, HeadlessAppContext, IntoElement, ParentElement as _,
     PlatformTextSystem as _, Render, Styled as _, Window, px, size,
 };
+// `id` moved onto `InteractiveElement` in the gpui this package pins, and the
+// handlers that follow an `id` live on `StatefulInteractiveElement`; a clickable
+// row needs both in scope, not a different element.
+use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_wgpu::{CosmicTextSystem, WgpuContext, WgpuHeadlessRenderer};
 use soil::present::{cursor, input, surface};
@@ -124,6 +128,10 @@ struct Finder {
     selected: usize,
     preview: Preview,
     note: Option<String>,
+    /// The repository this directory is in, when the host granted `soil:git` and
+    /// there is one. Read on navigation, never per entry: a listing of two
+    /// hundred files is one repository question, not two hundred.
+    git: Option<data::Repo>,
     /// How many tiles fit in one row, as of the last render. Arrow keys use it to
     /// move by a row; the arrangement is the only thing that knows the width.
     columns: usize,
@@ -139,6 +147,7 @@ impl Finder {
             selected: 0,
             preview: Preview::empty("select a file to look inside it"),
             note: None,
+            git: None,
             columns: 1,
         };
         finder.reload();
@@ -163,11 +172,13 @@ impl Finder {
                 });
                 self.selected = 0;
                 self.note = None;
+                self.git = data::git(&self.path);
                 self.select(0);
             }
             Err(error) => {
                 self.entries.clear();
                 self.selected = 0;
+                self.git = None;
                 self.preview = Preview::empty("the host did not list this directory");
                 self.note = Some(format!("{}: {error}", describe(&self.path)));
             }
@@ -185,7 +196,10 @@ impl Finder {
         if row.directory {
             self.preview = Preview {
                 title: row.name.clone(),
-                body: "a directory — Enter opens it".to_owned(),
+                body: match &self.git {
+                    Some(repo) => format!("a directory — Enter opens it\n{}", git_line(repo)),
+                    None => "a directory — Enter opens it".to_owned(),
+                },
                 footer: String::new(),
                 error: false,
             };
@@ -300,6 +314,7 @@ impl Finder {
     /// answer — how big, what kind, how old.
     fn list_rows(
         &self,
+        cx: &mut Context<Self>,
         muted: gpui::Hsla,
         border: gpui::Hsla,
         accent: gpui::Hsla,
@@ -506,6 +521,31 @@ fn tile_icon(row: &Row, theme: &gpui_component::Theme) -> gpui::AnyElement {
     body.into_any_element()
 }
 
+/// One line for the repository this directory is in.
+///
+/// A detached HEAD has no branch, and the commit is then the whole identity:
+/// printing the word "detached" would spend the line saying what the missing
+/// branch name already said.
+fn git_line(repo: &data::Repo) -> String {
+    let mut line = if repo.branch.is_empty() {
+        format!("git {} (detached)", repo.head)
+    } else {
+        format!("git {}", repo.branch)
+    };
+    if !repo.head.is_empty() {
+        line.push_str(&format!(" · {}", repo.head));
+    }
+    if repo.dirty {
+        line.push_str(&format!(" · {} changed", repo.changed));
+    } else {
+        line.push_str(" · clean");
+    }
+    if repo.has_upstream && (repo.ahead > 0 || repo.behind > 0) {
+        line.push_str(&format!(" · {}↑ {}↓", repo.ahead, repo.behind));
+    }
+    line
+}
+
 fn describe(path: &str) -> String {
     if path.is_empty() {
         "/".to_owned()
@@ -563,7 +603,11 @@ fn human_size(bytes: u64) -> String {
 impl Render for Finder {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (width, height) = surface::size();
-        let theme = cx.theme();
+        // Owned, not borrowed: a row's click listener needs `&mut Context` to
+        // move the selection, and a `Theme` borrowed from the context for the
+        // whole of `render` cannot live alongside that. Copying a handful of
+        // colours once per frame is cheaper than threading the borrow around.
+        let theme = cx.theme().clone();
         let muted = theme.muted_foreground;
         let border = theme.border;
 
@@ -681,7 +725,7 @@ impl Render for Finder {
                             .w_full()
                             .items_center()
                             .justify_center()
-                            .child(tile_icon(row, theme)),
+                            .child(tile_icon(row, &theme)),
                     )
                     .child(
                         gpui::div()
@@ -712,11 +756,19 @@ impl Render for Finder {
                     .border_b_1()
                     .border_color(border)
                     .child(h_flex().items_center().gap_1().children(crumbs))
-                    .child(gpui::div().text_xs().text_color(muted).child(format!(
-                        "{} entr{} · enter opens · backspace up",
-                        self.entries.len(),
-                        if self.entries.len() == 1 { "y" } else { "ies" }
-                    ))),
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .when_some(self.git.as_ref().map(git_line), |this, line| {
+                                this.child(gpui::div().text_xs().text_color(muted).child(line))
+                            })
+                            .child(gpui::div().text_xs().text_color(muted).child(format!(
+                                "{} entr{} · enter opens · backspace up",
+                                self.entries.len(),
+                                if self.entries.len() == 1 { "y" } else { "ies" }
+                            ))),
+                    ),
             )
             .child(
                 h_flex()
@@ -743,7 +795,13 @@ impl Render for Finder {
                                         .into_any_element(),
                                 ]
                             } else if self.view == View::List {
-                                vec![self.list_rows(muted, border, theme.accent, theme.foreground)]
+                                vec![self.list_rows(
+                                    cx,
+                                    muted,
+                                    border,
+                                    theme.accent,
+                                    theme.foreground,
+                                )]
                             } else {
                                 tiles
                             }),
