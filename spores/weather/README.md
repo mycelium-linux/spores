@@ -17,7 +17,7 @@ the Spore owns the place lookup, the WMO mapping, and the record.
 weather now --place "Seattle"   [--label LABEL] [--json]
 weather now --lat 47.6 --lon -122.3 [--label "Living room"] [--json]
 weather now --provider nws --lat 47.6 --lon -122.3 [--json]
-weather now --provider metar --station KSEA [--utc-offset-min -480] [--json]
+weather now --provider metar --station KSEA --utc-offset-min -480 [--json]
 ```
 
 - `now --place NAME` geocodes the name (first match, English names), fetches the
@@ -29,8 +29,10 @@ weather now --provider metar --station KSEA [--utc-offset-min -480] [--json]
 - `--provider metar --station KSEA` reads one station's observation. A METAR is
   what the airport measured, not a forecast: `temp_c` is the reading, `min_c` /
   `max_c` are the station's own six-hour extremes when it published them, and
-  `forecast` is empty. `--utc-offset-min` sets the offset the record is shifted
-  into, since a METAR is always UTC and the watch shows local time.
+  `forecast` is empty. `--utc-offset-min` is required: a METAR is always UTC,
+  the watch renders the record's timestamp as wall time without reading the
+  zone, and an unshifted record would put Seattle eight hours in the future.
+  Without the flag the Spore refuses before it makes a request.
 
 Output, against the live services:
 
@@ -103,6 +105,7 @@ Anything else is an error that names the code; there is no default icon.
 - `weather code 46 is not in the WMO table this Spore maps`
 - `missing daily.sunrise`
 - `--provider metar needs --station, e.g. --station KSEA`
+- `--provider metar needs --utc-offset-min: a METAR is UTC and the watch shows the record's timestamp as local time (e.g. --utc-offset-min -480)`
 - `no METAR for KSEA`
 - `open-meteo: denied: the host's origin allowlist does not include this URL (https://api.open-meteo.com/v1/forecast?…)`
 

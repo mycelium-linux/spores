@@ -55,8 +55,10 @@ struct Command {
     station: Option<String>,
     /// The viewer's offset from UTC, for a METAR observation: the report is
     /// always UTC, and the record carries the shift so the watch shows a
-    /// local time rather than a five-hour lie.
-    utc_offset_min: i32,
+    /// local time rather than a five-hour lie. `None` is "not told", which
+    /// METAR refuses: the watch renders the timestamp as wall time and has no
+    /// way to notice it was handed UTC.
+    utc_offset_min: Option<i32>,
 }
 
 impl Command {
@@ -70,7 +72,7 @@ impl Command {
             help: false,
             provider: "open-meteo".to_string(),
             station: None,
-            utc_offset_min: 0,
+            utc_offset_min: None,
         };
         let mut words = Vec::new();
         let mut index = 0;
@@ -99,9 +101,11 @@ impl Command {
                 "--station" => command.station = Some(take(args, &mut index, "--station")?),
                 "--utc-offset-min" => {
                     let value = take(args, &mut index, "--utc-offset-min")?;
-                    command.utc_offset_min = value
-                        .parse::<i32>()
-                        .map_err(|_| format!("--utc-offset-min: {value:?} is not a number"))?;
+                    command.utc_offset_min = Some(
+                        value
+                            .parse::<i32>()
+                            .map_err(|_| format!("--utc-offset-min: {value:?} is not a number"))?,
+                    );
                 }
                 "--help" | "-h" | "help" => command.help = true,
                 flag if flag.starts_with("--") => return Err(format!("unknown argument {flag:?}")),
@@ -137,6 +141,15 @@ impl Command {
             let station = self.station.clone().ok_or_else(|| {
                 "--provider metar needs --station, e.g. --station KSEA".to_string()
             })?;
+            // A METAR is UTC. The watch shows the record's timestamp as wall
+            // time and cannot see the zone, so an unshifted record would put
+            // Seattle eight hours in the future. Refuse rather than write it.
+            let utc_offset_min = self.utc_offset_min.ok_or_else(|| {
+                "--provider metar needs --utc-offset-min: a METAR is UTC and the \
+                 watch shows the record's timestamp as local time \
+                 (e.g. --utc-offset-min -480)"
+                    .to_string()
+            })?;
             let fetched_at_monotonic_ms = host
                 .monotonic_ms()
                 .map_err(|error| format!("time: {error}"))?;
@@ -146,7 +159,7 @@ impl Command {
                 &station,
                 self.label.as_deref(),
                 fetched_at_monotonic_ms,
-                self.utc_offset_min,
+                utc_offset_min,
             )
             .map_err(|error| error.to_string())?
             .with_computed_sun();
@@ -330,7 +343,7 @@ const HELP: &str = "\
 usage: weather now --place NAME [--label LABEL] [--json]
        weather now --lat DEGREES --lon DEGREES [--label LABEL] [--json]
        weather now --provider nws --lat DEGREES --lon DEGREES
-       weather now --provider metar --station KSEA [--utc-offset-min -480]
+       weather now --provider metar --station KSEA --utc-offset-min -480
 
 commands:
   now                 fetch the current weather, write the record, print a line
@@ -339,7 +352,8 @@ providers:
   open-meteo          any point on earth, no key (default)
   nws                 US points, grid forecast
   metar               an airport station: an observation, not a forecast,
-                      with the station's own six-hour min/max
+                      with the station's own six-hour min/max; the report is
+                      UTC, so --utc-offset-min is required
 
 examples:
   weather now --place \"Seattle\"
