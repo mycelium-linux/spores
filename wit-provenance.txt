@@ -84,13 +84,13 @@ spores/weather/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bc
 # the rest behind is the lie this file exists to prevent, so this section stayed
 # empty until `spores/spore-catalog` put both hosts back on soil's main.
 
-spores/launcher/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/launcher-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/launcher-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/spore-browser/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/spore-browser-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/probe-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/store/wit/deps/soil-spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/launcher/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/launcher-gpui/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/launcher-host/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/spore-browser/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/spore-browser-host/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/probe-gpui/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/store/wit/deps/soil-spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
 
 # --- soil-unibus.wit --------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-unibus.wit
@@ -139,7 +139,6 @@ spores/surface-probe/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34
 # player. The row moves with each revision, which is the drift this file exists
 # to catch.
 
-spores/deadwax/wit/deps/soil-playback/package.wit c5a143830575b16c20ac68148fb6c9d15d07e793
 
 # --- soil-audio.wit ---------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-audio.wit
