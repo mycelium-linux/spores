@@ -648,7 +648,22 @@ impl Render for Finder {
             .enumerate()
             .map(|(index, row)| {
                 let selected = index == self.selected;
+                let press = cx.listener(
+                    move |this: &mut Self,
+                          event: &gpui::ClickEvent,
+                          _window: &mut Window,
+                          cx: &mut Context<Self>| {
+                        this.selected = index;
+                        if event.click_count() >= 2 {
+                            this.enter();
+                        }
+                        cx.notify();
+                    },
+                );
                 v_flex()
+                    .id(("tile", index))
+                    .cursor_pointer()
+                    .on_click(press)
                     .w(px(TILE))
                     .h(px(TILE + 8.0))
                     .items_center()
