@@ -12,6 +12,7 @@ world mush {
   import soil:command/command@0.1.0;
   import soil:net/net@0.1.0;
   import soil:http/http@0.1.0;
+  import soil:worktrees/worktrees@0.1.0;
 
   record response {
     output: string,
