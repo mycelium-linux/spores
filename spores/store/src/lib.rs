@@ -23,7 +23,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{
+use gpui::{AnyElement, size,
     div, px, rgb, AnyWindowHandle, Context, FontWeight, HeadlessAppContext, IntoElement,
     ParentElement, PlatformTextSystem as _, Render, SharedString, Styled, Window,
 };
@@ -78,6 +78,7 @@ impl Guest for Component {
 
 /// The index the store service served: its name when one answered, whether
 /// its signature checked out, and how many packages it carries.
+#[derive(Clone)]
 struct Source {
     name: Option<String>,
     verified: bool,
@@ -87,6 +88,7 @@ struct Source {
 /// A package's own mark: the badge and colour its manifest declares for a
 /// launcher row, and later the artwork a listing points at. The store draws
 /// what the package says about itself rather than inventing a colour for it.
+#[derive(Clone)]
 struct Mark {
     badge: String,
     color: Option<u32>,
@@ -107,6 +109,7 @@ impl Mark {
     }
 }
 
+#[derive(Clone)]
 struct Row {
     /// What a person reads. A listing's name when the index has one, the
     /// installed package's own title when it does not, and the id's last
@@ -124,6 +127,7 @@ struct Row {
     change: Option<Change>,
 }
 
+#[derive(Clone)]
 struct Change {
     class: String,
     reason: String,
@@ -313,6 +317,7 @@ fn parse_color(value: &str) -> Option<u32> {
 
 /// Who is asking. A loopback request is the machine itself; a request through
 /// the Mycelium gateway names the principal it authenticated.
+#[derive(Clone)]
 struct Account {
     name: String,
     note: String,
@@ -340,7 +345,682 @@ fn account() -> Account {
     }
 }
 
+// ── the shopfront ───────────────────────────────────────────────────────────
+//
+// Two rules shape this view, both borrowed from `weeper`, which is the most
+// advanced UI this tree has:
+//
+//   one context, one window, as many frames as the host asks for — a redraw
+//   costs a draw, not a device, a font stack and a window; and
+//
+//   every input is an event the view answers, so hit-testing and layout share
+//   one set of numbers instead of two that drift.
+//
+// A tab is a rectangle and a row is a rectangle; the pointer is compared against
+// the same constants that drew them.
+
+const MAX_COLUMN: f32 = 980.0;
+const PAGE_PAD: f32 = 28.0;
+const HEADER_H: f32 = 54.0;
+const TABS_H: f32 = 38.0;
+const FOOTER_H: f32 = 30.0;
+const HERO_H: f32 = 168.0;
+const HERO_GAP: f32 = 14.0;
+const ROW_H: f32 = 66.0;
+const ROW_GAP: f32 = 6.0;
+const TILE: f32 = 42.0;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Discover,
+    Installs,
+    Updates,
+    Settings,
+}
+
+impl Tab {
+    const ALL: [Tab; 4] = [Tab::Discover, Tab::Installs, Tab::Updates, Tab::Settings];
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Discover => "Discover",
+            Tab::Installs => "Installed",
+            Tab::Updates => "Updates",
+            Tab::Settings => "Settings",
+        }
+    }
+}
+
+/// What a pointer landed on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Tab(Tab),
+    Row(usize),
+    Action(usize),
+    Refresh,
+}
+
+struct StoreView {
+    rows: Vec<Row>,
+    source: Source,
+    account: Account,
+    tab: Tab,
+    /// The last thing the store did, in the store's own words.
+    message: String,
+    /// The row under the pointer, so a click reads as aimed.
+    hovered: Option<usize>,
+    width: f32,
+    height: f32,
+}
+
+impl StoreView {
+    fn new(rows: Vec<Row>, source: Source, account: Account, width: f32, height: f32) -> Self {
+        let message = if rows.is_empty() {
+            match &source.name {
+                Some(name) => format!("{name} has nothing to offer this machine yet"),
+                None => "No store reached, and nothing is installed here.".to_string(),
+            }
+        } else {
+            format!("{} listings · {} installed", source.total, rows.iter().filter(|row| row.state == "installed").count())
+        };
+        Self {
+            rows,
+            source,
+            account,
+            tab: Tab::Discover,
+            message,
+            hovered: None,
+            width,
+            height,
+        }
+    }
+
+    fn column(&self) -> (f32, f32) {
+        let width = self.width.min(MAX_COLUMN);
+        let margin = ((self.width - width) / 2.0).max(PAGE_PAD);
+        (width - 2.0 * PAGE_PAD, margin + PAGE_PAD)
+    }
+
+    fn rows_on(&self, tab: Tab) -> Vec<usize> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| match tab {
+                Tab::Installs => row.state == "installed" || row.state == "update",
+                Tab::Updates => row.state == "update",
+                _ => true,
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// What a tab offers, as a badge: the count a person actually cares about.
+    fn badge(&self, tab: Tab) -> Option<usize> {
+        match tab {
+            Tab::Discover => None,
+            Tab::Installs => Some(self.rows.iter().filter(|row| row.state != "available").count()),
+            Tab::Updates => Some(self.rows.iter().filter(|row| row.state == "update").count()),
+            Tab::Settings => None,
+        }
+    }
+
+    fn tab_at(&self, x: f32, y: f32) -> Option<Tab> {
+        let (_, left) = self.column();
+        let top = HEADER_H;
+        if y < top || y > top + TABS_H {
+            return None;
+        }
+        let mut cursor = left;
+        for tab in Tab::ALL {
+            let width = 26.0 + 8.0 * tab.label().len() as f32;
+            if x >= cursor && x <= cursor + width {
+                return Some(tab);
+            }
+            cursor += width + 10.0;
+        }
+        None
+    }
+
+    /// Which row a point is on, and whether it is over that row's button.
+    fn row_at(&self, x: f32, y: f32) -> Option<(usize, bool)> {
+        let (width, left) = self.column();
+        let mut top = HEADER_H + TABS_H + 46.0;
+        if self.tab == Tab::Discover {
+            top += HERO_H + 30.0 + 28.0;
+        }
+        let rows = self.rows_on(self.tab);
+        for index in rows {
+            if y >= top && y <= top + ROW_H {
+                let button = x >= left + width - 132.0;
+                return Some((index, button));
+            }
+            top += ROW_H + ROW_GAP;
+        }
+        None
+    }
+
+    fn target_at(&self, x: f32, y: f32) -> Option<Target> {
+        if let Some(tab) = self.tab_at(x, y) {
+            return Some(Target::Tab(tab));
+        }
+        let (width, left) = self.column();
+        if self.tab == Tab::Settings
+            && y >= HEADER_H + TABS_H + 120.0
+            && y <= HEADER_H + TABS_H + 156.0
+            && x >= left
+            && x <= left + 150.0
+        {
+            return Some(Target::Refresh);
+        }
+        self.row_at(x, y)
+            .map(|(index, button)| if button { Target::Action(index) } else { Target::Row(index) })
+    }
+
+    /// What a click means. Returns whether anything changed.
+    fn activate(&mut self, target: Target) -> bool {
+        match target {
+            Target::Tab(tab) => {
+                if self.tab == tab {
+                    return false;
+                }
+                self.tab = tab;
+                true
+            }
+            Target::Row(index) => {
+                self.hovered = Some(index);
+                true
+            }
+            Target::Action(index) => self.action(index),
+            Target::Refresh => {
+                self.reload();
+                true
+            }
+        }
+    }
+
+    /// The one button a row offers, which depends on what that row is.
+    fn action(&mut self, index: usize) -> bool {
+        let Some(row) = self.rows.get(index) else {
+            return false;
+        };
+        let id = row.id.clone();
+        let title = row.title.clone();
+        match row.state.as_str() {
+            "available" | "update" => {
+                self.message = format!("Installing {title}…");
+                match catalog::install(&id) {
+                    Ok(installed) => {
+                        self.message = format!("Installed {title} {}", installed.version);
+                        self.reload();
+                    }
+                    Err(failure) => {
+                        self.message = format!("{title} did not install: {}", detail(&failure));
+                    }
+                }
+            }
+            _ => match catalog::launch(&id, "canvas") {
+                Ok(launched) => self.message = format!("Opened {title} ({})", launched.target),
+                Err(failure) => self.message = format!("{title} did not open: {}", detail(&failure)),
+            },
+        }
+        true
+    }
+
+    fn reload(&mut self) {
+        match catalog_rows() {
+            Ok((rows, source)) => {
+                self.source = source;
+                self.rows = rows;
+            }
+            Err(error) => {
+                self.message = format!("The store could not be read: {error}");
+            }
+        }
+    }
+
+    fn handle_key(&mut self, key: &str) -> bool {
+        match key {
+            "1" | "2" | "3" | "4" => {
+                let index = key.parse::<usize>().unwrap_or(1) - 1;
+                let tab = Tab::ALL[index];
+                if self.tab == tab {
+                    return false;
+                }
+                self.tab = tab;
+                true
+            }
+            "arrow-left" | "h" => self.cycle(-1),
+            "arrow-right" | "l" => self.cycle(1),
+            "enter" => self
+                .hovered
+                .or_else(|| self.rows_on(self.tab).first().copied())
+                .is_some_and(|index| self.action(index)),
+            _ => false,
+        }
+    }
+
+    fn cycle(&mut self, step: i32) -> bool {
+        let at = Tab::ALL.iter().position(|tab| *tab == self.tab).unwrap_or(0) as i32;
+        let next = (at + step).rem_euclid(Tab::ALL.len() as i32) as usize;
+        self.tab = Tab::ALL[next];
+        true
+    }
+
+    fn header(&self) -> impl IntoElement {
+        let (_, left) = self.column();
+        div()
+            .h(px(HEADER_H))
+            .flex()
+            .items_center()
+            .justify_between()
+            .pl(px(left))
+            .pr(px(left))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .child(
+                        div()
+                            .text_size(px(17.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(rgb(TEXT))
+                            .child("Store"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(rgb(MUTED))
+                            .child(match &self.source.name {
+                                Some(name) if self.source.verified => format!("{name} · signed"),
+                                Some(name) => format!("{name} · unverified"),
+                                None => "no store reached".to_string(),
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(rgb(MUTED))
+                            .child(format!("{} · {}", self.account.name, self.account.note)),
+                    ),
+            )
+    }
+
+    fn tab_strip(&self) -> impl IntoElement {
+        let (_, left) = self.column();
+        let mut strip = div()
+            .h(px(TABS_H))
+            .flex()
+            .items_center()
+            .gap(px(10.0))
+            .pl(px(left))
+            .pr(px(left));
+        for tab in Tab::ALL {
+            let selected = self.tab == tab;
+            let mut label = div()
+                .px(px(13.0))
+                .py(px(6.0))
+                .rounded(px(8.0))
+                .text_size(px(12.0))
+                .text_color(if selected { rgb(TEXT) } else { rgb(MUTED) })
+                .bg(if selected { rgb(PANEL_RAISED) } else { rgb(0x00000000) })
+                .child(tab.label());
+            if let Some(count) = self.badge(tab) {
+                if count > 0 {
+                    label = label.child(
+                        div()
+                            .pl(px(6.0))
+                            .text_size(px(10.0))
+                            .text_color(rgb(ACCENT))
+                            .child(format!("{count}")),
+                    );
+                }
+            }
+            strip = strip.child(label);
+        }
+        strip
+    }
+
+    fn hero_card(&self, index: usize) -> AnyElement {
+        let row = &self.rows[index];
+        div()
+            .w(px(300.0))
+            .h(px(HERO_H))
+            .flex()
+            .flex_col()
+            .justify_end()
+            .rounded(px(14.0))
+            .p(px(14.0))
+            .bg(rgb(row.mark.color.unwrap_or(PANEL_RAISED)))
+            .child(
+                div()
+                    .text_size(px(15.0))
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(rgb(0x0b0d12))
+                    .child(row.title.clone()),
+            )
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(rgb(0x1a2233))
+                    .child(format!("{} · {}", row.version, truncate(&row.summary, 64))),
+            )
+            .into_any_element()
+    }
+
+    fn row_card(&self, index: usize) -> AnyElement {
+        let row = &self.rows[index];
+        let hovered = self.hovered == Some(index);
+        let (width, _) = self.column();
+        div()
+            .w(px(width))
+            .h(px(ROW_H))
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .px(px(12.0))
+            .rounded(px(12.0))
+            .bg(if hovered { rgb(PANEL_RAISED) } else { rgb(PANEL) })
+            .child(
+                div()
+                    .w(px(TILE))
+                    .h(px(TILE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(10.0))
+                    .bg(rgb(row.mark.color.unwrap_or(PANEL_RAISED)))
+                    .text_size(px(17.0))
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(rgb(0x0b0d12))
+                    .child(row.mark.badge.clone()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(rgb(TEXT))
+                            .child(row.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(rgb(MUTED))
+                            .child(truncate(&row.summary, 96)),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(rgb(MUTED))
+                    .child(match row.state.as_str() {
+                        "update" => format!(
+                            "{} → {}",
+                            row.installed_version.clone().unwrap_or_default(),
+                            row.version
+                        ),
+                        "installed" => row.version.clone(),
+                        _ => row.change.as_ref().map(|change| change.class.clone()).unwrap_or_default(),
+                    }),
+            )
+            .child(self.action_button(row))
+            .into_any_element()
+    }
+
+    fn action_button(&self, row: &Row) -> AnyElement {
+        let label = match row.state.as_str() {
+            "available" => "Get",
+            "update" => "Update",
+            _ => "Open",
+        };
+        div()
+            .w(px(96.0))
+            .py(px(6.0))
+            .rounded(px(8.0))
+            .bg(rgb(if row.state == "available" || row.state == "update" {
+                ACCENT
+            } else {
+                PANEL_RAISED
+            }))
+            .flex()
+            .justify_center()
+            .text_size(px(11.0))
+            .text_color(rgb(if row.state == "available" || row.state == "update" {
+                0x0b0d12
+            } else {
+                TEXT
+            }))
+            .child(label)
+            .into_any_element()
+    }
+
+    fn body(&self) -> AnyElement {
+        let (width, left) = self.column();
+        let rows = self.rows_on(self.tab);
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap(px(ROW_GAP))
+            .pl(px(left))
+            .pr(px(left))
+            .pt(px(16.0));
+
+        match self.tab {
+            Tab::Discover => {
+                let heroes: Vec<usize> = rows
+                    .iter()
+                    .copied()
+                    .filter(|index| self.rows[*index].state != "installed")
+                    .take(3)
+                    .collect();
+                if !heroes.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(rgb(TEXT))
+                            .pb(px(10.0))
+                            .child("New releases"),
+                    );
+                    let mut strip = div().flex().flex_row().gap(px(HERO_GAP));
+                    for index in heroes {
+                        strip = strip.child(self.hero_card(index));
+                    }
+                    body = body.child(strip).child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(rgb(TEXT))
+                            .pt(px(18.0))
+                            .pb(px(4.0))
+                            .child("All apps"),
+                    );
+                }
+                for index in rows {
+                    body = body.child(self.row_card(index));
+                }
+            }
+            Tab::Installs | Tab::Updates => {
+                if rows.is_empty() {
+                    body = body.child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(rgb(MUTED))
+                            .child(match self.tab {
+                                Tab::Updates => "Everything this machine runs is current.",
+                                _ => "Nothing is installed yet.",
+                            }),
+                    );
+                }
+                for index in rows {
+                    body = body.child(self.row_card(index));
+                }
+            }
+            Tab::Settings => {
+                body = body
+                    .child(self.setting("Store", self.source.name.clone().unwrap_or_else(|| "none reached".into())))
+                    .child(self.setting(
+                        "Index",
+                        if self.source.verified { "signature verified".into() } else { "unverified".into() },
+                    ))
+                    .child(self.setting("Machine", format!("{} ({})", self.account.name, self.account.note)))
+                    .child(self.setting("Listings", format!("{}", self.source.total)))
+                    .child(self.setting("Installed", format!("{}", self.rows.iter().filter(|row| row.state != "available").count())))
+                    .child(
+                        div()
+                            .mt(px(12.0))
+                            .w(px(150.0))
+                            .py(px(7.0))
+                            .rounded(px(8.0))
+                            .bg(rgb(PANEL_RAISED))
+                            .flex()
+                            .justify_center()
+                            .text_size(px(11.0))
+                            .text_color(rgb(TEXT))
+                            .child("Refresh catalog"),
+                    );
+            }
+        }
+        let _ = width;
+        body.into_any_element()
+    }
+
+    fn setting(&self, label: &str, value: String) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .py(px(6.0))
+            .w(px(460.0))
+            .child(div().text_size(px(12.0)).text_color(rgb(MUTED)).child(label.to_string()))
+            .child(div().text_size(px(12.0)).text_color(rgb(TEXT)).child(value))
+            .into_any_element()
+    }
+
+    fn footer(&self) -> impl IntoElement {
+        let (_, left) = self.column();
+        div()
+            .h(px(FOOTER_H))
+            .flex()
+            .items_center()
+            .justify_between()
+            .pl(px(left))
+            .pr(px(left))
+            .bg(rgb(0x080a0e))
+            .text_size(px(10.0))
+            .text_color(rgb(MUTED))
+            .child(self.message.clone())
+            .child("1-4 tabs · enter get/update/open · esc quit")
+    }
+}
+
+impl Render for StoreView {
+    fn render(&mut self, _window: &mut gpui::Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(BG))
+            .font_family(FONT_FAMILY)
+            .child(self.header())
+            .child(self.tab_strip())
+            .child(div().flex_1().child(self.body()))
+            .child(self.footer())
+    }
+}
+
+/// A name for a row when nobody gave one: the id's last segment, title cased,
+/// because `dev.fungos.dfm-report` is a path and "Dfm Report" is a name.
+fn title_of(id: &str) -> String {
+    let name = id.rsplit('.').next().unwrap_or(id);
+    name.split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn truncate(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(limit.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
+}
+
+/// The host's own sentence about a failed call.
+fn detail(failure: &catalog::Failure) -> String {
+    if failure.detail.trim().is_empty() {
+        format!("{:?}", failure.code).to_lowercase()
+    } else {
+        failure.detail.clone()
+    }
+}
+
+fn present_frame(
+    context: &WgpuContext,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> Result<(), String> {
+    let texture = context.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("store frame"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    context.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    let texture = wgpu_wasi_webgpu::host_texture(texture);
+    surface::present(&texture).map_err(|error| format!("present: {error}"))
+}
+
 fn render() -> Result<(), String> {
+    // The host chooses the extent and the scale; the guest must not assume
+    // either, or the frame comes back resampled.
     let (width, height) = surface::size();
     if width == 0 || height == 0 {
         return Err("canvas surface has zero extent".to_string());
@@ -354,632 +1034,122 @@ fn render() -> Result<(), String> {
     let (context, format) = WgpuContext::from_offscreen(instance, adapter, device, queue)
         .map_err(|error| format!("offscreen context: {error}"))?;
 
-    let frame_device = context.device.clone();
-    let frame_queue = context.queue.clone();
-    let renderer_context = context.clone();
-    let text_system = Arc::new(CosmicTextSystem::new_without_system_fonts(FONT_FAMILY));
-    text_system
-        .add_fonts(vec![Cow::Borrowed(FONT)])
-        .map_err(|error| format!("load view font: {error}"))?;
-
-    let mut app = HeadlessAppContext::with_platform(
-        text_system,
-        Arc::new(()),
-        move || -> anyhow::Result<Option<Box<dyn gpui::PlatformHeadlessRenderer>>> {
-            Ok(Some(Box::new(WgpuHeadlessRenderer::with_context(
-                renderer_context.clone(),
-                format,
-            )?)))
-        },
-    );
+    let factory = context.clone();
+    let text = Arc::new(CosmicTextSystem::new_without_system_fonts(FONT_FAMILY));
+    text.add_fonts(vec![Cow::Borrowed(FONT)])
+        .map_err(|error| format!("load store font: {error}"))?;
+    let mut cx = HeadlessAppContext::with_platform(text, Arc::new(()), move || {
+        Ok(Some(Box::new(WgpuHeadlessRenderer::with_context(
+            factory.clone(),
+            format,
+        )?)))
+    });
 
     let (rows, source) = catalog_rows()?;
     let account = account();
-    let viewport = (width as f32, height as f32);
-    let window = app
-        .open_window_scaled(
-            gpui::size(px(viewport.0), px(viewport.1)),
-            1.0,
+    let scale = surface::scale() as f32;
+    let window = cx
+        .open_window_scaled(size(px(width as f32), px(height as f32)), scale, {
+            let rows = rows.clone();
+            let source = source.clone();
+            let account = account.clone();
             move |_, cx| {
-                cx.new(|_| StoreView {
-                    rows,
-                    source,
-                    account,
-                    width: viewport.0,
-                    height: viewport.1,
-                })
-            },
-        )
+                cx.new(|_| StoreView::new(rows, source, account, width as f32, height as f32))
+            }
+        })
         .map_err(|error| format!("open headless window: {error}"))?;
-    app.run_until_parked();
     let handle: AnyWindowHandle = window.into();
-    let image = app
-        .capture_screenshot(handle)
-        .map_err(|error| format!("capture GPUI frame: {error}"))?;
 
-    let width = image.width();
-    let height = image.height();
-    let texture = frame_device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("store GPUI frame"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    frame_queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        image.as_raw(),
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(
-                width
-                    .checked_mul(4)
-                    .ok_or_else(|| "GPUI frame row overflow".to_string())?,
-            ),
-            rows_per_image: Some(height),
-        },
-        wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-    );
-
-    let texture = wgpu_wasi_webgpu::host_texture(texture);
-    surface::present(&texture).map_err(|error| format!("canvas present: {error}"))
-}
-
-/// A window with no scrollbar has to be arithmetic: every section states the
-/// height it needs, and the view decides what fits before it draws anything.
-///
-/// The page is one column, never the whole window: a store is read, and a row
-/// that runs from edge to edge is a row whose eye has to travel.
-const MAX_COLUMN: f32 = 920.0;
-const MIN_MARGIN: f32 = 32.0;
-const HEADER_H: f32 = 56.0;
-const PAGE_PAD: f32 = 24.0;
-const STRIP_H: f32 = 48.0;
-const SECTION_GAP: f32 = 20.0;
-const HEAD_H: f32 = 22.0;
-const HEAD_GAP: f32 = 8.0;
-const ROW_H: f32 = 74.0;
-const ROW_GAP: f32 = 8.0;
-const TILE: f32 = 40.0;
-const CHIP_W: f32 = 220.0;
-const CHIP_H: f32 = 38.0;
-const CHIP_GAP: f32 = 8.0;
-
-fn column(width: f32) -> f32 {
-    (width - MIN_MARGIN * 2.0).min(MAX_COLUMN)
-}
-
-fn page_margin(width: f32) -> f32 {
-    ((width - column(width)) / 2.0).max(MIN_MARGIN.min(width / 2.0))
-}
-
-struct StoreView {
-    rows: Vec<Row>,
-    source: Source,
-    account: Account,
-    width: f32,
-    height: f32,
-}
-
-impl Render for StoreView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let by_state = |state: &'static str| {
-            self.rows
-                .iter()
-                .filter(move |row| row.state == state)
-                .collect::<Vec<&Row>>()
-        };
-        let updates = by_state("update");
-        let available = by_state("available");
-        let installed = by_state("installed");
-
-        let budget = (self.height - HEADER_H - PAGE_PAD * 2.0 - STRIP_H - SECTION_GAP).max(0.0);
-        let (update_rows, available_rows, machine_space) =
-            fit_lists(updates.len(), available.len(), budget);
-
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .py_6()
-            .px(px(page_margin(self.width)))
-            .flex_1()
-            .overflow_hidden()
-            .child(status_strip(
-                updates.len(),
-                available.len(),
-                installed.len(),
-                &self.source,
-            ));
-        if update_rows > 0 {
-            body = body.child(action_section(
-                "Updates",
-                &updates[..update_rows],
-                updates.len(),
-                "Update",
-            ));
-        }
-        if available_rows > 0 {
-            body = body.child(action_section(
-                "New in the store",
-                &available[..available_rows],
-                available.len(),
-                "Get",
-            ));
-        }
-        if !installed.is_empty() {
-            body = body.child(machine_section(
-                &installed,
-                column(self.width),
-                machine_space,
-                self.source.name.is_none(),
-            ));
-        }
-        if self.rows.is_empty() {
-            body = body.child(nothing_to_show(&self.source));
-        }
-
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .bg(rgb(BG))
-            .text_color(rgb(TEXT))
-            .child(header(&self.account, &self.source, self.width))
-            .child(body)
-    }
-}
-
-/// What fits in the window before anything is cut off. Updates come first — a
-/// package you already own is worth more than one you have never met — and
-/// whatever is left over belongs to the machine list.
-fn fit_lists(updates: usize, available: usize, budget: f32) -> (usize, usize, f32) {
-    let head = HEAD_H + HEAD_GAP;
-    let mut space = budget;
-    let mut shown = [0usize; 2];
-    for (index, total) in [updates, available].into_iter().enumerate() {
-        if total == 0 {
-            continue;
-        }
-        let room = ((space - head + ROW_GAP) / (ROW_H + ROW_GAP)).floor().max(0.0) as usize;
-        let take = total.min(room);
-        shown[index] = take;
-        space = (space
-            - head
-            - take as f32 * ROW_H
-            - take.saturating_sub(1) as f32 * ROW_GAP
-            - SECTION_GAP)
-            .max(0.0);
-    }
-    (shown[0], shown[1], space)
-}
-
-/// One line that says what is waiting, instead of a billboard that says nothing.
-fn status_strip(
-    updates: usize,
-    available: usize,
-    installed: usize,
-    source: &Source,
-) -> impl IntoElement {
-    let headline = match (updates, available) {
-        (0, 0) if installed == 0 => "Nothing installed, nothing listed".to_string(),
-        (0, 0) => "Everything installed is current".to_string(),
-        (0, new) => format!("{new} new in the store"),
-        (1, 0) => "1 update ready".to_string(),
-        (ready, 0) => format!("{ready} updates ready"),
-        (1, new) => format!("1 update ready · {new} new in the store"),
-        (ready, new) => format!("{ready} updates ready · {new} new in the store"),
-    };
-    let index = match &source.name {
-        Some(name) => format!("{installed} installed · {} packages · {name}", source.total),
-        None => format!("{installed} installed · no store reached"),
-    };
-    div()
-        .flex()
-        .justify_between()
-        .items_center()
-        .h(px(STRIP_H))
-        .px_4()
-        .rounded_xl()
-        .bg(rgb(PANEL_RAISED))
-        .border_1()
-        .border_color(rgb(EDGE))
-        .child(
-            div()
-                .text_base()
-                .font_weight(FontWeight::MEDIUM)
-                .child(SharedString::from(headline)),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgb(MUTED))
-                .child(SharedString::from(index)),
-        )
-}
-
-fn action_section(title: &str, rows: &[&Row], total: usize, action: &str) -> impl IntoElement {
-    let mut list = div().flex().flex_col().gap_2();
-    for row in rows {
-        list = list.child(package_row(row, Some(action)));
-    }
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(section_head(title, rows.len(), total))
-        .child(list)
-}
-
-/// One package, in the shape a person reads it: its own mark, what it is, what
-/// it says about itself, where it is going, and — when the host can act — the
-/// one thing you can do about it.
-fn package_row(row: &Row, action: Option<&str>) -> impl IntoElement {
-    let secondary = if !row.description.is_empty() {
-        row.description.clone()
-    } else if !row.summary.is_empty() {
-        row.summary.clone()
-    } else if let Some(change) = row.change.as_ref() {
-        change.reason.clone()
-    } else {
-        row.id.clone()
-    };
-    // An update that keeps its version number is a rebuild: the digest moved,
-    // the label did not. Saying so is cheaper than looking broken.
-    let version = match &row.installed_version {
-        Some(installed) if installed != &row.version => format!("{installed} → {}", row.version),
-        Some(_) => format!("{} · rebuild", row.version),
-        None => row.version.clone(),
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap_3()
-        .h(px(ROW_H))
-        .px_3()
-        .rounded_lg()
-        .bg(rgb(PANEL))
-        .border_1()
-        .border_color(rgb(EDGE))
-        .child(tile(&row.mark, TILE))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .flex_1()
-                .overflow_hidden()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(SharedString::from(row.title.clone())),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(MUTED))
-                        .whitespace_normal()
-                        .line_clamp(2)
-                        .child(SharedString::from(secondary)),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .when_some(row.change.as_ref(), |cluster, change| {
-                    cluster.child(change_chip(&change.class))
+    // One context, one window, as many frames as the host asks for. A capture
+    // host draws once and stops; a live presenter keeps the window, so a redraw
+    // costs a draw rather than a device, a font stack and a window.
+    let mut dirty = true;
+    let mut extent = (width, height);
+    loop {
+        let now = surface::size();
+        if now != extent {
+            extent = now;
+            window
+                .update(&mut cx, |_, window, _| {
+                    window.resize(size(px(now.0 as f32), px(now.1 as f32)));
                 })
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(MUTED))
-                        .child(SharedString::from(version)),
-                ),
-        )
-        .when_some(action, |row, label| row.child(button(label)))
-}
-
-/// The mark a package chose for itself: a rounded square in its own colour with
-/// the badge it declared. A package that declared nothing gets a quiet tile
-/// rather than a colour the store made up.
-fn tile(mark: &Mark, size: f32) -> impl IntoElement {
-    let declared = mark.color.is_some();
-    let fill = mark.color.unwrap_or(PANEL_RAISED);
-    let ink = if declared { BG } else { MUTED };
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .w(px(size))
-        .h(px(size))
-        .rounded_lg()
-        .bg(rgb(fill))
-        .border_1()
-        .border_color(rgb(if declared { fill } else { EDGE }))
-        .child(
-            div()
-                .text_size(px(size * 0.4))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(ink))
-                .child(SharedString::from(mark.badge.clone())),
-        )
-}
-
-/// `live`, `restart`, `reboot`: what the store will make you do to get the
-/// change. Quiet, because it is a fact about the update and not a warning.
-fn change_chip(class: &str) -> impl IntoElement {
-    div()
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .bg(rgb(EDGE))
-        .text_color(rgb(MUTED))
-        .text_size(px(10.0))
-        .font_weight(FontWeight::MEDIUM)
-        .child(SharedString::from(class.to_uppercase()))
-}
-
-fn button(label: &str) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_1()
-        .rounded_full()
-        .bg(rgb(ACCENT))
-        .text_color(rgb(BG))
-        .text_xs()
-        .font_weight(FontWeight::MEDIUM)
-        .child(SharedString::from(label.to_string()))
-}
-
-/// An installed package is a fact, not an action.
-///
-/// With a store to compare against, what is installed is a footnote: a line of
-/// names under the things you can act on. When no store answers it is the whole
-/// page, and then it earns the room a description needs.
-fn machine_section(rows: &[&Row], width: f32, space: f32, detailed: bool) -> impl IntoElement {
-    if detailed {
-        let room = ((space - HEAD_H - HEAD_GAP + ROW_GAP) / (ROW_H + ROW_GAP))
-            .floor()
-            .max(0.0) as usize;
-        let shown = rows.len().min(room.max(1));
-        let mut list = div().flex().flex_col().gap_2();
-        for row in rows.iter().take(shown) {
-            list = list.child(package_row(row, None));
+                .map_err(|error| format!("resize: {error}"))?;
+            dirty = true;
         }
-        return div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(section_head("On this machine", shown, rows.len()))
-            .child(list);
-    }
-    let columns = chips_per_line(width);
-    let lines = ((space - HEAD_H - HEAD_GAP + CHIP_GAP) / (CHIP_H + CHIP_GAP))
-        .floor()
-        .max(0.0) as usize;
-    let shown = rows.len().min((lines * columns).max(1));
-    let mut grid = div().flex().flex_wrap().gap_2();
-    for row in rows.iter().take(shown) {
-        grid = grid.child(installed_chip(row));
-    }
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(section_head("On this machine", shown, rows.len()))
-        .child(grid)
-}
 
-fn installed_chip(row: &Row) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .w(px(CHIP_W))
-        .h(px(CHIP_H))
-        .px_2()
-        .rounded_lg()
-        .bg(rgb(PANEL))
-        .border_1()
-        .border_color(rgb(EDGE))
-        .child(tile(&row.mark, 22.0))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .overflow_hidden()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(SharedString::from(row.title.clone())),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(MUTED))
-                        .child(SharedString::from(row.version.clone())),
-                ),
-        )
-}
-
-fn chips_per_line(width: f32) -> usize {
-    let usable = (width + CHIP_GAP).max(CHIP_W);
-    (usable / (CHIP_W + CHIP_GAP)).floor().max(1.0) as usize
-}
-
-fn section_head(title: &str, shown: usize, total: usize) -> impl IntoElement {
-    let detail = if shown < total {
-        format!("{shown} of {total}")
-    } else {
-        total.to_string()
-    };
-    div()
-        .flex()
-        .justify_between()
-        .items_center()
-        .h(px(HEAD_H))
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(SharedString::from(title.to_string())),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgb(MUTED))
-                .child(SharedString::from(detail)),
-        )
-}
-
-fn nothing_to_show(source: &Source) -> impl IntoElement {
-    let message = match &source.name {
-        Some(name) => format!("{name} listed no packages, and none are installed here."),
-        None => "No store answered and nothing is installed here.".to_string(),
-    };
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .flex_1()
-        .child(
-            div()
-                .text_sm()
-                .text_color(rgb(MUTED))
-                .child(SharedString::from(message)),
-        )
-}
-
-fn header(account: &Account, source: &Source, width: f32) -> impl IntoElement {
-    let mark = match (&source.name, source.verified) {
-        (None, _) => ("no store reached", MUTED),
-        (Some(_), true) => ("signature verified", GOOD),
-        (Some(_), false) => ("index unsigned", WARN),
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap_4()
-        .px(px(page_margin(width)))
-        .h(px(HEADER_H))
-        .bg(rgb(PANEL))
-        .border_b_1()
-        .border_color(rgb(EDGE))
-        .child(chip(account))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .text_lg()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(SharedString::from("Spore"))
-                .child(
-                    div()
-                        .text_color(rgb(ACCENT))
-                        .child(SharedString::from("Store")),
-                ),
-        )
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgb(mark.1))
-                .child(SharedString::from(mark.0)),
-        )
-}
-
-fn chip(account: &Account) -> impl IntoElement {
-    let initial = account
-        .name
-        .chars()
-        .next()
-        .map(|value| value.to_uppercase().to_string())
-        .unwrap_or_else(|| "L".to_string());
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .pl_1()
-        .pr_3()
-        .py_1()
-        .rounded_full()
-        .bg(rgb(BG))
-        .border_1()
-        .border_color(rgb(EDGE))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .w_8()
-                .h_8()
-                .rounded_full()
-                .bg(rgb(ACCENT))
-                .text_color(rgb(BG))
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(SharedString::from(initial)),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(SharedString::from(account.name.clone())),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(MUTED))
-                        .child(SharedString::from(account.note.clone())),
-                ),
-        )
-}
-
-/// `dev.fungos.vitals-view` has no listing yet, so the best name available is
-/// its own last segment, read as words. A manifest's `title` wins wherever one
-/// is declared; the host applies the same rule to its own catalog.
-fn title_of(id: &str) -> String {
-    let tail = id.rsplit('.').next().unwrap_or(id);
-    let mut title = String::with_capacity(tail.len());
-    for (index, word) in tail.split(['-', '_']).enumerate() {
-        if index > 0 {
-            title.push(' ');
+        if dirty {
+            cx.update_window(handle, |_, window, app| {
+                let _ = window.draw(app);
+            })
+            .map_err(|error| format!("draw: {error}"))?;
+            let image = cx
+                .capture_screenshot(handle)
+                .map_err(|error| format!("capture frame: {error}"))?;
+            present_frame(&context, image.width(), image.height(), image.as_raw())?;
+            dirty = false;
         }
-        let mut characters = word.chars();
-        if let Some(first) = characters.next() {
-            title.extend(first.to_uppercase());
-            title.push_str(characters.as_str());
+
+        if !input::interactive() {
+            break;
+        }
+
+        match input::poll(16) {
+            Some(input::Event::KeyInput(key)) => {
+                // A release is not an action; the host sends both.
+                if !key.pressed {
+                    continue;
+                }
+                if key.key == "escape" {
+                    return Ok(());
+                }
+                let changed = window
+                    .update(&mut cx, |view, _, cx| {
+                        let changed = view.handle_key(&key.key);
+                        if changed {
+                            cx.notify();
+                        }
+                        changed
+                    })
+                    .map_err(|error| format!("key: {error}"))?;
+                dirty |= changed;
+            }
+            Some(input::Event::Moved(moved)) => {
+                let changed = window
+                    .update(&mut cx, |view, _, cx| {
+                        let target = view.target_at(moved.x, moved.y);
+                        let index = match target {
+                            Some(Target::Row(index)) | Some(Target::Action(index)) => Some(index),
+                            _ => view.hovered,
+                        };
+                        if index == view.hovered {
+                            return false;
+                        }
+                        view.hovered = index;
+                        cx.notify();
+                        true
+                    })
+                    .map_err(|error| format!("move: {error}"))?;
+                dirty |= changed;
+            }
+            Some(input::Event::Button(button)) => {
+                if button.pressed && matches!(button.button, input::PointerButton::Left) {
+                    let changed = window
+                        .update(&mut cx, |view, _, cx| {
+                            let target = view.target_at(button.x, button.y);
+                            let changed = target.is_some_and(|target| view.activate(target));
+                            if changed {
+                                cx.notify();
+                            }
+                            changed
+                        })
+                        .map_err(|error| format!("click: {error}"))?;
+                    dirty |= changed;
+                }
+            }
+            // A wheel is not wired yet: the lists fit the window, and a scroll
+            // that moved nothing would be a promise the view cannot keep.
+            Some(input::Event::Scrolled(_)) | None => {}
         }
     }
-    title
+    Ok(())
 }
