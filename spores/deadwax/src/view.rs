@@ -10,8 +10,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Entity, Image, IntoElement, Render, SharedString, Window, div, prelude::*, px,
-    rgb,
+    AnyElement, Bounds, Context, Corners, Edges, Entity, Hsla, Image, IntoElement,
+    PaintQuad, Path as GpuiPath, Pixels, Render, SharedString, Window, canvas, div, point,
+    prelude::*, px, rgb,
 };
 use gpui_component::slider::{Slider, SliderState};
 use gpui_component::tag::Tag;
@@ -744,7 +745,7 @@ impl Deck {
                             .px(px(6.0))
                             .text_size(px(11.0))
                             .text_color(rgb(FAINT))
-                            .child("✕")
+                            .child("x")
                             .on_mouse_down(
                                 gpui::MouseButton::Left,
                                 cx.listener(
@@ -913,9 +914,9 @@ impl Deck {
                 .items_center()
                 .justify_center()
                 .gap(px(22.0))
-                .child(self.transport_button("prev", "◀◀", cx, Request::Previous))
+                .child(self.transport_button("prev", Glyph::Prev, cx, Request::Previous))
                 .child(self.play_button(playing, cx))
-                .child(self.transport_button("next", "▶▶", cx, Request::Next)),
+                .child(self.transport_button("next", Glyph::Next, cx, Request::Next)),
         );
 
         panel = panel.child(
@@ -1186,7 +1187,7 @@ impl Deck {
     fn transport_button(
         &self,
         id: &'static str,
-        glyph: &'static str,
+        glyph: Glyph,
         cx: &mut Context<Self>,
         request: Request,
     ) -> AnyElement {
@@ -1198,9 +1199,7 @@ impl Deck {
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(13.0))
-            .text_color(rgb(MUTED))
-            .hover(|style| style.bg(rgb(PANEL_HI)).text_color(rgb(TEXT)))
+            .hover(|style| style.bg(rgb(PANEL_HI)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |this, _: &gpui::MouseDownEvent, _window, cx| {
@@ -1208,8 +1207,17 @@ impl Deck {
                     cx.notify();
                 }),
             )
-            .child(glyph)
+            .child(self.glyph(glyph, 13.0, Hsla::from(rgb(MUTED))))
             .into_any_element()
+    }
+
+    fn glyph(&self, glyph: Glyph, size: f32, color: Hsla) -> impl IntoElement {
+        canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _cx| paint_glyph(window, bounds, glyph, color),
+        )
+        .w(px(size))
+        .h(px(size))
     }
 
     /// Play/pause is the one control that gets weight: a filled circle, like a
@@ -1224,8 +1232,6 @@ impl Deck {
             .items_center()
             .justify_center()
             .bg(rgb(ACCENT))
-            .text_size(px(20.0))
-            .text_color(rgb(0x1a1409))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |this, _: &gpui::MouseDownEvent, _window, cx| {
@@ -1233,7 +1239,11 @@ impl Deck {
                     cx.notify();
                 }),
             )
-            .child(if playing { "❚❚" } else { "▶" })
+            .child(self.glyph(
+                if playing { Glyph::Pause } else { Glyph::Play },
+                22.0,
+                Hsla::from(rgb(0x1a1409)),
+            ))
             .into_any_element()
     }
 
@@ -1296,6 +1306,98 @@ impl Render for Deck {
                     .child(self.now(cx)),
             )
             .child(self.footer())
+    }
+}
+
+/// The controls are drawn, not typed. A code font has no ▶ or ❚❚, and the two
+/// that do render differ in weight and baseline; a triangle that is always 12 px
+/// wide looks the same on every host.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Glyph {
+    Play,
+    Pause,
+    Prev,
+    Next,
+}
+
+fn paint_triangle(window: &mut Window, a: (f32, f32), b: (f32, f32), c: (f32, f32), color: Hsla) {
+    let mut path = GpuiPath::new(point(px(a.0), px(a.1)));
+    path.push_triangle(
+        (
+            point(px(a.0), px(a.1)),
+            point(px(b.0), px(b.1)),
+            point(px(c.0), px(c.1)),
+        ),
+        (
+            point(0.0, 0.0),
+            point(0.0, 0.0),
+            point(0.0, 0.0),
+        ),
+    );
+    window.paint_path(path, color);
+}
+
+fn paint_glyph(window: &mut Window, bounds: Bounds<Pixels>, glyph: Glyph, color: Hsla) {
+    let w = f32::from(bounds.size.width);
+    let h = f32::from(bounds.size.height);
+    let (x, y) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+    let bar = |window: &mut Window, x0: f32, width: f32| {
+        window.paint_quad(PaintQuad {
+            bounds: Bounds {
+                origin: point(px(x0), px(y + h * 0.22)),
+                size: gpui::size(px(width), px(h * 0.56)),
+            },
+            corner_radii: Corners::all(px(1.0)),
+            background: color.into(),
+            border_widths: Edges::default(),
+            border_color: gpui::transparent_black(),
+            border_style: Default::default(),
+        });
+    };
+    match glyph {
+        Glyph::Play => paint_triangle(
+            window,
+            (x + w * 0.30, y + h * 0.22),
+            (x + w * 0.76, y + h * 0.50),
+            (x + w * 0.30, y + h * 0.78),
+            color,
+        ),
+        Glyph::Pause => {
+            bar(window, x + w * 0.30, w * 0.14);
+            bar(window, x + w * 0.56, w * 0.14);
+        }
+        Glyph::Prev => {
+            paint_triangle(
+                window,
+                (x + w * 0.54, y + h * 0.24),
+                (x + w * 0.54, y + h * 0.76),
+                (x + w * 0.16, y + h * 0.50),
+                color,
+            );
+            paint_triangle(
+                window,
+                (x + w * 0.90, y + h * 0.24),
+                (x + w * 0.90, y + h * 0.76),
+                (x + w * 0.52, y + h * 0.50),
+                color,
+            );
+        }
+        Glyph::Next => {
+            paint_triangle(
+                window,
+                (x + w * 0.46, y + h * 0.24),
+                (x + w * 0.46, y + h * 0.76),
+                (x + w * 0.84, y + h * 0.50),
+                color,
+            );
+            paint_triangle(
+                window,
+                (x + w * 0.10, y + h * 0.24),
+                (x + w * 0.10, y + h * 0.76),
+                (x + w * 0.48, y + h * 0.50),
+                color,
+            );
+        }
     }
 }
 
