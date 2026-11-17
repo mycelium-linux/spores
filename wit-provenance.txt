@@ -126,3 +126,27 @@ spores/chrome/wit/deps/soil-surface.wit e58932babc960328edb94267bbb13f24000709d4
 spores/dragshift/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 spores/chrome/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 spores/surface-probe/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
+
+# --- soil-playback.wit ------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-playback.wit
+# soil-commit: 82fef4c + the soil:playback change (vendored before the merge)
+#
+# The contract landed with its host: `crates/soil-playback-host` bridges the
+# `audio.playback.*` Unibus kinds, `soil-webgpu` links all three interfaces, and
+# `canvas-winit --unibus-config [--arbiter]` attaches an owner and the desk
+# arbiter. The second revision added sessions, the `desk` interface and focus
+# events; the third added `blocked`, the audio host's lockout reaching a
+# player. The row moves with each revision, which is the drift this file exists
+# to catch.
+
+spores/deadwax/wit/deps/soil-playback/package.wit c5a143830575b16c20ac68148fb6c9d15d07e793
+
+# --- soil-audio.wit ---------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-audio.wit
+# soil-commit: 82fef4c + the studio change (vendored before the merge)
+#
+# The draft lived only in `spores/sfx`; soil now carries it with the `studio`
+# interface and the `locked` admission error. The sfx guest imports `audio`
+# only and its `open`/`rooms` calls are unchanged.
+
+spores/sfx/wit/deps/soil-audio.wit 8e18b76ae8da44bb0278ad42ac16f3119d77d614

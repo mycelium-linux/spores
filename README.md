@@ -133,6 +133,7 @@ spores/dfm-report          DFM report renderer
 spores/mush                sandboxed VFS shell
 spores/hue                 Philips Hue CLI over the local bridge API
 spores/spotify             Spotify Connect remote for RASpotify
+spores/deadwax             controller for the household playhead (GPUI, CID/Spotify)
 spores/tui                 ratatui dashboard that emits ANSI frames
 spores/cli-http            the narrow host-mediated HTTP seam shared by CLI spores
 spores/media-probe         soil:media fixture
@@ -173,6 +174,9 @@ spores/markdown     the Markdown reader/editor Spore
 spores/store        the storefront Spore (id `dev.fungos.store`)
                     ui/    browse, listing and updates views
                     docs/  the manual `man store` prints
+spores/deadwax      the controller Spore (id `dev.fungos.deadwax`)
+                    src/   GPUI view + soil:playback / soil:http adapters
+                    wit/   the runner and the vendored `soil:playback` proposal
 spores/unibus       the inbox Spore (id `dev.fungos.inbox`)
                     src/   record keys/schemas for mail + chat metadata
                     spore.toml  records/unibus grants, read-only

@@ -1,4 +1,4 @@
-// Route-aware audio playback.
+// Route-aware audio playback, and the studio that owns the device.
 //
 // `wasi:audio` is the portable PCM sink: the guest writes interleaved f32 and
 // the host owns the device. This package adds the one thing a desktop needs on
@@ -8,6 +8,13 @@
 // A room is a host-resolved name. It is never an address, port, SSRC, device
 // path, or socket. The host owns discovery, the principal's current room, and
 // the policy that decides whether a Spore may send to one.
+//
+// `studio` is the other half: whoever owns the speakers can hold the device for
+// a listening, mixing or recording session. While that hold is exclusive, an
+// `audio.open` from any other caller fails `locked`. A player still owns its
+// queue and still reports its playhead; it just cannot be heard. The rest of
+// Soil does not need to know the studio exists: it either gets an output or it
+// gets a typed `locked`.
 //
 // `wasi:audio` stays the portable contract; Soil links this package in front of
 // it when a Spore needs routing. A guest that only needs a local sink keeps
@@ -60,6 +67,9 @@ interface audio {
     backend,
     /// The output resource was already closed.
     closed,
+    /// Another authority holds the output exclusively (a studio session, a
+    /// call, a system lock). The caller may retry once the hold is released.
+    locked,
   }
 
   record status {
@@ -94,10 +104,59 @@ interface audio {
   current-room: func() -> result<option<room>, error>;
 }
 
+/// The studio's hold on the device. Only the audio host implements this; a
+/// player imports `audio` and never needs to know which mode is current.
+interface studio {
+  use audio.{error};
+
+  enum mode {
+    /// Nothing holds the device; any granted player may open it.
+    idle,
+    /// The studio is monitoring; players still mix through.
+    listening,
+    /// The studio is mixing; players may be ducked or muted by policy.
+    mixing,
+    /// A recording session. Players are locked out by default.
+    recording,
+  }
+
+  record state {
+    mode: mode,
+    /// The app or principal holding the device, e.g. `synesthesia`.
+    holder: option<string>,
+    /// While exclusive, `audio.open` from anyone but the holder fails
+    /// `locked`. Not every recording hold is exclusive: a studio may record a
+    /// room mic while the house playlist keeps playing.
+    exclusive: bool,
+    since-ms: u64,
+  }
+
+  resource lease {
+    current: func() -> state;
+    /// Release or downgrade the hold. Releasing a lease that already ended is
+    /// `closed`, not a silent success.
+    release: func() -> result<_, error>;
+  }
+
+  /// The current hold, if any. `mode = idle` and `holder = none` when free.
+  current: func() -> state;
+
+  /// Take the device for a studio session.
+  ///
+  /// The same holder re-taking is idempotent; a different holder while
+  /// exclusive fails `denied`. `holder` is a name, never a token or a path.
+  hold: func(mode: mode, holder: string, exclusive: bool) -> result<lease, error>;
+}
+
 world guest {
   import audio;
 }
 
 world host {
   import audio;
+}
+
+world studio-host {
+  import audio;
+  import studio;
 }

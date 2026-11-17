@@ -1,0 +1,16 @@
+// The controller's world: a GPUI view, a playhead, and one bounded catalog GET.
+//
+// There is no `soil:vfs` import on purpose. A local track is named by CID and
+// the owner resolves it; the Spore never reads library bytes itself.
+package fungos:deadwax@0.1.0;
+
+world runner {
+  import soil:present/surface@0.1.0;
+  import soil:present/input@0.1.0;
+  import soil:present/cursor@0.1.0;
+  import soil:playback/player@0.1.0;
+  import soil:playback/events@0.1.0;
+  import soil:playback/desk@0.1.0;
+  import soil:http/http@0.1.0;
+  export run: async func() -> u32;
+}

@@ -1,0 +1,7 @@
+spore-lock 1
+spore dev.fungos.deadwax
+version 0.1.0
+file 859478ab96e32ef0753a69ae309e93f9a9852fa5fd1e0812df384ffe52105be1 1706 docs/man.md
+file 1f2a195b4de87bbb002f5e6e5511c21a9cfd3b7e032746fb10d60d5806fd01eb 13120709 module.wasm
+file c615d500fa160a61373e071eaeb5302ae7b54a0eddc34c8507e864f5fafce3ae 2239 spore.toml
+digest d843b647dc539fed4fe6ad094804ac982473893c4d721e17ce1f02b23a044a7f
