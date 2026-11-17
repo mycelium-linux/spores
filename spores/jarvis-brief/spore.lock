@@ -1,6 +1,6 @@
 spore-lock 1
 spore dev.fungos.jarvis-brief
 version 0.1.0
-file 529a1bf51bce15d0c581c3aa2d0085b4bf66e23a8a8987b808d7915cec1616b3 250026 module.wasm
+file 9ed8949f9c27067b1cd59cda9c746d41a50a4b225bd5c466cead6c0ecd11bf39 251000 module.wasm
 file bc812e4f9ed9dff67ddcf23a28cd8f03200ebe53544bd248a15d4b7602c91ce8 1413 spore.toml
-digest 10853dc1ea968f5aa0a10705cc3f54f815e63d4e04daf92fe5d69a12a2cdb8f9
+digest 18c7394545648bc1389bcc0885c1983f3eb9b2a0d72742d6195f91c1696a910c

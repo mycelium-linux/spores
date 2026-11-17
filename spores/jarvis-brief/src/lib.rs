@@ -267,21 +267,43 @@ fn weather_section() -> Result<Value, String> {
     let temp = record["temp_c"].as_f64();
     let min = record["min_c"].as_f64();
     let max = record["max_c"].as_f64();
-    let icon = record["icon"].as_str().unwrap_or("").replace('-', " ");
-    let line = match (temp, min, max) {
-        (Some(temp), Some(min), Some(max)) => {
-            format!("{location}: {temp:.1}°C {icon}, {min:.1}..{max:.1}°C")
-        }
-        _ => format!("{location}: recorded without a temperature"),
-    };
+    let ranged = record["range_reported"].as_bool().unwrap_or(true);
+    let line = weather_line(record);
     Ok(json!({
         "state": "ok",
         "location": location,
         "temp_c": temp,
         "min_c": min,
         "max_c": max,
+        "range_reported": ranged,
         "line": line,
     }))
+}
+
+/// The line says exactly what the record says. `min_c` and `max_c` are only a
+/// range when the provider published one; a station whose only reading is its
+/// current temperature stores that value in both and clears `range_reported`,
+/// so printing `6.1..6.1` would dress an observation up as a range. Records
+/// written before the flag existed always carried a real range from open-meteo
+/// or NWS, so an absent flag means "as published". The wording matches the
+/// weather Spore's own summary, so the same fact reads the same way here.
+fn weather_line(record: &Value) -> String {
+    let location = record["location"].as_str().unwrap_or_default();
+    let icon = record["icon"].as_str().unwrap_or("").replace('-', " ");
+    let Some(temp) = record["temp_c"].as_f64() else {
+        return format!("{location}: recorded without a temperature");
+    };
+    let range = match (record["min_c"].as_f64(), record["max_c"].as_f64()) {
+        (Some(min), Some(max)) if record["range_reported"].as_bool().unwrap_or(true) => {
+            format!(", {min:.1}..{max:.1}°C")
+        }
+        _ => String::new(),
+    };
+    if range.is_empty() {
+        format!("{location}: {temp:.1}°C {icon}, no six-hour range reported")
+    } else {
+        format!("{location}: {temp:.1}°C {icon}{range}")
+    }
 }
 
 fn brief_namespace(wearer: &str) -> String {
@@ -346,4 +368,64 @@ fn notify_err(error: publisher::Error) -> String {
 
 fn time_err(error: time::Error) -> String {
     format!("time: {error:?}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_published_range_is_printed_as_a_range() {
+        let record = json!({
+            "location": "Seattle, WA, US",
+            "temp_c": 12.8,
+            "min_c": 8.1,
+            "max_c": 14.2,
+            "range_reported": true,
+            "icon": "rain",
+        });
+        assert_eq!(
+            weather_line(&record),
+            "Seattle, WA, US: 12.8°C rain, 8.1..14.2°C"
+        );
+    }
+
+    #[test]
+    fn a_station_without_extremes_is_not_printed_as_a_range() {
+        let record = json!({
+            "location": "Seattle-Tacoma Intl, WA, US",
+            "temp_c": 6.1,
+            "min_c": 6.1,
+            "max_c": 6.1,
+            "range_reported": false,
+            "icon": "heavy-clouds",
+        });
+        let line = weather_line(&record);
+        assert_eq!(
+            line,
+            "Seattle-Tacoma Intl, WA, US: 6.1°C heavy clouds, no six-hour range reported"
+        );
+        assert!(!line.contains(".."), "{line}");
+    }
+
+    #[test]
+    fn a_record_from_before_the_flag_keeps_its_published_range() {
+        let record = json!({
+            "location": "Seattle, WA, US",
+            "temp_c": 12.8,
+            "min_c": 8.1,
+            "max_c": 14.2,
+            "icon": "rain",
+        });
+        assert!(weather_line(&record).contains("8.1..14.2°C"));
+    }
+
+    #[test]
+    fn a_record_without_a_temperature_says_so() {
+        let record = json!({"location": "Seattle, WA, US", "icon": "rain"});
+        assert_eq!(
+            weather_line(&record),
+            "Seattle, WA, US: recorded without a temperature"
+        );
+    }
 }
