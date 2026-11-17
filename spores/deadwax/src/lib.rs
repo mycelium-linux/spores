@@ -28,8 +28,6 @@ use gpui::{
 use gpui_component::slider::{SliderEvent, SliderState};
 use gpui_wgpu::{CosmicTextSystem, WgpuContext, WgpuHeadlessRenderer};
 use soil::http::http;
-use soil::playback::types as playback;
-use soil::playback::{desk, events, player};
 use soil::present::{input, surface};
 use std::{borrow::Cow, sync::Arc};
 pub mod view;
@@ -45,87 +43,6 @@ const CATALOG: &str = "http://127.0.0.1:6601";
 const MAX_BODY: u32 = 1024 * 1024;
 const TIMEOUT_MS: u32 = 3_000;
 const PAGE: u32 = 60;
-
-fn error_text(error: &playback::Error) -> &'static str {
-    match error {
-        playback::Error::Denied => "denied",
-        playback::Error::Unavailable => "no playback owner",
-        playback::Error::Invalid => "invalid request",
-        playback::Error::Stale => "the queue moved on",
-        playback::Error::Unsupported => "the owner cannot do that",
-        playback::Error::Failed => "playback failed",
-        playback::Error::Blocked => "the studio has the speakers",
-    }
-}
-
-fn side_of(source: playback::Source) -> Side {
-    match source {
-        playback::Source::Local => Side::Local,
-        playback::Source::Spotify => Side::Spotify,
-    }
-}
-
-fn source_of(side: Side) -> playback::Source {
-    match side {
-        Side::Local => playback::Source::Local,
-        Side::Spotify => playback::Source::Spotify,
-    }
-}
-
-fn track_of(track: &playback::Track) -> Track {
-    Track {
-        side: side_of(track.source),
-        id: track.id.clone(),
-        title: track.title.clone(),
-        artist: track.artist.clone(),
-        album: track.album.clone(),
-        duration_ms: track.duration_ms,
-        art: track.art.clone(),
-        playable: true,
-    }
-}
-
-fn snapshot_of(state: &playback::State) -> Snapshot {
-    Snapshot {
-        revision: state.revision,
-        side: side_of(state.source),
-        playing: state.playing,
-        position_ms: state.position_ms,
-        volume: state.volume,
-        repeat: match state.repeat {
-            playback::Repeat::Off => view::RepeatMode::Off,
-            playback::Repeat::Track => view::RepeatMode::Track,
-            playback::Repeat::Queue => view::RepeatMode::Queue,
-        },
-        shuffle: state.shuffle,
-        current: state.current.as_ref().map(track_of),
-        index: state.index,
-        queue: state
-            .queue
-            .iter()
-            .map(|entry| track_of(&entry.track))
-            .collect(),
-    }
-}
-
-fn playback_track(track: &Track) -> playback::Track {
-    playback::Track {
-        source: source_of(track.side),
-        id: track.id.clone(),
-        title: track.title.clone(),
-        artist: track.artist.clone(),
-        album: track.album.clone(),
-        duration_ms: track.duration_ms,
-        art: track.art.clone(),
-    }
-}
-
-fn queue_entry(track: &Track) -> playback::QueueEntry {
-    playback::QueueEntry {
-        track: playback_track(track),
-        requested_by: None,
-    }
-}
 
 fn urlencode(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -186,6 +103,13 @@ fn fetch_playlists() -> Result<Vec<view::Playlist>, String> {
         return Err(format!("playlists: HTTP {}", response.status));
     }
     view::parse_playlists(&response.body)
+}
+
+/// The wishlist: records wanted, not records missing from a playlist.
+fn fetch_wishlist() -> Result<Vec<view::Wish>, String> {
+    let value = http_json(http::Method::Get, "/wishlist", None)?;
+    let body = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
+    view::parse_wishlist(&body)
 }
 
 /// Play a playlist: the server owns the join (owned file or stream shim), so
@@ -267,37 +191,131 @@ fn ensure_art(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext) -> bool {
     true
 }
 
-fn sessions_now() -> Vec<view::SessionChip> {
-    desk::sessions()
-        .into_iter()
-        .map(|session| view::SessionChip {
-            owner: session.target.owner.clone(),
-            session: session.target.session.clone(),
-            label: session.label,
-            kind: session.kind,
-            playing: session.playing,
-            focused: session.focused,
-            capability: view::SessionCapability {
-                can_play: session.capability.can_play,
-                can_pause: session.capability.can_pause,
-                can_next: session.capability.can_next,
-                can_previous: session.capability.can_previous,
-                can_seek: session.capability.can_seek,
-                has_volume: session.capability.has_volume,
-                can_search: session.capability.can_search,
-            },
+/// One bounded request to the catalog. Everything the Spore knows about the
+/// playhead comes through here now: the host this package runs on carries
+/// `soil:http`, not `soil:playback`, and `deadwax serve` already exposes MPD.
+fn http_json(
+    method: http::Method,
+    path: &str,
+    body: Option<Vec<u8>>,
+) -> Result<serde_json::Value, String> {
+    let response = http::fetch(&http::Request {
+        url: format!("{CATALOG}{path}"),
+        method,
+        headers: vec![],
+        body,
+        credential: None,
+        max_bytes: MAX_BODY,
+        timeout_ms: TIMEOUT_MS,
+    })
+    .map_err(|error| format!("{path}: {error:?}"))?;
+    if !(200..300).contains(&response.status) {
+        return Err(format!("{path}: HTTP {}", response.status));
+    }
+    if response.body.is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+    serde_json::from_slice(&response.body).map_err(|error| format!("{path} is not JSON: {error}"))
+}
+
+fn post(path: &str) -> Result<(), String> {
+    http_json(http::Method::Post, path, None).map(|_| ())
+}
+
+fn text(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// MPD's status and queue, as the catalog reports them, folded into one
+/// snapshot. A queue entry is named by the URI MPD uses — the catalog resolves
+/// it to bytes, this view never does.
+fn fetch_snapshot() -> Result<Option<Snapshot>, String> {
+    let status = http_json(http::Method::Get, "/mpd/status", None)?;
+    let uri = text(&status, "uri");
+    if uri.is_empty() {
+        return Ok(None);
+    }
+    let queue = http_json(http::Method::Get, "/mpd/queue", None)?;
+    let items = queue
+        .get("items")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut tracks: Vec<Track> = items
+        .iter()
+        .map(|item| Track {
+            side: Side::Local,
+            id: text(item, "uri"),
+            title: text(item, "title"),
+            artist: text(item, "artist"),
+            album: item
+                .get("album")
+                .and_then(serde_json::Value::as_str)
+                .filter(|album| !album.is_empty())
+                .map(str::to_string),
+            duration_ms: None,
+            art: None,
+            playable: true,
         })
-        .collect()
-}
-
-fn search_spotify(query: &str) -> Result<Vec<Track>, String> {
-    let tracks = player::search(playback::Source::Spotify, query, PAGE)
-        .map_err(|error| error_text(&error).to_string())?;
-    Ok(tracks.iter().map(track_of).collect())
-}
-
-fn send(command: playback::Command) -> Result<u64, String> {
-    player::send(&command).map_err(|error| error_text(&error).to_string())
+        .collect();
+    let duration_ms = status
+        .get("duration")
+        .and_then(serde_json::Value::as_f64)
+        .map(|seconds| (seconds * 1000.0) as u64);
+    let current_index = items.iter().position(|item| {
+        item.get("current")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    });
+    if let (Some(index), Some(duration)) = (current_index, duration_ms)
+        && let Some(track) = tracks.get_mut(index)
+    {
+        track.duration_ms = Some(duration);
+    }
+    let current = current_index
+        .and_then(|index| tracks.get(index).cloned())
+        .or_else(|| {
+            Some(Track {
+                side: Side::Local,
+                id: uri.clone(),
+                title: text(&status, "title"),
+                artist: text(&status, "artist"),
+                album: status
+                    .get("album")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|album| !album.is_empty())
+                    .map(str::to_string),
+                duration_ms,
+                art: None,
+                playable: true,
+            })
+        });
+    Ok(Some(Snapshot {
+        revision: 0,
+        side: Side::Local,
+        playing: status
+            .get("playing")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        position_ms: status
+            .get("elapsed")
+            .and_then(serde_json::Value::as_f64)
+            .map(|elapsed| (elapsed * 1000.0) as u64)
+            .unwrap_or(0),
+        volume: status
+            .get("volume")
+            .and_then(serde_json::Value::as_u64)
+            .map(|level| level as f32 / 100.0),
+        repeat: view::RepeatMode::Off,
+        shuffle: false,
+        current,
+        index: current_index.map(|index| index as u32),
+        queue: tracks,
+    }))
 }
 
 fn present_frame(
@@ -358,68 +376,18 @@ fn row_at(count: usize, width: f32, x: f32, y: f32) -> Option<usize> {
     (index < count).then_some(index)
 }
 
-/// Re-read the owner after a command. A host that publishes on Unibus may take
-/// a moment to send the matching snapshot; a host that executes inline answers
-/// immediately, and neither case needs a second code path in the guest.
+/// Re-read the playhead after a command. The catalog shells to MPD, so the
+/// answer is immediate; there is no bus to wait on and nothing to reconcile.
 fn refresh(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext) {
-    if let Ok(state) = player::snapshot() {
-        deck.update(cx, |deck, cx| {
-            deck.apply_snapshot(snapshot_of(&state));
-            cx.notify();
-        });
-    }
-    let sessions = sessions_now();
+    let snapshot = fetch_snapshot();
     deck.update(cx, |deck, cx| {
-        deck.set_sessions(sessions);
+        match snapshot {
+            Ok(Some(snapshot)) => deck.apply_snapshot(snapshot),
+            Ok(None) => deck.snapshot = None,
+            Err(error) => deck.fail(error),
+        }
         cx.notify();
     });
-}
-
-fn apply_event(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext, event: playback::Event) {
-    match event {
-        playback::Event::Snapshot(state) => {
-            let snapshot = snapshot_of(&state);
-            deck.update(cx, |deck, cx| {
-                deck.apply_snapshot(snapshot);
-                cx.notify();
-            });
-        }
-        playback::Event::Progress(position) => {
-            deck.update(cx, |deck, cx| {
-                deck.apply_progress(position.revision, position.position_ms, position.playing);
-                cx.notify();
-            });
-        }
-        playback::Event::Volume(level) => {
-            deck.update(cx, |deck, cx| {
-                deck.apply_volume(level);
-                cx.notify();
-            });
-        }
-        playback::Event::Failed(reason) => {
-            // A studio lockout is not a broken player: the queue is fine, it is
-            // just not audible. Say so without reddening the transport.
-            if matches!(reason, playback::Error::Blocked) {
-                deck.update(cx, |deck, cx| {
-                    deck.notice = Some("the studio has the speakers".into());
-                    cx.notify();
-                });
-            } else {
-                deck.update(cx, |deck, cx| {
-                    deck.fail(error_text(&reason));
-                    cx.notify();
-                });
-            }
-        }
-        playback::Event::Focus(_) => {
-            let sessions = sessions_now();
-            deck.update(cx, |deck, cx| {
-                deck.set_sessions(sessions);
-                cx.notify();
-            });
-            refresh(deck, cx);
-        }
-    }
 }
 
 fn run_request(
@@ -429,154 +397,101 @@ fn run_request(
 ) -> anyhow::Result<()> {
     let transport = !matches!(
         request,
-        Request::Search(..) | Request::Refresh | Request::RefreshPlaylists
+        Request::Search(..)
+            | Request::Refresh
+            | Request::RefreshPlaylists
+            | Request::RefreshWishlist
+            | Request::CycleWish(..)
+            | Request::RemoveWish(..)
     );
     match request {
-        Request::Toggle => {
-            if let Err(error) = send(playback::Command::Toggle) {
-                deck.update(context, |deck, cx| {
-                    deck.fail(error);
-                    cx.notify();
-                });
-            }
-        }
-        Request::Next => {
-            let _ = send(playback::Command::Next);
-        }
-        Request::Previous => {
-            let _ = send(playback::Command::Previous);
-        }
+        Request::Toggle => report(deck, context, post("/mpd/toggle")),
+        Request::Next => report(deck, context, post("/mpd/next")),
+        Request::Previous => report(deck, context, post("/mpd/prev")),
         Request::Play(track) => {
+            // A catalog row: append it to the shared queue, which is where the
+            // native controller would put it too.
             if !track.playable {
-                deck.update(context, |deck, cx| {
-                    deck.notice = Some("that one is not digitized yet".into());
-                    cx.notify();
-                });
+                notice(deck, context, "that one is not digitized yet");
             } else {
-                let command = playback::Command::SetQueue(playback::QueueRequest {
-                    entries: vec![queue_entry(&track)],
-                    start: 0,
-                });
-                if let Err(error) = send(command) {
-                    deck.update(context, |deck, cx| {
-                        deck.fail(error);
-                        cx.notify();
-                    });
-                }
-            }
-        }
-        Request::Enqueue(track) => {
-            if !track.playable {
-                deck.update(context, |deck, cx| {
-                    deck.notice = Some("that one is not digitized yet".into());
-                    cx.notify();
-                });
-            } else {
-                let command = playback::Command::Enqueue(playback::EnqueueRequest {
-                    entry: queue_entry(&track),
-                    next: false,
-                });
-                match send(command) {
-                    Ok(_) => deck.update(context, |deck, cx| {
-                        deck.notice = Some(format!("queued {}", track.title).into());
-                        cx.notify();
-                    }),
-                    Err(error) => deck.update(context, |deck, cx| {
-                        deck.fail(error);
-                        cx.notify();
-                    }),
-                }
-            }
-        }
-        Request::SelectSource(side) => {
-            let _ = send(playback::Command::SelectSource(source_of(side)));
-        }
-        Request::Focus(owner, session) => {
-            let target = playback::SessionRef { owner, session };
-            if let Err(error) = desk::focus(&target) {
-                deck.update(context, |deck, cx| {
-                    deck.fail(error_text(&error));
-                    cx.notify();
-                });
-            }
-            let sessions = sessions_now();
-            deck.update(context, |deck, cx| {
-                deck.set_sessions(sessions);
-                cx.notify();
-            });
-        }
-        Request::Volume(level) => {
-            if let Err(error) = send(playback::Command::Volume(level)) {
-                deck.update(context, |deck, cx| {
-                    deck.fail(error);
-                    cx.notify();
-                });
+                let path = format!("/mpd/add?uri={}", urlencode(&track.id));
+                report(deck, context, post(&path));
+                notice(deck, context, &format!("queued {}", track.title));
             }
         }
         Request::PlayFrom(index) => {
-            let queue = deck.update(context, |deck, _| {
-                deck.snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.queue.clone())
-                    .unwrap_or_default()
-            });
-            let entries: Vec<playback::QueueEntry> =
-                queue.iter().skip(index).map(queue_entry).collect();
-            if entries.is_empty() {
-                deck.update(context, |deck, cx| {
-                    deck.notice = Some("nothing queued from there".into());
-                    cx.notify();
-                });
-            } else if let Err(error) =
-                send(playback::Command::SetQueue(playback::QueueRequest {
-                    entries,
-                    start: 0,
-                }))
-            {
-                deck.update(context, |deck, cx| {
-                    deck.fail(error);
-                    cx.notify();
-                });
-            }
+            report(
+                deck,
+                context,
+                post(&format!("/mpd/play?position={}", index + 1)),
+            );
         }
-        Request::PlayPlaylist(owner, name) => {
-            match play_playlist(&owner, &name) {
-                Ok(()) => deck.update(context, |deck, cx| {
-                    deck.notice = Some(format!("queued {name}").into());
-                    cx.notify();
-                }),
-                Err(error) => deck.update(context, |deck, cx| {
-                    deck.fail(error);
-                    cx.notify();
-                }),
-            }
+        Request::Seek(seconds) => {
+            report(
+                deck,
+                context,
+                post(&format!("/mpd/seek?seconds={seconds}")),
+            );
         }
-        Request::RefreshPlaylists => {
-            let playlists = fetch_playlists();
+        Request::Volume(level) => {
+            let percent = (level.clamp(0.0, 1.0) * 100.0).round() as u8;
+            report(
+                deck,
+                context,
+                post(&format!("/mpd/volume?level={percent}")),
+            );
+        }
+        Request::PlayPlaylist(owner, name) => match play_playlist(&owner, &name) {
+            Ok(()) => notice(deck, context, &format!("queued {name}")),
+            Err(error) => failure(deck, context, &error),
+        },
+        Request::RefreshWishlist => match fetch_wishlist() {
+            Ok(wishlist) => deck.update(context, |deck, cx| {
+                deck.wishlist = wishlist;
+                cx.notify();
+            }),
+            Err(error) => failure(deck, context, &error),
+        },
+        Request::CycleWish(id, status) => {
+            let path = format!("/wishlist/status?id={id}&status={status}");
+            report(deck, context, post(&path));
+            run_request(deck, Request::RefreshWishlist, context)?;
+        }
+        Request::RemoveWish(id) => {
+            report(deck, context, post(&format!("/wishlist/remove?id={id}")));
+            run_request(deck, Request::RefreshWishlist, context)?;
+        }
+        Request::RefreshPlaylists => match fetch_playlists() {
+            Ok(playlists) => deck.update(context, |deck, cx| {
+                deck.playlists = playlists;
+                cx.notify();
+            }),
+            Err(error) => deck.update(context, |deck, cx| {
+                deck.fail(error);
+                cx.notify();
+            }),
+        },
+        Request::SelectSource(side) => {
+            // One source now: the catalog. Spotify would need an account, which
+            // lives behind `deadwax serve` and the native controller.
             deck.update(context, |deck, cx| {
-                match playlists {
-                    Ok(playlists) => deck.playlists = playlists,
-                    Err(error) => deck.fail(error),
-                }
+                deck.side = side;
                 cx.notify();
             });
         }
-        Request::RefreshSessions => {
-            let sessions = sessions_now();
-            deck.update(context, |deck, cx| {
-                deck.set_sessions(sessions);
-                cx.notify();
-            });
+        Request::Enqueue(track) => {
+            // "Queue this one": the same route as play, without starting it.
+            let path = format!("/mpd/add?uri={}", urlencode(&track.id));
+            match post(&path) {
+                Ok(()) => notice(deck, context, &format!("queued {}", track.title)),
+                Err(error) => failure(deck, context, &error),
+            }
         }
+        Request::Focus(..) | Request::RefreshSessions => {}
         Request::Search(side, query) => {
-            deck.update(context, |deck, cx| {
-                deck.loading = true;
-                deck.error = None;
-                cx.notify();
-            });
             let result = match side {
                 Side::Local => fetch_catalog(&query),
-                Side::Spotify => search_spotify(&query),
+                Side::Spotify => Err("spotify search needs the native controller".to_string()),
             };
             deck.update(context, |deck, cx| {
                 match result {
@@ -595,6 +510,28 @@ fn run_request(
         refresh(deck, context);
     }
     Ok(())
+}
+
+fn report(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext, result: Result<(), String>) {
+    if let Err(error) = result {
+        failure(deck, cx, &error);
+    }
+}
+
+fn failure(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext, error: &str) {
+    let error = error.to_string();
+    deck.update(cx, |deck, cx| {
+        deck.fail(error);
+        cx.notify();
+    });
+}
+
+fn notice(deck: &gpui::Entity<Deck>, cx: &mut HeadlessAppContext, text: &str) {
+    let text = text.to_string();
+    deck.update(cx, |deck, cx| {
+        deck.notice = Some(text.into());
+        cx.notify();
+    });
 }
 
 fn render_frame() -> anyhow::Result<()> {
@@ -622,22 +559,13 @@ fn render_frame() -> anyhow::Result<()> {
 
     let deck = cx.new(|_| {
         let mut deck = Deck::new();
-        deck.sources = player::sources()
-            .iter()
-            .map(|source| view::Capability {
-                side: side_of(source.source),
-                label: source.label.clone(),
-                can_search: source.can_search,
-            })
-            .collect();
-        match player::snapshot() {
-            Ok(state) => deck.apply_snapshot(snapshot_of(&state)),
-            Err(error) => deck.fail(error_text(&error)),
-        }
-        deck.set_sessions(sessions_now());
+        // No `sources` call: the catalog is the only source this build can
+        // reach, and the view falls back to local + spotify when the list is
+        // empty (spotify answers with "needs the native controller").
         deck.requests
             .push(Request::Search(Side::Local, String::new()));
         deck.requests.push(Request::RefreshPlaylists);
+        deck.requests.push(Request::RefreshWishlist);
         deck
     });
 
@@ -659,6 +587,18 @@ fn render_frame() -> anyhow::Result<()> {
         )
     });
 
+    let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
+    deck.update(&mut cx, |deck, _| deck.seek_slider = Some(seek.clone()));
+    let _seek_events = deck.update(&mut cx, |_, cx| {
+        cx.subscribe(&seek, |deck, _slider, event: &SliderEvent, _cx| match event {
+            SliderEvent::Change(_) => deck.dragging_seek = true,
+            SliderEvent::Release(value) => {
+                deck.dragging_seek = false;
+                deck.seek_to(value.start());
+            }
+        })
+    });
+
     let scale = surface::scale() as f32;
     let window = cx.open_window_scaled(size(px(width as f32), px(height as f32)), scale, {
         let deck = deck.clone();
@@ -669,6 +609,7 @@ fn render_frame() -> anyhow::Result<()> {
     let mut window_size = (width, height);
     let mut dirty = true;
     let mut pointer_down = false;
+    let mut last_poll = std::time::Instant::now() - std::time::Duration::from_secs(1);
     loop {
         let size = surface::size();
         if size != window_size {
@@ -679,13 +620,12 @@ fn render_frame() -> anyhow::Result<()> {
             dirty = true;
         }
 
-        // Playback events first: a track change should be painted before a
-        // keystroke that arrived in the same frame.
-        if events::attached() {
-            while let Some(event) = events::poll(0) {
-                apply_event(&deck, &mut cx, event);
-                dirty = true;
-            }
+        // Poll the playhead once a second: MPD is the clock, and one HTTP pair
+        // per second is cheaper than a frame-by-frame question.
+        if last_poll.elapsed() >= std::time::Duration::from_millis(1000) {
+            refresh(&deck, &mut cx);
+            last_poll = std::time::Instant::now();
+            dirty = true;
         }
 
         let requests = deck.update(&mut cx, |deck, _| std::mem::take(&mut deck.requests));
@@ -955,10 +895,7 @@ fn render_frame() -> anyhow::Result<()> {
         // timeout even with no owner attached, and an event that arrives during
         // the wait is a real update: dropping it would lose the first snapshot
         // after a quiet poll.
-        if let Some(event) = events::poll(8) {
-            apply_event(&deck, &mut cx, event);
-            dirty = true;
-        }
+        let _ = input::poll(8);
     }
     Ok(())
 }

@@ -25,7 +25,7 @@ keywords = ["deadwax", "music", "playback", "cid", "spotify", "unibus"]
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { present = "0.1.0", playback = "0.1.0", http = "0.1.0" }
+abi = { present = "0.1.0", http = "0.1.0" }
 
 [module]
 path = "module.wasm"
@@ -35,8 +35,7 @@ default = "canvas"
 surfaces = ["canvas"]
 
 [grants]
-"soil:playback" = "read the household playhead and send transport commands"
-"soil:http" = "search the local deadwax catalog on 127.0.0.1:6601"
+"soil:http" = "read the catalog and drive MPD's transport on 127.0.0.1:6601"
 "soil:present" = "draw and present its own surface"
 
 # GPUI draws into a texture through wasi:webgpu; the host owns the device and the

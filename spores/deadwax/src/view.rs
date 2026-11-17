@@ -72,6 +72,25 @@ pub struct Track {
     pub playable: bool,
 }
 
+/// One record on the wishlist: what you want, not what a playlist is missing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Wish {
+    pub id: u64,
+    pub title: String,
+    pub artist: Option<String>,
+    pub status: String,
+}
+
+impl Wish {
+    pub fn next_status(&self) -> &'static str {
+        match self.status.as_str() {
+            "wanted" => "ordered",
+            "ordered" => "owned",
+            _ => "wanted",
+        }
+    }
+}
+
 /// An album a playlist wants that the library does not have.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MissingAlbum {
@@ -161,11 +180,17 @@ pub enum Request {
     Focus(String, String),
     /// Normalized `0..=1`, the unit the playback contract speaks.
     Volume(f32),
+    /// Seek to this many seconds into the current track.
+    Seek(u64),
     /// Play the queue from this index, keeping the rest of it.
     PlayFrom(usize),
     /// Replace the shared queue with an imported playlist and start it.
     PlayPlaylist(String, String),
     RefreshPlaylists,
+    RefreshWishlist,
+    /// Move a wish along `wanted -> ordered -> owned`.
+    CycleWish(u64, String),
+    RemoveWish(u64),
     RefreshSessions,
     Refresh,
 }
@@ -181,6 +206,9 @@ pub struct Deck {
     pub side: Side,
     pub results: Vec<Track>,
     pub playlists: Vec<Playlist>,
+    pub wishlist: Vec<Wish>,
+    /// The list pane shows the wishlist instead of the catalog.
+    pub show_want: bool,
     pub query: String,
     pub query_open: bool,
     pub selected: usize,
@@ -192,6 +220,9 @@ pub struct Deck {
     /// Covers fetched by content address, keyed by the CID the queue entry
     /// carries. A redraw never re-fetches; a missing key draws the vinyl disc.
     pub art: HashMap<String, Arc<Image>>,
+    /// The playhead thumb, 0..=1 over the current track.
+    pub seek_slider: Option<Entity<SliderState>>,
+    pub dragging_seek: bool,
     /// The volume thumb, when `lib.rs` attached one. It stays optional so the
     /// view can still be built from a fixture in a test, with no app context.
     pub volume_slider: Option<Entity<SliderState>>,
@@ -216,6 +247,8 @@ impl Deck {
             side: Side::Local,
             results: Vec::new(),
             playlists: Vec::new(),
+            wishlist: Vec::new(),
+            show_want: false,
             query: String::new(),
             query_open: false,
             selected: 0,
@@ -225,6 +258,8 @@ impl Deck {
             loading: false,
             requests: Vec::new(),
             art: HashMap::new(),
+            seek_slider: None,
+            dragging_seek: false,
             volume_slider: None,
             dragging_volume: false,
         }
@@ -257,6 +292,37 @@ impl Deck {
         self.apply_volume(level);
         self.requests.push(Request::Volume(level));
     }
+    /// Seek to `fraction` of the current track, if it has a known duration.
+    pub fn seek_to(&mut self, fraction: f32) {
+        let Some(duration) = self
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.current.as_ref())
+            .and_then(|track| track.duration_ms)
+        else {
+            return;
+        };
+        if duration == 0 {
+            return;
+        }
+        let seconds = (fraction.clamp(0.0, 1.0) as f64 * duration as f64 / 1000.0).round() as u64;
+        self.requests.push(Request::Seek(seconds));
+    }
+
+    /// Keep the playhead thumb where playback is, unless the pointer holds it.
+    pub fn sync_seek(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(slider) = &self.seek_slider else {
+            return;
+        };
+        if self.dragging_seek {
+            return;
+        }
+        let progress = self.progress();
+        if (slider.read(cx).value().start() - progress).abs() > 0.005 {
+            slider.update(cx, |state, cx| state.set_value(progress, window, cx));
+        }
+    }
+
     /// The thumbnail's value, kept in step with the owner unless the pointer is
     /// holding it.
     pub fn sync_volume(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -538,6 +604,27 @@ impl Deck {
                     .child(self.source_tabs(cx))
                     .child(
                         div()
+                            .id("want-tab")
+                            .px(px(6.0))
+                            .py(px(2.0))
+                            .rounded(px(4.0))
+                            .bg(rgb(if self.show_want { PANEL_HI } else { BG }))
+                            .text_size(px(10.0))
+                            .text_color(rgb(if self.show_want { TEXT } else { MUTED }))
+                            .child("want")
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _: &gpui::MouseDownEvent, _window, cx| {
+                                    this.show_want = !this.show_want;
+                                    if this.show_want {
+                                        this.request(Request::RefreshWishlist);
+                                    }
+                                    cx.notify();
+                                }),
+                            ),
+                    )
+                    .child(
+                        div()
                             .flex_1()
                             .text_size(px(11.0))
                             .text_color(rgb(if self.query_open { TEXT } else { FAINT }))
@@ -551,10 +638,15 @@ impl Deck {
                         div()
                             .text_size(px(10.0))
                             .text_color(rgb(MUTED))
-                            .child(format!("{count} items")),
+                            .child(format!(
+                                "{} items",
+                                if self.show_want { self.wishlist.len() } else { count }
+                            )),
                     ),
             )
-            .child(if self.results.is_empty() {
+            .child(if self.show_want {
+                self.wish_rows(cx)
+            } else if self.results.is_empty() {
                 div()
                     .flex_1()
                     .flex()
@@ -582,6 +674,88 @@ impl Deck {
                     )
                     .into_any_element()
             })
+            .into_any_element()
+    }
+
+    /// The wishlist: a row per record, a click to move its status, an `✕` to
+    /// drop it. The same two verbs the native controller's Find tab offers.
+    fn wish_rows(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.wishlist.is_empty() {
+            return div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(11.0))
+                .text_color(rgb(FAINT))
+                .child("nothing wanted yet")
+                .into_any_element();
+        }
+        div()
+            .flex_1()
+            .overflow_hidden()
+            .children(self.wishlist.iter().enumerate().map(|(index, wish)| {
+                let id = wish.id;
+                let next = wish.next_status().to_string();
+                let remove = wish.id;
+                div()
+                    .id(("wish", index))
+                    .h(px(ROW_H))
+                    .flex_none()
+                    .px(px(14.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.0))
+                    .bg(rgb(BG))
+                    .hover(|style| style.bg(rgb(ROW_HOVER)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _: &gpui::MouseDownEvent, _window, cx| {
+                            this.request(Request::CycleWish(id, next.clone()));
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(rgb(TEXT))
+                                    .child(SharedString::from(wish.title.clone())),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(rgb(FAINT))
+                                    .child(SharedString::from(
+                                        wish.artist.clone().unwrap_or_default(),
+                                    )),
+                            ),
+                    )
+                    .child(Tag::secondary().child(SharedString::from(wish.status.clone())))
+                    .child(
+                        div()
+                            .id(("unwant", index))
+                            .px(px(6.0))
+                            .text_size(px(11.0))
+                            .text_color(rgb(FAINT))
+                            .child("✕")
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(
+                                    move |this, _: &gpui::MouseDownEvent, _window, cx| {
+                                        this.request(Request::RemoveWish(remove));
+                                        cx.notify();
+                                    },
+                                ),
+                            ),
+                    )
+            }))
             .into_any_element()
     }
 
@@ -702,25 +876,16 @@ impl Deck {
                 ),
         );
 
-        // The playhead is two divs: a track and a filled portion. Nothing here
-        // needs a kit slider, and a mis-drawn slider is worse than a bar.
+        // Seek is a kit slider now that pointer input reaches GPUI: the same
+        // control the native controller uses, over MPD's own position.
         panel = panel.child(
             div()
                 .px(px(18.0))
                 .flex_none()
                 .child(
-                    div()
-                        .h(px(3.0))
-                        .w_full()
-                        .rounded(px(2.0))
-                        .bg(rgb(PANEL_HI))
-                        .child(
-                            div()
-                                .h(px(3.0))
-                                .rounded(px(2.0))
-                                .bg(rgb(ACCENT))
-                                .w(px((SIDE_W - 36.0) * self.progress())),
-                        ),
+                    div().children(self.seek_slider.as_ref().map(|slider| {
+                        Slider::new(slider).horizontal().w_full()
+                    })),
                 )
                 .child(
                     div()
@@ -1068,6 +1233,7 @@ impl Render for Deck {
         // The owner keeps the truth; the thumb follows it unless a pointer is on
         // it. Doing this here means every snapshot path (event, poll, refresh)
         // updates the control without each of them knowing it exists.
+        self.sync_seek(window, cx);
         self.sync_volume(window, cx);
         div()
             .size_full()
@@ -1204,6 +1370,35 @@ pub fn parse_playlists(body: &[u8]) -> Result<Vec<Playlist>, String> {
         });
     }
     Ok(playlists)
+}
+
+/// `/wishlist` answers an array of records with `id`, `title`, `artist`,
+/// `status`; everything else is the Discogs hit it came from and not this
+/// pane's business.
+pub fn parse_wishlist(body: &[u8]) -> Result<Vec<Wish>, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|error| format!("wishlist is not JSON: {error}"))?;
+    let list = value
+        .as_array()
+        .ok_or_else(|| "wishlist response is not a list".to_string())?;
+    Ok(list
+        .iter()
+        .filter_map(|entry| {
+            Some(Wish {
+                id: entry.get("id")?.as_u64()?,
+                title: entry.get("title")?.as_str()?.to_string(),
+                artist: entry
+                    .get("artist")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                status: entry
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("wanted")
+                    .to_string(),
+            })
+        })
+        .collect())
 }
 
 #[cfg(test)]
