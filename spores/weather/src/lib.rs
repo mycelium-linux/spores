@@ -1,7 +1,8 @@
 //! The weather Spore: "what is the weather here", as a record the watch reads.
 //!
-//! One provider (Open-Meteo, no key), one `weather.current` record per place,
-//! and one line of output for a person. The Spore owns argument parsing, the
+//! Three providers — Open-Meteo (no key), NWS (US points), METAR (station
+//! observations) — one `weather.current` record per place, and one line of
+//! output for a person. The Spore owns argument parsing, the
 //! place lookup, and the record; the host owns the connection, the origin
 //! allowlist, and durability. Nothing here opens a socket or a file.
 //!
@@ -50,6 +51,12 @@ struct Command {
     json: bool,
     help: bool,
     provider: String,
+    /// METAR station id (`KSEA`). Only `--provider metar` uses it.
+    station: Option<String>,
+    /// The viewer's offset from UTC, for a METAR observation: the report is
+    /// always UTC, and the record carries the shift so the watch shows a
+    /// local time rather than a five-hour lie.
+    utc_offset_min: i32,
 }
 
 impl Command {
@@ -62,6 +69,8 @@ impl Command {
             json: false,
             help: false,
             provider: "open-meteo".to_string(),
+            station: None,
+            utc_offset_min: 0,
         };
         let mut words = Vec::new();
         let mut index = 0;
@@ -80,12 +89,19 @@ impl Command {
                 "--json" => command.json = true,
                 "--provider" => {
                     let value = take(args, &mut index, "--provider")?;
-                    if value != "open-meteo" && value != "nws" {
+                    if value != "open-meteo" && value != "nws" && value != "metar" {
                         return Err(format!(
-                            "--provider: {value:?} is not one of open-meteo, nws"
+                            "--provider: {value:?} is not one of open-meteo, nws, metar"
                         ));
                     }
                     command.provider = value;
+                }
+                "--station" => command.station = Some(take(args, &mut index, "--station")?),
+                "--utc-offset-min" => {
+                    let value = take(args, &mut index, "--utc-offset-min")?;
+                    command.utc_offset_min = value
+                        .parse::<i32>()
+                        .map_err(|_| format!("--utc-offset-min: {value:?} is not a number"))?;
                 }
                 "--help" | "-h" | "help" => command.help = true,
                 flag if flag.starts_with("--") => return Err(format!("unknown argument {flag:?}")),
@@ -114,6 +130,33 @@ impl Command {
         }
         let json = self.json;
         let provider = self.provider.clone();
+
+        // METAR is station-shaped: the station's own coordinates come back with
+        // the observation, so there is nothing to geocode.
+        if provider == "metar" {
+            let station = self.station.clone().ok_or_else(|| {
+                "--provider metar needs --station, e.g. --station KSEA".to_string()
+            })?;
+            let fetched_at_monotonic_ms = host
+                .monotonic_ms()
+                .map_err(|error| format!("time: {error}"))?;
+            let body = fetch(host, &weather::metar::station_url(&station), "metar")?;
+            let record = weather::metar::parse(
+                &body,
+                &station,
+                self.label.as_deref(),
+                fetched_at_monotonic_ms,
+                self.utc_offset_min,
+            )
+            .map_err(|error| error.to_string())?
+            .with_computed_sun();
+            weather::check_location(&record.location)
+                .map_err(|error| format!("{error}; pass --label with a shorter name"))?;
+            let id = weather::record_id(Some(&station), record.latitude, record.longitude)
+                .map_err(|error| error.to_string())?;
+            return finish(host, record, id, json);
+        }
+
         let (latitude, longitude, label, id_label) = self.resolve(host)?;
         if !(-90.0..=90.0).contains(&latitude) {
             return Err(format!("--lat: {latitude} is outside -90..90"));
@@ -161,30 +204,7 @@ impl Command {
         }
         .with_computed_sun();
 
-        let record_body = record.body();
-        let bytes =
-            serde_json::to_vec(&record_body).map_err(|error| format!("record JSON: {error}"))?;
-        host.upsert(&id, &bytes)
-            .map_err(|error| format!("records: {}/{id}: {error}", weather::COLLECTION))?;
-
-        let output = if json {
-            serde_json::to_string_pretty(&record_body)
-                .map_err(|error| format!("record JSON: {error}"))?
-        } else {
-            summary(&record, &id)
-        };
-        Ok(Outcome {
-            output,
-            snapshot: json!({
-                "ok": true,
-                "collection": weather::COLLECTION,
-                "schema": weather::SCHEMA,
-                "id": id,
-                "location": record.location,
-                "timestamp": record.timestamp,
-                "fetched_at_monotonic_ms": record.fetched_at_monotonic_ms,
-            }),
-        })
+        finish(host, record, id, json)
     }
 
     /// Turn the flags into a point and the two names a record needs: the string
@@ -220,6 +240,39 @@ impl Command {
     }
 }
 
+/// Write the record and turn it into the line (or the JSON) the caller sees.
+fn finish(
+    host: &mut dyn Host,
+    record: weather::CurrentWeather,
+    id: String,
+    json: bool,
+) -> Result<Outcome, String> {
+    let record_body = record.body();
+    let bytes =
+        serde_json::to_vec(&record_body).map_err(|error| format!("record JSON: {error}"))?;
+    host.upsert(&id, &bytes)
+        .map_err(|error| format!("records: {}/{id}: {error}", weather::COLLECTION))?;
+
+    let output = if json {
+        serde_json::to_string_pretty(&record_body)
+            .map_err(|error| format!("record JSON: {error}"))?
+    } else {
+        summary(&record, &id)
+    };
+    Ok(Outcome {
+        output,
+        snapshot: json!({
+            "ok": true,
+            "collection": weather::COLLECTION,
+            "schema": weather::SCHEMA,
+            "id": id,
+            "location": record.location,
+            "timestamp": record.timestamp,
+            "fetched_at_monotonic_ms": record.fetched_at_monotonic_ms,
+        }),
+    })
+}
+
 fn take(args: &[String], index: &mut usize, flag: &str) -> Result<String, String> {
     *index += 1;
     args.get(*index)
@@ -249,13 +302,18 @@ fn summary(record: &weather::CurrentWeather, id: &str) -> String {
             clock(record.sunset_min)
         )
     };
+    // A station that reported no six-hour extremes has the same number in min
+    // and max; printing that as a range would be a lie dressed as data.
+    let range = if record.range_reported {
+        format!("{:.1}\u{b0}C to {:.1}\u{b0}C", record.min_c, record.max_c)
+    } else {
+        "no six-hour range reported".to_string()
+    };
     format!(
-        "{}: {:.1}\u{b0}C {}, {:.1}\u{b0}C to {:.1}\u{b0}C, {sun} [{}/{}]",
+        "{}: {:.1}\u{b0}C {}, {range}, {sun} [{}/{}]",
         record.location,
         record.temp_c,
         record.icon.as_str().replace('-', " "),
-        record.min_c,
-        record.max_c,
         weather::COLLECTION,
         id,
     )
@@ -271,13 +329,22 @@ fn clock(minutes: i16) -> String {
 const HELP: &str = "\
 usage: weather now --place NAME [--label LABEL] [--json]
        weather now --lat DEGREES --lon DEGREES [--label LABEL] [--json]
+       weather now --provider nws --lat DEGREES --lon DEGREES
+       weather now --provider metar --station KSEA [--utc-offset-min -480]
 
 commands:
   now                 fetch the current weather, write the record, print a line
 
+providers:
+  open-meteo          any point on earth, no key (default)
+  nws                 US points, grid forecast
+  metar               an airport station: an observation, not a forecast,
+                      with the station's own six-hour min/max
+
 examples:
   weather now --place \"Seattle\"
   weather now --lat 47.6 --lon -122.3 --label \"Living room\"
+  weather now --provider metar --station KSEA --utc-offset-min -480
   weather now --place Seattle --json";
 
 #[cfg(test)]

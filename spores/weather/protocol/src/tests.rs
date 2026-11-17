@@ -291,6 +291,7 @@ fn the_record_body_carries_the_whole_schema() {
             "temp_c": 12.8,
             "min_c": 8.1,
             "max_c": 14.2,
+            "range_reported": true,
             "icon": "rain",
             "sunrise_min": 432,
             "sunset_min": 998,

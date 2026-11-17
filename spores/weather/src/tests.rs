@@ -297,6 +297,42 @@ fn an_unknown_command_says_what_it_expected() {
 }
 
 #[test]
+fn a_report_without_a_range_is_never_printed_as_one() {
+    let record = weather::CurrentWeather {
+        location: "Seattle-Tacoma Intl, WA, US".to_string(),
+        latitude: 47.4447,
+        longitude: -122.3144,
+        timestamp: 1_794_916_380,
+        utc_offset_seconds: 0,
+        timezone: "UTC".to_string(),
+        temp_c: 6.1,
+        min_c: 6.1,
+        max_c: 6.1,
+        range_reported: false,
+        icon: weather::Icon::HeavyClouds,
+        sunrise_min: 7 * 60,
+        sunset_min: 16 * 60 + 38,
+        fetched_at_monotonic_ms: 0,
+        forecast: Vec::new(),
+    };
+    let line = summary(&record, "ksea");
+    assert!(line.contains("no six-hour range reported"), "{line}");
+    assert!(
+        !line.contains(" to "),
+        "a single value is not a range: {line}"
+    );
+
+    let ranged = weather::CurrentWeather {
+        min_c: 5.0,
+        max_c: 8.3,
+        range_reported: true,
+        ..record
+    };
+    let line = summary(&ranged, "ksea");
+    assert!(line.contains("5.0\u{b0}C to 8.3\u{b0}C"), "{line}");
+}
+
+#[test]
 fn the_summary_formats_minutes_as_a_clock() {
     assert_eq!(clock(0), "00:00");
     assert_eq!(clock(7 * 60 + 12), "07:12");
