@@ -257,10 +257,7 @@ fn inbox_section(wearer: &str, since_ms: Option<u64>) -> Result<Value, String> {
 /// record wins, and an absent record is unknown rather than clear skies.
 fn weather_section() -> Result<Value, String> {
     let records = scan_all("weather.current")?;
-    let newest = records
-        .iter()
-        .max_by_key(|body| body["observed_at_device"].as_u64().unwrap_or(0));
-    let Some(record) = newest else {
+    let Some(record) = newest(&records) else {
         return Ok(json!({"state": "unknown", "why": "no weather record"}));
     };
     let location = record["location"].as_str().unwrap_or_default();
@@ -304,6 +301,25 @@ fn weather_line(record: &Value) -> String {
     } else {
         format!("{location}: {temp:.1}°C {icon}{range}")
     }
+}
+
+/// The most recently fetched record. A weather record has no
+/// `observed_at_device` (that envelope belongs to device signals); it carries
+/// `fetched_at_monotonic_ms` from the host clock, with `timestamp` — the
+/// instant the numbers describe — as the fallback for a record written before
+/// that field. Comparing the wrong field silently picked whichever record the
+/// scan happened to return last.
+fn newest(records: &[Value]) -> Option<&Value> {
+    records.iter().max_by_key(|body| {
+        body["fetched_at_monotonic_ms"]
+            .as_u64()
+            .or_else(|| {
+                body["timestamp"]
+                    .as_i64()
+                    .map(|seconds| seconds.max(0) as u64)
+            })
+            .unwrap_or(0)
+    })
 }
 
 fn brief_namespace(wearer: &str) -> String {
@@ -373,6 +389,37 @@ fn time_err(error: time::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_newest_weather_record_wins_by_when_it_was_fetched() {
+        let older = json!({
+            "location": "Portland Intl, OR, US",
+            "fetched_at_monotonic_ms": 1_000,
+            "timestamp": 9_999_999,
+        });
+        let newer = json!({
+            "location": "Seattle-Tacoma Intl, WA, US",
+            "fetched_at_monotonic_ms": 2_000,
+            "timestamp": 1_000_000,
+        });
+        assert_eq!(
+            newest(&[newer.clone(), older.clone()]).unwrap()["location"],
+            "Seattle-Tacoma Intl, WA, US"
+        );
+        assert_eq!(
+            newest(&[older, newer]).unwrap()["location"],
+            "Seattle-Tacoma Intl, WA, US",
+            "order in the scan must not decide"
+        );
+    }
+
+    #[test]
+    fn a_record_without_a_fetch_time_falls_back_to_its_timestamp() {
+        let legacy = json!({"location": "Old", "timestamp": 5_000});
+        let fetched = json!({"location": "New", "fetched_at_monotonic_ms": 1_000});
+        assert_eq!(newest(&[legacy, fetched]).unwrap()["location"], "Old");
+        assert!(newest(&[]).is_none());
+    }
 
     #[test]
     fn a_published_range_is_printed_as_a_range() {
