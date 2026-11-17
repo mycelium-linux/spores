@@ -103,6 +103,19 @@ impl soil::spore::catalog::Host for State {
         })
     }
 
+    /// This host has no store: it launches Spores that are already on disk, so
+    /// installing is refused rather than pretended. The WIT says a host without
+    /// a store answers `denied`, and that is what a window can show.
+    fn install(
+        &mut self,
+        id: String,
+    ) -> Result<soil::spore::catalog::Installed, soil::spore::catalog::Failure> {
+        Err(soil::spore::catalog::Failure {
+            code: soil::spore::catalog::Error::Denied,
+            detail: format!("this host has no store, so it cannot install {id}"),
+        })
+    }
+
     fn running(&mut self) -> Vec<String> {
         // This host hands the launch to canvasctl or the browser and owns no
         // child to reap, so it has nothing it can honestly call running.
@@ -195,7 +208,6 @@ impl Launcher for SystemLauncher {
                 open_url(&url)?;
                 Ok(url)
             }
-            None => Err(format!("unsupported launch surface {}", target.surface)),
         }
     }
 }

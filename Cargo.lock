@@ -1214,7 +1214,6 @@ dependencies = [
 name = "lights-core"
 version = "0.1.0"
 dependencies = [
- "hue-client",
  "serde_json",
 ]
 
@@ -2014,10 +2013,6 @@ dependencies = [
 [[package]]
 name = "spore-dragshift"
 version = "0.1.0"
-dependencies = [
- "serde_json",
- "wit-bindgen 0.41.0",
-]
 
 [[package]]
 name = "spore-files"
@@ -2073,9 +2068,6 @@ version = "0.1.0"
 [[package]]
 name = "spore-serve"
 version = "0.1.0"
-dependencies = [
- "serde_json",
-]
 
 [[package]]
 name = "spore-spotify"
@@ -2245,7 +2237,6 @@ name = "terminal-core"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
  "unicode-width 0.2.3",
  "vt100",
 ]
