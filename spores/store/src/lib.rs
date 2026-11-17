@@ -29,7 +29,7 @@ use gpui::{
 };
 use gpui_wgpu::{CosmicTextSystem, WgpuContext, WgpuHeadlessRenderer};
 use soil::http::http;
-use soil::present::surface;
+use soil::present::{input, surface};
 use soil::spore::catalog;
 
 /// IBM Plex Sans, SIL Open Font License 1.1. A wasm component has no system
@@ -57,11 +57,20 @@ export!(Component);
 
 impl Guest for Component {
     async fn run() -> u32 {
-        match render() {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("store-view: {error}");
-                1
+        if let Err(error) = render() {
+            eprintln!("store-view: {error}");
+            return 1;
+        }
+        // A Spore that returns closes its window, and a storefront is a thing
+        // you keep looking at. Stay up until the presenter goes away or someone
+        // asks to close. Interaction (tabs, buttons) lands on top of this loop.
+        loop {
+            if !input::interactive() {
+                return 0;
+            }
+            match input::poll(250) {
+                Some(input::Event::KeyInput(key)) if key.key == "escape" => return 0,
+                _ => {}
             }
         }
     }
