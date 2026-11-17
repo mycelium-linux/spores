@@ -84,13 +84,13 @@ spores/weather/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bc
 # the rest behind is the lie this file exists to prevent, so this section stayed
 # empty until `spores/spore-catalog` put both hosts back on soil's main.
 
-spores/launcher/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/launcher-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/launcher-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/spore-browser/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/spore-browser-host/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/probe-gpui/wit/deps/soil-spore/spore.wit 291873df2dc7a564e7850452c132a878edece03a
-spores/store/wit/deps/soil-spore.wit 291873df2dc7a564e7850452c132a878edece03a
+spores/launcher/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/launcher-gpui/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/launcher-host/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/spore-browser/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/spore-browser-host/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/probe-gpui/wit/deps/soil-spore/spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
+spores/store/wit/deps/soil-spore.wit c345e9290b00734dfb3104a060f9cee3990addfc
 
 # --- soil-unibus.wit --------------------------------------------------------
 # source:      fungOS-linux/soil, wit/soil-unibus.wit
@@ -127,3 +127,35 @@ spores/dragshift/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e
 spores/chrome/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 spores/surface-probe/wit/deps/soil-input/package.wit b2c3877cba008a5dde64c11de34e50e6fc0ac38b
 apps/xplorer/wit/deps/soil-git/package.wit aca0fea64c75020a96f3d9b8baaeaec3d6208ff2
+
+# --- soil-playback.wit ------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-playback.wit
+# soil-commit: 82fef4c + the soil:playback change (vendored before the merge)
+#
+# The contract landed with its host: `crates/soil-playback-host` bridges the
+# `audio.playback.*` Unibus kinds, `soil-webgpu` links all three interfaces, and
+# `canvas-winit --unibus-config [--arbiter]` attaches an owner and the desk
+# arbiter. The second revision added sessions, the `desk` interface and focus
+# events; the third added `blocked`, the audio host's lockout reaching a
+# player. The row moves with each revision, which is the drift this file exists
+# to catch.
+
+
+# --- soil-audio.wit ---------------------------------------------------------
+# source:      fungOS-linux/soil, wit/soil-audio.wit
+# soil-commit: 82fef4c + the studio change (vendored before the merge)
+#
+# The draft lived only in `spores/sfx`; soil now carries it with the `studio`
+# interface and the `locked` admission error. The sfx guest imports `audio`
+# only and its `open`/`rooms` calls are unchanged.
+
+spores/sfx/wit/deps/soil-audio.wit 8e18b76ae8da44bb0278ad42ac16f3119d77d614
+
+# --- soil-worktrees.wit -----------------------------------------------------
+# source:      mycelium-linux/soil, wit/soil-worktrees.wit
+# soil-commit: new package; lands with the soil pointer bump that implements it
+#
+# The Desktop's checkouts as the host records them. `mush` asks over this
+# instead of guessing a project from a directory name.
+
+spores/mush/wit/deps/soil-worktrees/package.wit 65b1b15607c4d032902db0f872cc016ef3807a6e

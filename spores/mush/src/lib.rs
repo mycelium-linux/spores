@@ -18,6 +18,7 @@ use soil::command::command as command_abi;
 use soil::index::index::{self, Mode, Query};
 use soil::http::http as http_abi;
 use soil::net::net::{self as net_abi, Family};
+use soil::worktrees::worktrees::{self as worktrees_abi, Role as WorktreeRole};
 use soil::vfs::vfs::{self, Kind};
 use soil::vfs_mut::vfs_mut;
 
@@ -803,6 +804,7 @@ impl Shell {
             "search" => self.search(args).map(|_| 0),
             "commands" => self.list_commands(args).map(|_| 0),
             "which" => self.which(args).map(|_| 0),
+            "worktrees" => self.worktrees(args).map(|_| 0),
             "source" => {
                 self.source(args)?;
                 Ok(self.status)
@@ -827,6 +829,44 @@ impl Shell {
             }
             other => self.run_external(other, args),
         }
+    }
+
+    /// The checkouts this Desktop knows, as the host records them.
+    ///
+    /// A shell cannot discover a checkout by itself: a Desktop's rows are host
+    /// state — a path, an identity, what git says — and this projects them. A
+    /// shell with no Desktop lists nothing.
+    fn worktrees(&mut self, args: &[String]) -> Result<(), String> {
+        if let Some(flag) = args.iter().find(|arg| arg.starts_with('-')) {
+            return Err(format!("worktrees: unknown option {flag}"));
+        }
+        let rows = worktrees_abi::checkouts();
+        if rows.is_empty() {
+            self.out.push_str("no worktrees in this Desktop\n");
+            return Ok(());
+        }
+        self.out.push_str(&format!(
+            "{:<36} {:<9} {:<18} {:<9} {}\n",
+            "project", "role", "branch", "commit", "path"
+        ));
+        for row in rows {
+            let role = match row.role {
+                WorktreeRole::Primary => "primary",
+                WorktreeRole::Worktree => "worktree",
+                WorktreeRole::None => "none",
+            };
+            let branch = row.branch.as_deref().unwrap_or("-");
+            let commit: String = row
+                .commit
+                .as_deref()
+                .map(|commit| commit.chars().take(8).collect())
+                .unwrap_or_else(|| "-".to_string());
+            self.out.push_str(&format!(
+                "{:<36} {:<9} {:<18} {:<9} {}\n",
+                row.project, role, branch, commit, row.path
+            ));
+        }
+        Ok(())
     }
 
     fn redirect(&mut self, target: &str, append: bool, data: &[u8]) -> Result<(), String> {

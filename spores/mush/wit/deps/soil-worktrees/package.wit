@@ -1,0 +1,33 @@
+// The checkouts a Desktop knows, read as the rows `mush attach` records.
+//
+// A project is a repository, not a directory: `project` is
+// `github.com/owner/repo` (the spelling Operator records), and a checkout and
+// the worktrees cut from it share it. The Desktop owns the rows; this interface
+// only reads them. Attaching, detaching and the approval gate stay host
+// commands, so a Spore cannot widen what a Desktop knows.
+package soil:worktrees@0.1.0;
+
+interface worktrees {
+  /// What a checkout is: the repository itself, a tree linked to one, or a path
+  /// the Desktop lists without being able to read git from it.
+  enum role {
+    primary,
+    worktree,
+    none,
+  }
+
+  record worktree {
+    /// `github.com/owner/repo`, or `path:<checkout>` when it has no remote.
+    project: string,
+    /// Absolute path on this device.
+    path: string,
+    branch: option<string>,
+    commit: option<string>,
+    /// The commit this checkout forked from its upstream default branch.
+    base: option<string>,
+    role: role,
+  }
+
+  /// Every checkout this Desktop knows, in path order.
+  checkouts: func() -> list<worktree>;
+}

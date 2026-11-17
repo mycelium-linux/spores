@@ -9,7 +9,7 @@
 // `running` and `stop`. A package built against 0.1.0 must fail as *too old* —
 // the host says which interface it speaks — rather than instantiate into an
 // arity mismatch that reads like a compiler bug in the window.
-package soil:spore@0.2.0;
+package soil:spore@0.3.0;
 
 interface catalog {
   enum error {
@@ -90,6 +90,13 @@ interface catalog {
     detail: string,
   }
 
+  /// What installing produced, so a window can say what changed.
+  record installed {
+    id: string,
+    version: string,
+    digest: string,
+  }
+
   entries: func() -> result<list<entry>, error>;
   /// Launch `surface` of `id`.
   ///
@@ -109,6 +116,87 @@ interface catalog {
   /// `not-found` when nothing by that id is running. Stopping is the host's
   /// act — the guest names the tile, the host ends the process.
   stop: func(id: string) -> result<_, failure>;
+  /// Install `id` from the store this host is pointed at.
+  ///
+  /// Installing is the host's act, not the window's: the guest names a listing,
+  /// and the host fetches, verifies, writes and compiles it. A host with no
+  /// store — a machine that is not pointed at one — answers `denied` rather than
+  /// pretending, and a package that arrives already installed is `installed`
+  /// again rather than a second copy.
+  install: func(id: string) -> result<installed, failure>;
+}
+
+/// Opening a document: which Spore can, and which one was asked for.
+///
+/// Two facts with different owners. What a Spore can open is its own `handles`
+/// declaration in the manifest; what *should* open something is a preference,
+/// and it lives in the desktop's `fungos/desktop/filetypes` book. A preference
+/// may only choose among declarations — an id that no longer handles the kind is
+/// skipped, never obeyed.
+///
+/// Not yet imported by either world: the shape is agreed, the host backend and
+/// the guest bindings land next, and wiring an unbuilt interface into a world
+/// would hand every Spore a function that refuses.
+interface open {
+  /// Why an open could not happen. `no-candidates` and `no-default` are
+  /// different answers: the first says nothing installed can read this, the
+  /// second says something can but nobody has said which should.
+  enum error {
+    no-candidates,
+    no-default,
+    denied,
+    invalid,
+    io,
+  }
+
+  /// One Spore that can open the path.
+  record candidate {
+    /// The package id, e.g. `dev.fungos.doc-shell`.
+    id: string,
+    /// What a menu shows.
+    name: string,
+    /// The declaration that matched, so a menu can say *why* it is offered.
+    handles: string,
+    /// True for a media-type match, false for an extension glob.
+    exact: bool,
+  }
+
+  /// What happened when a Spore opened something. Identity, not a process
+  /// handle: the caller learns what opened the document and gains no authority
+  /// over it.
+  record launched {
+    id: string,
+    name: string,
+  }
+
+  /// Everything installed that declares this path's kind, most specific first.
+  candidates: func(path: string) -> result<list<candidate>, error>;
+
+  /// Open it with the default. `no-default` when candidates exist but no
+  /// preference chose one, so the caller opens a picker instead of guessing.
+  open: func(path: string, surface: string) -> result<launched, error>;
+
+  /// What this Spore was launched to open — the same job `soil:agents.intent()`
+  /// does for a surface. `none` for a Spore started any other way.
+  intent: func() -> option<string>;
+}
+
+/// Changing what opens by default.
+///
+/// Split from `open` so a surface that offers the picker does not thereby gain
+/// the authority to change the default — the same read/write split as
+/// `soil:agents`' observe and control.
+interface defaults {
+  use open.{error};
+
+  /// `kind` is a media type or an extension glob. `id` must already be a
+  /// candidate for it: storing a preference for something that cannot open the
+  /// kind would be storing a lie.
+  set: func(kind: string, id: string) -> result<_, error>;
+
+  /// Drop the preference for one kind, so the default falls back to the most
+  /// specific candidate.
+  clear: func(kind: string) -> result<_, error>;
 }
 
 world spore-host {

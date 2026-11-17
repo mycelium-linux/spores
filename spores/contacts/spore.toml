@@ -33,6 +33,12 @@ hot_reload = true
 default = "canvas"
 surfaces = ["canvas", "native", "web"]
 
+# The system address book. One book, whatever filled it: a contact synced from a
+# phone, one typed here, and one an iCloud bridge wrote are the same record.
+[records]
+collections = ["fungos.contacts/contact"]
+book = "contacts"
+
 [grants]
 "soil:records" = "read/write personal contacts and write explicit CRM projections"
 

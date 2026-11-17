@@ -5,6 +5,21 @@
 
 schema = 1
 
+# What this Spore can open, so a desktop can offer it for these kinds and a
+# filetype default can name it. Media types first (what the host sniffs), then
+# the extension a document carries before it is sniffed.
+#
+# A root key, not a `[launch]` one: `handles` says what a *program* can read,
+# which is a different fact from which surface it opens in.
+handles = [
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/markdown",
+  "text/plain",
+  "*.docx",
+  "*.md",
+  "*.txt",
+]
+
 [spore]
 id = "dev.fungos.doc-shell"
 name = "doc-shell"
@@ -40,18 +55,6 @@ path = "module.wasm"
 [launch]
 default = "native"
 surfaces = ["native"]
-
-# What this Spore can open, so a desktop can offer it for these kinds and a
-# filetype default can name it. Media types first (what the host sniffs), then
-# the extension a document carries before it is sniffed.
-handles = [
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/markdown",
-  "text/plain",
-  "*.docx",
-  "*.md",
-  "*.txt",
-]
 
 [grants]
 "soil:vfs" = "list one granted workspace and read the bytes of the document it opens"

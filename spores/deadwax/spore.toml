@@ -1,0 +1,59 @@
+# deadwax controller: the household playhead, drawn by the Spore itself.
+#
+# A local queue entry is a CID and a Spotify entry is a URI. The Spore never
+# reads library bytes, holds a token, or opens a socket; the owner resolves the
+# identity and the host bridges Unibus.
+schema = 1
+
+[spore]
+id = "dev.fungos.deadwax"
+name = "deadwax"
+version = "0.1.0"
+license = "MIT"
+summary = "Controller for the household playhead: owned masters by CID, Spotify by URI"
+description = "Searches the deadwax catalog through its bounded HTTP API, shows the queue the playback owner publishes, and sends transport commands. Draws its own GPUI surface and holds no Lua."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[docs]
+usage = ["deadwax"]
+man = "docs/man.md"
+
+[catalog]
+categories = ["media"]
+keywords = ["deadwax", "music", "playback", "cid", "spotify", "unibus"]
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { present = "0.1.0", http = "0.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "canvas"
+surfaces = ["canvas"]
+
+[grants]
+"soil:http" = "read the catalog and drive MPD's transport on 127.0.0.1:6601"
+"soil:present" = "draw and present its own surface"
+
+# GPUI draws into a texture through wasi:webgpu; the host owns the device and the
+# window. The rest are what GPUI's scheduler, std, and fontdb import — declared so
+# the module's imports match its manifest, not so the guest gets a device.
+"wasi:webgpu" = "render the GPUI surface into the texture the host presents"
+"wasi:cli" = "Rust std diagnostics; no args, environment, or process launch"
+"wasi:clocks" = "GPUI's scheduler needs monotonic timing"
+"wasi:filesystem" = "std and fontdb import the interface; the host grants no preopens"
+"wasi:io" = "component-model async transport"
+"wasi:random" = "GPUI's deterministic scheduler seed"
+
+[denied]
+"soil:records" = ["no local store; the ledger and the catalog belong to deadwax"]
+"soil:media" = ["the owner decodes and presents; a controller never touches a sample"]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
+
+[presentation]
+badge = "DW"
+color = "#d9a441"
