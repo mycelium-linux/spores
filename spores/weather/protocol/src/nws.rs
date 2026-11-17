@@ -61,7 +61,11 @@ pub fn parse_points(body: &[u8]) -> Result<Option<Grid>, Error> {
     }))
 }
 
-pub fn parse_forecast(body: &[u8], request: &SampleRequest<'_>, grid: &Grid) -> Result<CurrentWeather, Error> {
+pub fn parse_forecast(
+    body: &[u8],
+    request: &SampleRequest<'_>,
+    grid: &Grid,
+) -> Result<CurrentWeather, Error> {
     let value: Value = serde_json::from_slice(body).map_err(|e| Error::Json(e.to_string()))?;
     if let Some(error) = crate::provider_error(&value) {
         return Err(error);
@@ -71,7 +75,9 @@ pub fn parse_forecast(body: &[u8], request: &SampleRequest<'_>, grid: &Grid) -> 
         .and_then(|p| p.get("periods"))
         .and_then(Value::as_array)
         .ok_or_else(|| Error::Missing("properties.periods".into()))?;
-    let first = periods.first().ok_or_else(|| Error::Missing("periods[0]".into()))?;
+    let first = periods
+        .first()
+        .ok_or_else(|| Error::Missing("periods[0]".into()))?;
     let start = first
         .get("startTime")
         .and_then(Value::as_str)
@@ -97,6 +103,7 @@ pub fn parse_forecast(body: &[u8], request: &SampleRequest<'_>, grid: &Grid) -> 
         temp_c,
         min_c: today_min.unwrap_or(temp_c),
         max_c: today_max.unwrap_or(temp_c),
+        range_reported: today_min.is_some() && today_max.is_some(),
         icon,
         sunrise_min: SUN_UNKNOWN,
         sunset_min: SUN_UNKNOWN,
@@ -134,7 +141,11 @@ fn day_range(periods: &[Value]) -> (Option<f64>, Option<f64>) {
     let mut min = None;
     for period in periods.iter().take(2) {
         let Ok(c) = temperature(period) else { continue };
-        if period.get("isDaytime").and_then(Value::as_bool).unwrap_or(false) {
+        if period
+            .get("isDaytime")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             max = Some(max.map_or(c, |m: f64| m.max(c)));
         } else {
             min = Some(min.map_or(c, |m: f64| m.min(c)));
@@ -154,7 +165,10 @@ fn daily(periods: &[Value]) -> Vec<ForecastDay> {
         };
         let Ok(c) = temperature(period) else { continue };
         let date = date_of(local);
-        let daytime = period.get("isDaytime").and_then(Value::as_bool).unwrap_or(false);
+        let daytime = period
+            .get("isDaytime")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let icon = icon_for(period);
         match days.iter_mut().find(|day| day.date == date) {
             Some(day) => {
@@ -188,7 +202,11 @@ pub fn icon_for(period: &Value) -> Icon {
         .to_ascii_lowercase();
     if text.contains("thunder") {
         Icon::Thunderstorm
-    } else if text.contains("snow") || text.contains("flurries") || text.contains("sleet") || text.contains("ice") {
+    } else if text.contains("snow")
+        || text.contains("flurries")
+        || text.contains("sleet")
+        || text.contains("ice")
+    {
         Icon::Snow
     } else if text.contains("rain") || text.contains("showers") || text.contains("drizzle") {
         if text.contains("cloud") || text.contains("partly") {
@@ -196,11 +214,20 @@ pub fn icon_for(period: &Value) -> Icon {
         } else {
             Icon::Rain
         }
-    } else if text.contains("fog") || text.contains("mist") || text.contains("haze") || text.contains("smoke") {
+    } else if text.contains("fog")
+        || text.contains("mist")
+        || text.contains("haze")
+        || text.contains("smoke")
+    {
         Icon::Mist
-    } else if text.contains("partly") || text.contains("few") || text.contains("mostly sunny") || text.contains("mostly clear") {
+    } else if text.contains("partly")
+        || text.contains("few")
+        || text.contains("mostly sunny")
+        || text.contains("mostly clear")
+    {
         Icon::FewClouds
-    } else if text.contains("mostly cloudy") || text.contains("cloudy") || text.contains("overcast") {
+    } else if text.contains("mostly cloudy") || text.contains("cloudy") || text.contains("overcast")
+    {
         Icon::HeavyClouds
     } else if text.contains("sunny") || text.contains("clear") {
         Icon::Clear
@@ -299,9 +326,13 @@ mod tests {
 
     #[test]
     fn points_resolve_a_forecast_url_and_zone() {
-        let grid = parse_points(POINTS.as_bytes()).expect("points").expect("covered");
+        let grid = parse_points(POINTS.as_bytes())
+            .expect("points")
+            .expect("covered");
         assert_eq!(grid.timezone, "America/Los_Angeles");
-        assert!(grid.forecast_url.ends_with("/gridpoints/SEW/125,68/forecast"));
+        assert!(grid
+            .forecast_url
+            .ends_with("/gridpoints/SEW/125,68/forecast"));
         let uncovered = br#"{"status":404,"title":"No point found"}"#;
         assert_eq!(parse_points(uncovered).expect("points"), None);
         assert!(parse_points(b"{}").is_err());
@@ -313,7 +344,9 @@ mod tests {
 
     #[test]
     fn a_forecast_becomes_a_record() {
-        let grid = parse_points(POINTS.as_bytes()).expect("points").expect("covered");
+        let grid = parse_points(POINTS.as_bytes())
+            .expect("points")
+            .expect("covered");
         let weather = parse_forecast(FORECAST.as_bytes(), &request(), &grid).expect("forecast");
         // 52F is 11.1C, and the first period is the current condition.
         assert!((weather.temp_c - 11.111).abs() < 0.01, "{}", weather.temp_c);

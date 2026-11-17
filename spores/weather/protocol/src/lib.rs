@@ -12,6 +12,7 @@
 //! Nothing here touches wasm or the network: request URLs, response parsing,
 //! the WMO table, and the record body are host-testable with inline fixtures.
 
+pub mod metar;
 pub mod nws;
 pub mod sun;
 
@@ -278,6 +279,10 @@ pub struct CurrentWeather {
     pub temp_c: f64,
     pub min_c: f64,
     pub max_c: f64,
+    /// Whether `min_c`/`max_c` are a range the provider reported. A station
+    /// that publishes no extremes is recorded as its current temperature for
+    /// both, and this says so instead of letting a reader print a "range".
+    pub range_reported: bool,
     pub icon: Icon,
     /// Minutes since local midnight, or [`SUN_ABSENT`].
     pub sunrise_min: i16,
@@ -324,6 +329,7 @@ impl CurrentWeather {
             "temp_c": self.temp_c,
             "min_c": self.min_c,
             "max_c": self.max_c,
+            "range_reported": self.range_reported,
             "icon": self.icon.as_str(),
             "sunrise_min": self.sunrise_min,
             "sunset_min": self.sunset_min,
@@ -377,6 +383,10 @@ impl CurrentWeather {
             timezone: text(body, "timezone", "timezone")?.to_string(),
             temp_c: number(body, "temp_c", "temp_c")?,
             min_c: number(body, "min_c", "min_c")?,
+            range_reported: body
+                .get("range_reported")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             max_c: number(body, "max_c", "max_c")?,
             icon: Icon::parse(text(body, "icon", "icon")?)?,
             sunrise_min: minutes(body, "sunrise_min", "sunrise_min")?,
@@ -522,6 +532,7 @@ pub fn parse_forecast(body: &[u8], request: &SampleRequest<'_>) -> Result<Curren
         temp_c,
         min_c,
         max_c,
+        range_reported: true,
         icon: icon_for_code(current_code)?,
         sunrise_min: sun_minute(element(sunrises, 0, "daily.sunrise")?, "daily.sunrise[0]")?,
         sunset_min: sun_minute(element(sunsets, 0, "daily.sunset")?, "daily.sunset[0]")?,

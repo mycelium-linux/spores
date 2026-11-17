@@ -297,10 +297,97 @@ fn an_unknown_command_says_what_it_expected() {
 }
 
 #[test]
+fn a_report_without_a_range_is_never_printed_as_one() {
+    let record = weather::CurrentWeather {
+        location: "Seattle-Tacoma Intl, WA, US".to_string(),
+        latitude: 47.4447,
+        longitude: -122.3144,
+        timestamp: 1_794_916_380,
+        utc_offset_seconds: 0,
+        timezone: "UTC".to_string(),
+        temp_c: 6.1,
+        min_c: 6.1,
+        max_c: 6.1,
+        range_reported: false,
+        icon: weather::Icon::HeavyClouds,
+        sunrise_min: 7 * 60,
+        sunset_min: 16 * 60 + 38,
+        fetched_at_monotonic_ms: 0,
+        forecast: Vec::new(),
+    };
+    let line = summary(&record, "ksea");
+    assert!(line.contains("no six-hour range reported"), "{line}");
+    assert!(
+        !line.contains(" to "),
+        "a single value is not a range: {line}"
+    );
+
+    let ranged = weather::CurrentWeather {
+        min_c: 5.0,
+        max_c: 8.3,
+        range_reported: true,
+        ..record
+    };
+    let line = summary(&ranged, "ksea");
+    assert!(line.contains("5.0\u{b0}C to 8.3\u{b0}C"), "{line}");
+}
+
+#[test]
 fn the_summary_formats_minutes_as_a_clock() {
     assert_eq!(clock(0), "00:00");
     assert_eq!(clock(7 * 60 + 12), "07:12");
     assert_eq!(clock(16 * 60 + 38), "16:38");
     assert_eq!(clock(-1), "none");
     assert_eq!(clock(-2), "none");
+}
+
+/// One trimmed aviationweather.gov response for KSEA: a temperature, no
+/// six-hour extremes.
+const KSEA_METAR: &str = r#"[{"icaoId":"KSEA","obsTime":1794916380,
+    "temp":6.1,"dewp":3.9,"cover":"OVC",
+    "rawOb":"METAR KSEA 171153Z 13004KT 10SM BKN028 OVC055 06/04 A3004",
+    "lat":47.4447,"lon":-122.3144,"name":"Seattle-Tacoma Intl, WA, US"}]"#;
+
+#[test]
+fn a_station_observation_is_written_with_the_viewers_offset() {
+    let mut host = FakeHost::new([KSEA_METAR]);
+    let output = run(
+        &args("now --provider metar --station KSEA --utc-offset-min -480"),
+        &mut host,
+    )
+    .expect("run");
+
+    assert_eq!(
+        host.requests,
+        vec!["https://aviationweather.gov/api/data/metar?ids=KSEA&format=json&hours=2"]
+    );
+    let (id, body) = &host.records[0];
+    assert_eq!(id, "ksea");
+    assert_eq!(body["location"], json!("Seattle-Tacoma Intl, WA, US"));
+    assert_eq!(body["range_reported"], json!(false));
+    assert_eq!(body["timezone"], json!("UTC-8:00"));
+    assert_eq!(body["timestamp"], json!(1_794_916_380i64 - 28_800));
+    assert_eq!(
+        output,
+        "Seattle-Tacoma Intl, WA, US: 6.1\u{b0}C heavy clouds, no six-hour range reported, sunrise 07:16, sunset 16:33 [weather.current/ksea]"
+    );
+}
+
+#[test]
+fn metar_without_an_offset_is_refused_before_any_request() {
+    let mut host = FakeHost::new([KSEA_METAR]);
+    let error = run(&args("now --provider metar --station KSEA"), &mut host).unwrap_err();
+    assert!(error.contains("--utc-offset-min"), "{error}");
+    assert!(host.requests.is_empty(), "no request before the refusal");
+    assert!(host.records.is_empty(), "nothing written to guess a zone");
+}
+
+#[test]
+fn metar_without_a_station_names_the_flag() {
+    let error = run(
+        &args("now --provider metar --utc-offset-min -480"),
+        &mut FakeHost::new([]),
+    )
+    .unwrap_err();
+    assert!(error.contains("--station"), "{error}");
 }

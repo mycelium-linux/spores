@@ -1,7 +1,8 @@
 # Weather Spore: what the weather is, here, as a record.
 #
-# One provider (Open-Meteo, no key), one record per place, and a record the
-# PineTime Spore reads back instead of asking a caller to type the numbers.
+# One record per place, from one of three providers (Open-Meteo, NWS, or an
+# airport METAR), and a record the PineTime Spore reads back instead of asking
+# a caller to type the numbers.
 schema = 1
 
 [spore]

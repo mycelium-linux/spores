@@ -7,10 +7,11 @@ summarises, and says where each line came from.
 | --- | --- | --- |
 | Vitals | `vitals.view:<wearer>` | freshness is carried through; a non-fresh view is reported as unknown |
 | Inbox | `inbox:<wearer>` decisions | counts new / follow-ups / held since the previous brief |
-| Weather | newest `weather.current` | global, not per wearer; an absent record is unknown, not clear skies |
+| Weather | newest `weather.current` | global, not per wearer; an absent record is unknown, not clear skies; a record with no published range says `no six-hour range reported`, never `6.1..6.1` |
 
 Nothing is estimated. No averaging two devices, no filling a missing reading
-with zero, no guessed temperature.
+with zero, no guessed temperature, no range where the source reported one
+value.
 
 ## Commands
 
