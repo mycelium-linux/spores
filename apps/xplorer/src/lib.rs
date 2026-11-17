@@ -116,6 +116,30 @@ impl Preview {
     }
 }
 
+/// What the popover is offering, and where the pointer asked for it.
+enum Menu {
+    /// The Desktops this machine registers: the picker.
+    Desktops,
+    /// What can be made in the directory being listed.
+    Create { at: (f32, f32) },
+}
+
+/// A name being typed for something about to exist.
+struct Prompt {
+    directory: bool,
+    text: String,
+}
+
+impl Prompt {
+    fn label(&self) -> &'static str {
+        if self.directory {
+            "new folder"
+        } else {
+            "new file"
+        }
+    }
+}
+
 /// One window of the file manager.
 struct Finder {
     /// How the entries are drawn, and how they are ordered. Both are view state:
@@ -128,6 +152,13 @@ struct Finder {
     selected: usize,
     preview: Preview,
     note: Option<String>,
+    /// The Desktop this window is on, by name, when the host knows.
+    desktop: Option<String>,
+    /// Every Desktop the picker offers. Empty when the host has no
+    /// `soil:desktops` grant, which is why the picker then shows no chip.
+    desktops: Vec<data::DesktopRow>,
+    menu: Option<Menu>,
+    prompt: Option<Prompt>,
     /// The repository this directory is in, when the host granted `soil:git` and
     /// there is one. Read on navigation, never per entry: a listing of two
     /// hundred files is one repository question, not two hundred.
@@ -147,10 +178,15 @@ impl Finder {
             selected: 0,
             preview: Preview::empty("select a file to look inside it"),
             note: None,
+            desktop: None,
+            desktops: Vec::new(),
+            menu: None,
+            prompt: None,
             git: None,
             columns: 1,
         };
         finder.reload();
+        finder.refresh_desktops();
         // The harness build opens on a file, so a captured frame shows the
         // preview pane doing its job as well as the list.
         #[cfg(feature = "demo")]
@@ -182,6 +218,63 @@ impl Finder {
                 self.preview = Preview::empty("the host did not list this directory");
                 self.note = Some(format!("{}: {error}", describe(&self.path)));
             }
+        }
+    }
+
+    /// Ask the host which Desktops exist, and which one this window is on.
+    fn refresh_desktops(&mut self) {
+        self.desktops = data::desktops();
+        self.desktop = self
+            .desktops
+            .iter()
+            .find(|row| row.access == "bound")
+            .map(|row| row.name.clone());
+    }
+
+    /// Rebind to another Desktop.
+    ///
+    /// The host swaps the workspace before this returns, so everything the
+    /// window was showing is stale the moment it succeeds: path, selection and
+    /// the cached repository are reset. View mode and sort order survive,
+    /// because losing them on every switch makes the picker expensive to use.
+    fn change_desktop(&mut self, id: &str) {
+        self.menu = None;
+        match data::open(id) {
+            Ok(name) => {
+                self.desktop = Some(name);
+                self.path.clear();
+                self.reload();
+            }
+            Err(error) => self.note = Some(format!("could not open {id}: {error}")),
+        }
+    }
+
+    /// Make the thing whose name was just typed.
+    fn create(&mut self, prompt: Prompt) {
+        let name = prompt.text.trim().to_owned();
+        if name.is_empty() {
+            self.note = Some("a name is needed".to_owned());
+            return;
+        }
+        let path = if self.path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{name}", self.path)
+        };
+        let made = if prompt.directory {
+            data::mkdir(&path)
+        } else {
+            data::new_file(&path)
+        };
+        match made {
+            Ok(()) => {
+                self.reload();
+                if let Some(index) = self.entries.iter().position(|row| row.name == name) {
+                    self.select(index);
+                }
+                self.note = Some(format!("created {name}"));
+            }
+            Err(error) => self.note = Some(format!("could not create {name}: {error}")),
         }
     }
 
@@ -431,6 +524,39 @@ impl Finder {
     }
 
     fn handle_key(&mut self, key: &str) -> bool {
+        // A prompt owns the keyboard while it is open: typing a name is not a
+        // command, and `n` in a filename must not toggle anything.
+        if self.prompt.is_some() {
+            match key {
+                "escape" => self.prompt = None,
+                "enter" => {
+                    if let Some(prompt) = self.prompt.take() {
+                        self.create(prompt);
+                    }
+                }
+                "backspace" => {
+                    if let Some(prompt) = &mut self.prompt {
+                        prompt.text.pop();
+                    }
+                }
+                typed if typed.chars().count() == 1 => {
+                    if let Some(prompt) = &mut self.prompt {
+                        prompt.text.push_str(typed);
+                    }
+                }
+                _ => {}
+            }
+            return true;
+        }
+        if self.menu.is_some() {
+            if key == "escape" {
+                self.menu = None;
+                return true;
+            }
+            // A menu that is open swallows the keys it does not own, so a stray
+            // `v` behind it cannot change the view under the pointer.
+            return true;
+        }
         match key {
             // Left and right are a grid: they mean "the tile beside this one",
             // which a list does not have. In list mode the only axis is up and
@@ -775,7 +901,114 @@ impl Render for Finder {
             })
             .collect();
 
+        // The popover, when one is open. Built here because it needs listeners,
+        // and positioned in the window rather than in a layout flow: it sits over
+        // the content, not beside it.
+        let menu_panel: Option<gpui::AnyElement> = match &self.menu {
+            Some(Menu::Desktops) => {
+                let rows = self.desktops.clone();
+                let mut panel = v_flex()
+                    .absolute()
+                    .left(px(8.0))
+                    .top(px(40.0))
+                    .w(px(220.0))
+                    .p_1()
+                    .gap_0p5()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(theme.background);
+                if rows.is_empty() {
+                    panel = panel.child(
+                        gpui::div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("no desktops on this machine"),
+                    );
+                }
+                for (index, row) in rows.into_iter().enumerate() {
+                    let selectable = row.access != "denied" && row.access != "bound";
+                    let id = row.id.clone();
+                    let label = match row.access.as_str() {
+                        "bound" => format!("{} · here", row.name),
+                        "denied" => format!("{} · cannot open", row.name),
+                        _ => row.name.clone(),
+                    };
+                    panel = panel.child(
+                        gpui::div()
+                            .id(("desktop-row", index))
+                            .when(selectable, |this| this.cursor_pointer())
+                            .when(selectable, |this| {
+                                this.on_click(cx.listener(
+                                    move |this: &mut Self, _, _, cx: &mut Context<Self>| {
+                                        this.change_desktop(&id);
+                                        cx.notify();
+                                    },
+                                ))
+                            })
+                            .rounded_sm()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(if selectable {
+                                theme.foreground
+                            } else {
+                                muted
+                            })
+                            .hover(move |style| style.bg(hover))
+                            .child(label),
+                    );
+                }
+                Some(panel.into_any_element())
+            }
+            Some(Menu::Create { at }) => {
+                let at = *at;
+                let mut panel = v_flex()
+                    .absolute()
+                    .left(px(at.0))
+                    .top(px(at.1))
+                    .w(px(180.0))
+                    .p_1()
+                    .gap_0p5()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(border)
+                    .bg(theme.background);
+                for (index, (label, directory)) in
+                    [("new folder", true), ("new file", false)].into_iter().enumerate()
+                {
+                    panel = panel.child(
+                        gpui::div()
+                            .id(("create-row", index))
+                            .cursor_pointer()
+                            .rounded_sm()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(theme.foreground)
+                            .hover(move |style| style.bg(hover))
+                            .on_click(cx.listener(
+                                move |this: &mut Self, _, _, cx: &mut Context<Self>| {
+                                    this.prompt = Some(Prompt {
+                                        directory,
+                                        text: String::new(),
+                                    });
+                                    this.menu = None;
+                                    cx.notify();
+                                },
+                            ))
+                            .child(label),
+                    );
+                }
+                Some(panel.into_any_element())
+            }
+            None => None,
+        };
+
         v_flex()
+            .relative()
             .size_full()
             .bg(theme.background)
             .text_sm()
@@ -787,7 +1020,39 @@ impl Render for Finder {
                     .py_2()
                     .border_b_1()
                     .border_color(border)
-                    .child(h_flex().items_center().gap_1().children(crumbs))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            // The Desktop this window is on, and the way to leave
+                            // it. A window with no `soil:desktops` grant shows
+                            // nothing here rather than a picker that lies.
+                            .when_some(self.desktop.clone(), |this, name| {
+                                this.child(
+                                    gpui::div()
+                                        .id("desktop-chip")
+                                        .cursor_pointer()
+                                        .rounded_sm()
+                                        .px_1p5()
+                                        .py_0p5()
+                                        .bg(gpui::Hsla {
+                                            a: 0.18,
+                                            ..theme.accent
+                                        })
+                                        .text_xs()
+                                        .text_color(theme.foreground)
+                                        .hover(move |style| style.bg(hover))
+                                        .on_click(cx.listener(
+                                            |this: &mut Self, _, _, cx: &mut Context<Self>| {
+                                                this.menu = Some(Menu::Desktops);
+                                                cx.notify();
+                                            },
+                                        ))
+                                        .child(name),
+                                )
+                            })
+                            .children(crumbs),
+                    )
                     .child(
                         h_flex()
                             .items_center()
@@ -817,6 +1082,24 @@ impl Render for Finder {
                             .p_3()
                             .border_r_1()
                             .border_color(border)
+                            // A right press here means "make something in this
+                            // directory"; the menu opens where the pointer is.
+                            .on_mouse_down(
+                                gpui::MouseButton::Right,
+                                cx.listener(
+                                    |this: &mut Self,
+                                     event: &gpui::MouseDownEvent,
+                                     _window,
+                                     cx: &mut Context<Self>| {
+                                        let at = (
+                                            f32::from(event.position.x),
+                                            f32::from(event.position.y),
+                                        );
+                                        this.menu = Some(Menu::Create { at });
+                                        cx.notify();
+                                    },
+                                ),
+                            )
                             .children(if self.entries.is_empty() {
                                 vec![
                                     gpui::div()
@@ -889,8 +1172,13 @@ impl Render for Finder {
                     .border_t_1()
                     .border_color(border)
                     .child(gpui::div().text_xs().text_color(muted).child(
-                        self.note.clone().unwrap_or_else(
-                            || match self.entries.get(self.selected) {
+                        match &self.prompt {
+                            Some(prompt) => format!(
+                                "{}: {}▏ enter creates · esc cancels",
+                                prompt.label(),
+                                prompt.text
+                            ),
+                            None => self.note.clone().unwrap_or_else(|| match self.entries.get(self.selected) {
                                 Some(row) => format!(
                                     "{} of {} · {}",
                                     self.selected + 1,
@@ -898,8 +1186,8 @@ impl Render for Finder {
                                     row.name
                                 ),
                                 None => format!("{} × {}", width, height),
-                            },
-                        ),
+                            }),
+                        },
                     ))
                     .child(gpui::div().text_xs().text_color(muted).child(format!(
                         "v {} · s {} · d theme · q quits",
@@ -915,6 +1203,7 @@ impl Render for Finder {
                         }
                     ))),
             )
+            .when_some(menu_panel, |this, panel| this.child(panel))
     }
 }
 

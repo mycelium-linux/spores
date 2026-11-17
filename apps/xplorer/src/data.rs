@@ -90,6 +90,98 @@ pub fn git(path: &str) -> Option<Repo> {
     })
 }
 
+/// One Desktop the machine offers, as the picker shows it.
+#[derive(Clone)]
+pub struct DesktopRow {
+    pub id: String,
+    pub name: String,
+    /// `bound`, `available` or `denied`: the picker shows refused Desktops
+    /// rather than hiding them, because "you cannot open this" and "this does
+    /// not exist" are different facts.
+    pub access: String,
+}
+
+#[cfg(not(feature = "demo"))]
+pub fn desktops() -> Vec<DesktopRow> {
+    use crate::soil::desktops::desktops;
+    match desktops::available() {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|row| DesktopRow {
+                id: row.id,
+                name: row.name,
+                access: match row.access {
+                    desktops::Access::Bound => "bound",
+                    desktops::Access::Available => "available",
+                    desktops::Access::Denied => "denied",
+                }
+                .to_owned(),
+            })
+            .collect(),
+        // A host without the grant offers no picker at all; an empty list is the
+        // honest answer, and the window shows no chip.
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Bind this window to another Desktop. `Ok` means the host has already swapped
+/// the workspace, so the caller's next listing reads the new one.
+#[cfg(not(feature = "demo"))]
+pub fn open(id: &str) -> Result<String, String> {
+    use crate::soil::desktops::desktops;
+    desktops::open(id)
+        .map(|row| row.name)
+        .map_err(|error| format!("{error:?}"))
+}
+
+#[cfg(feature = "demo")]
+pub fn desktops() -> Vec<DesktopRow> {
+    vec![
+        DesktopRow {
+            id: "fpl".into(),
+            name: "FPL".into(),
+            access: "bound".into(),
+        },
+        DesktopRow {
+            id: "personal".into(),
+            name: "Personal".into(),
+            access: "available".into(),
+        },
+    ]
+}
+
+#[cfg(feature = "demo")]
+pub fn open(id: &str) -> Result<String, String> {
+    Ok(id.to_owned())
+}
+
+/// Create a directory. Fails when it already exists: a create that silently
+/// succeeds on an existing name is how a folder gets replaced by an empty one.
+#[cfg(not(feature = "demo"))]
+pub fn mkdir(path: &str) -> Result<(), String> {
+    use crate::soil::vfs_mut::vfs_mut;
+    vfs_mut::mkdir(path).map_err(|error| format!("{error:?}"))
+}
+
+/// Create an empty file.
+#[cfg(not(feature = "demo"))]
+pub fn new_file(path: &str) -> Result<(), String> {
+    use crate::soil::vfs_mut::vfs_mut;
+    vfs_mut::write(path, &[], "text/plain", None, None)
+        .map(|_| ())
+        .map_err(|error| format!("{error:?}"))
+}
+
+#[cfg(feature = "demo")]
+pub fn mkdir(_path: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(feature = "demo")]
+pub fn new_file(_path: &str) -> Result<(), String> {
+    Ok(())
+}
+
 fn sort(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| {
         b.directory

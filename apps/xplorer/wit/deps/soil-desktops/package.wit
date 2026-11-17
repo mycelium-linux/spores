@@ -1,0 +1,74 @@
+// Which Desktops this machine offers, and which one a window is operating on.
+//
+// A Desktop is a durable namespace a Spore browses. It is not a host folder:
+// the Spore learns identity, presentation and access, never a path. That is the
+// whole surface. `available` says what exists; `open` moves this window, which is why
+// there is no `root` or `mount` anywhere in these types — a caller that could
+// name a path could read a Desktop it was never granted.
+//
+// A window is bound to exactly one Desktop. Rebinding is a barrier, not a
+// setting: quiesce, swap the workspace, invalidate the cached listing, reset the
+// path and selection to the new root. View mode and sort order survive, because
+// losing them on every switch makes the picker expensive to use. A refusal
+// (`denied`) leaves the window on the Desktop it was already on.
+//
+// "All desktops" is a read-only scope for search, not a workspace: it has no
+// root and `open` refuses it. Hits from that scope are tagged with the Desktop
+// they came from, so a result never has to be guessed back to its home.
+package soil:desktops@0.1.0;
+
+interface desktops {
+  /// How far this window may go in one Desktop.
+  enum access {
+    /// The window is bound here now.
+    bound,
+    /// The principal may open it.
+    available,
+    /// Registered on this machine, refused to this principal.
+    denied,
+  }
+
+  record desktop {
+    /// Stable identity across machines; the name the local registry uses.
+    id: string,
+    /// Presentation only. Two machines may spell one Desktop differently.
+    name: string,
+    /// Desktop-scoped theme name. The host resolves it; a Spore never sees a
+    /// colour value it then has to keep in sync with every other Spore.
+    theme: string,
+    /// What this window may do here, evaluated when the row is read.
+    access: access,
+  }
+
+  enum error {
+    /// Nothing on this machine is registered under that id.
+    unknown,
+    /// The principal may not open it; the window is unchanged.
+    denied,
+    /// `all` is a read-only scope, not a Desktop a window can be bound to.
+    not-a-workspace,
+    /// The window could not quiesce and rebind; it is unchanged.
+    busy,
+    /// The registry or the workspace could not be read.
+    io,
+  }
+
+  /// Every Desktop this machine registers, with this window's access to each.
+  ///
+  /// Named `available`, not `list`: `list` is a WIT keyword and cannot name a
+  /// function. It reads the same way — *what is available to this window*.
+  ///
+  /// Rows the principal cannot open are listed rather than hidden: a picker that
+  /// silently omits a Desktop reads as "it does not exist", which is a different
+  /// and much worse claim than "you cannot open this".
+  available: func() -> result<list<desktop>, error>;
+
+  /// Bind this window to `id` and return it as the window now sees it.
+  ///
+  /// Callable while already bound, including for the Desktop it is bound to.
+  open: func(id: string) -> result<desktop, error>;
+}
+
+world host {
+  import desktops;
+}

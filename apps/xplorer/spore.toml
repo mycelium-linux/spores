@@ -30,7 +30,7 @@ record = "ipfs://bafkreifdc3z5t3nde25x5sglkq3dokodohkw2xcn7gzqs2acmjjhqywgua"
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { present = "0.1.0", vfs = "1.0.0", git = "0.1.0" }
+abi = { present = "0.1.0", vfs = "1.0.0", git = "0.1.0", desktops = "0.1.0", vfs-mut = "0.1.0" }
 
 # A Rust module that draws its own frame is the host's default presentation, so
 # this package declares no `[[surfaces]]`: a `canvas` view or a `web` page is for
@@ -44,14 +44,16 @@ surfaces = ["native"]
 
 [grants]
 "soil:vfs" = "list one granted workspace and read bounded previews of its files"
+"soil:vfs-mut" = "create a file or a folder in the granted workspace. The interface is all-or-nothing: this manifest also hands over remove, rename and chmod, which the window does not call — a browser that can create has to be reviewed as one that can delete"
 "soil:git" = "read the branch, commit and change count of the repository the workspace is in; no remote URL, no commit message, no host path"
+"soil:desktops" = "list the Desktops this machine registers and rebind this window to another one; no host path is returned"
 "soil:present" = "draw the window: an offscreen surface, keyboard input and the cursor"
 "wasi:webgpu" = "one offscreen WebGPU device and queue; the host keeps the adapter, the surface and the swap"
 
 [denied]
-# The finder names things; it does not change them. Write, rename and unlink are
-# a different Spore with a different review.
-"soil:vfs-mut" = ["a browser that can rename cannot be trusted to describe what it browsed"]
+# The finder creates, and that is the whole of what it does with a mutation
+# grant. `remove`, `rename` and `chmod` arrive with the interface whether or not
+# the window calls them, which is stated in the grant itself.
 host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
 transport = ["socket", "quic", "iroh"]
 

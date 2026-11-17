@@ -12,6 +12,8 @@ world runner {
   import soil:present/input@0.1.0;
   import soil:present/cursor@0.1.0;
   import soil:vfs/vfs@1.0.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
   import soil:git/git@0.1.0;
+  import soil:desktops/desktops@0.1.0;
   export run: async func() -> u32;
 }

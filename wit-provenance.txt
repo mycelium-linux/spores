@@ -159,3 +159,6 @@ spores/sfx/wit/deps/soil-audio.wit 8e18b76ae8da44bb0278ad42ac16f3119d77d614
 # instead of guessing a project from a directory name.
 
 spores/mush/wit/deps/soil-worktrees/package.wit 65b1b15607c4d032902db0f872cc016ef3807a6e
+apps/xplorer/wit/deps/soil-desktops/package.wit 843441ea518b84b4a31eab3bccfd488c78e97697
+apps/xplorer/wit/deps/soil-vfs-mut/package.wit 68d1446e5cd69770845ca89c62322057bdcdb26c
+spores/mush/wit/deps/soil-vfs-mut/package.wit 68d1446e5cd69770845ca89c62322057bdcdb26c
