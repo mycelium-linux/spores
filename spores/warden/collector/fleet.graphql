@@ -1,0 +1,55 @@
+# The one query a fleet collection is made of.
+#
+# Every field here is a fact warden cannot infer, and nothing here is a fact it
+# could derive. One node is one repository, so one page of 100 is 100
+# repositories for the cost of a single round trip: a per-repository REST crawl
+# is 300 requests for the same answer, which is the difference between a nightly
+# job and a rate limit.
+#
+# `branches` and `workflows` are aliases because GraphQL counts a ref prefix and
+# a tree listing separately; naming them here is what lets the collector read a
+# repository without a second request for each.
+# 50, not 100: a 100-repository page is a single response the proxy in front of
+# the API answers with a 502 often enough to matter, and the two extra round
+# trips over the whole fleet cost less than a collection that fails at random.
+query Fleet($org: String!, $endCursor: String) {
+  repositoryOwner(login: $org) {
+    login
+    repositories(first: 50, after: $endCursor, ownerAffiliations: OWNER) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        name
+        isArchived
+        isFork
+        isPrivate
+        pushedAt
+        description
+        licenseInfo {
+          spdxId
+        }
+        defaultBranchRef {
+          name
+        }
+        releases {
+          totalCount
+        }
+        pullRequests(states: OPEN) {
+          totalCount
+        }
+        branches: refs(refPrefix: "refs/heads/", first: 1) {
+          totalCount
+        }
+        workflows: object(expression: "HEAD:.github/workflows") {
+          ... on Tree {
+            entries {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}

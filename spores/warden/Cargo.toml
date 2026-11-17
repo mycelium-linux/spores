@@ -1,0 +1,32 @@
+[package]
+name = "spore-warden"
+description = "Fleet health: what every repository is missing, and what has rotted"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The `warden` command is the shipped face of this package: a `wasi:cli`
+# component that reads a snapshot on stdin and answers with a report. The
+# library half is the evaluator, and it is what a view or a test calls.
+default = []
+cli = []
+
+[[bin]]
+name = "warden"
+path = "src/bin/warden.rs"
+required-features = ["cli"]
+
+[dependencies]
+# The snapshot and the report are documents; neither side parses TOML.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"

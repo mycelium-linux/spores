@@ -131,6 +131,7 @@ spores/rooms               audio/video rooms with a Holodeck twin
 spores/consent             system consent popup
 spores/dfm-report          DFM report renderer
 spores/mush                sandboxed VFS shell
+spores/warden              fleet health: what each repository is missing, and what has rotted
 spores/hue                 Philips Hue CLI over the local bridge API
 spores/spotify             Spotify Connect remote for RASpotify
 spores/deadwax             controller for the household playhead (GPUI, CID/Spotify)
