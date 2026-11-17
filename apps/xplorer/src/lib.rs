@@ -924,7 +924,52 @@ fn run_xplorer() -> anyhow::Result<()> {
                 let _ = pointer;
                 let _ = cursor::set(cursor::CursorStyle::Default);
             }
-            Some(input::Event::Button(_)) | Some(input::Event::Scrolled(_)) | None => {}
+            // A press is not a key: GPUI hit-tests the element tree from its own
+            // mouse dispatch, so a button event has to be replayed into the
+            // window (where it landed is where the pointer is — a tap arrives
+            // with no move in front of it) before an `on_click` can fire.
+            Some(input::Event::Button(button)) => {
+                let mouse = match button.button {
+                    input::PointerButton::Left => gpui::MouseButton::Left,
+                    input::PointerButton::Right => gpui::MouseButton::Right,
+                    input::PointerButton::Middle => gpui::MouseButton::Middle,
+                };
+                let position = gpui::point(gpui::px(button.x), gpui::px(button.y));
+                window.update(&mut cx, |_, window, cx| {
+                    window.dispatch_event(
+                        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                            position,
+                            pressed_button: button.pressed.then_some(mouse),
+                            modifiers: Default::default(),
+                        }),
+                        cx,
+                    );
+                    if button.pressed {
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                button: mouse,
+                                position,
+                                modifiers: Default::default(),
+                                click_count: 1,
+                                first_mouse: false,
+                            }),
+                            cx,
+                        );
+                    } else {
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                button: mouse,
+                                position,
+                                modifiers: Default::default(),
+                                click_count: 1,
+                            }),
+                            cx,
+                        );
+                    }
+                })?;
+                dirty = true;
+            }
+            Some(input::Event::Scrolled(_)) | None => {}
         }
     }
     Ok(())
