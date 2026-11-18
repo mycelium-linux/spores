@@ -1,0 +1,32 @@
+[package]
+name = "board"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The pure projections run on any target, so `cargo test` can exercise the
+# burndown, the columns and the search without a GPU or a component host.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Both forks are pinned to the revisions gpui-kit's `fungos/gpui-fast` branch
+# was built against — the same pair weeper uses, so one library renders the
+# same way in both.
+#
+# A Spore is a wasm component: it takes GPUI's `headless` platform, which is
+# the offscreen renderer without the native window or its test-only deps.
+[target.'cfg(target_family = "wasm")'.dependencies]
+anyhow = "1"
+gpui = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "88679a2cdb4d255710256921238e45fa25c8b751", package = "gpui", default-features = false, features = ["headless"] }
+gpui-base = { git = "https://github.com/fungOS-linux/gpui-kit", rev = "2f73b8d1d2f81e39338ace470fe77058fb1057fa", package = "gpui-base", features = ["gpui-fast"] }
+gpui-component = { git = "https://github.com/fungOS-linux/gpui-kit", rev = "2f73b8d1d2f81e39338ace470fe77058fb1057fa", package = "gpui-component", features = ["gpui-fast"] }
+gpui_wgpu = { git = "https://github.com/fungOS-linux/gpui-fast", rev = "88679a2cdb4d255710256921238e45fa25c8b751", package = "gpui_wgpu", features = ["headless"] }
+wgpu = { version = "30", default-features = false, features = ["wgsl"] }
+wgpu-wasi-webgpu = { git = "https://github.com/fungOS-linux/wgpu-wasi-webgpu", rev = "bec921356c366450408d5faee2d206b6a1b8061b" }
+wit-bindgen = "0.57"

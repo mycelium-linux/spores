@@ -1,0 +1,16 @@
+// The host world a board Spore runs in.
+//
+// The Spore owns the view; the host owns the WebGPU device, the compositor
+// surface and the records book. No window, swapchain or native texture handle
+// crosses this boundary: the guest renders offscreen, hands over a texture the
+// host already knows how to present, and reads its data through `soil:records`
+// rather than opening a socket of its own.
+package fungos:board@0.1.0;
+
+world runner {
+  import soil:records/records@0.1.0;
+  import soil:present/surface@0.1.0;
+  import soil:present/input@0.1.0;
+  import soil:present/cursor@0.1.0;
+  export run: async func() -> u32;
+}

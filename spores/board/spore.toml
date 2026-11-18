@@ -1,0 +1,73 @@
+# board: the Marbles dashboard as a GPUI Spore.
+#
+# A GPUI Spore owns its view and renders offscreen: the host owns the WebGPU
+# device, the compositor surface and the records book. Nothing here opens a
+# socket or reads a file, so the whole of this Spore's authority is "draw what
+# the store says".
+schema = 1
+
+[spore]
+id = "dev.fungos.board"
+name = "board"
+title = "Board"
+version = "0.1.0"
+license = "MIT"
+summary = "Search, burndown and kanban over a Marbles records book"
+description = "The Marbles work graph as one surface: a searchable kanban of every issue by status, and a burndown of what is left against the pace that would have cleared it. Reads `soil:records` only."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[docs]
+usage = ["board"]
+man = "docs/man.md"
+
+[catalog]
+categories = ["developer-tools", "productivity"]
+keywords = ["marbles", "kanban", "burndown", "issues", "board"]
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { records = "0.1.0", present = "0.1.0", webgpu = "0.3.0-rc.2" }
+
+[module]
+path = "module.wasm"
+
+# No `[records]` declaration.
+#
+# That table names declared collections as schema ids (`area/name@version`), and
+# it is the read-only path for a Spore that reads several schemas. Marbles keeps
+# every record type in one collection literally named `marbles` — issues are
+# `issue/[...]` entries inside it — which is not a schema id and so cannot be
+# declared here. The operator names it instead:
+#
+#     soil spore run spores/board --collection marbles --book marbles
+#
+# `--collection` is also the write grant, so this doubles as the statement that
+# the board is read-only: it is granted `soil:records` and nothing narrower.
+
+# A GPUI Spore owns its view; only the presenter changes between hosts, so this
+# package declares no `[[surfaces]]` — native rendering is the default and the
+# one that works everywhere.
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:records" = "read the marbles collection the host opens"
+"soil:present" = "present one GPUI-rendered surface to the host compositor"
+"wasi:webgpu" = "render the interface offscreen at the extent the host reports"
+# The floor the Rust standard library links in, not authority this Spore uses.
+"wasi:clocks" = "monotonic timing for the guest frame scheduler"
+"wasi:io" = "component-model async transport"
+"wasi:cli" = "Rust std diagnostics; no args, environment, or process launch"
+
+[denied]
+# A board is a view. The store is the authority, and the network is not this
+# Spore's business at all.
+"soil:records.write" = ["the tracker is the only writer a board may show"]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
+
+[presentation]
+badge = "b"
+color = "#6ea8fe"
