@@ -1,0 +1,19 @@
+[package]
+name = "health-smoke"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/fungOS-linux/spores"
+publish = false
+
+# Its own workspace, like every Spore guest: the module is built for
+# `wasm32-wasip2` on its own profile, not as part of a host tree.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+metrics-sdk = { path = "../metrics-sdk" }
+wit-bindgen = "0.41"

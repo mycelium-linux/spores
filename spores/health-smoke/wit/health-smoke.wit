@@ -1,0 +1,13 @@
+// The smallest Spore that proves the runner's HTTP surface and `soil:metrics`
+// together: one name, one route, one 200, one counter.
+//
+// It imports nothing but the two interfaces it is about. That is the point of a
+// smoke Spore: if the answer is wrong, the fault is in the host's linker, the
+// registry or the gateway, not in the Spore's own logic.
+package fungos:health-smoke@0.1.0;
+
+world health-smoke {
+  import soil:metrics/metrics@0.1.0;
+
+  export wasi:http/incoming-handler@0.2.12;
+}

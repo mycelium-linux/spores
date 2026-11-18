@@ -1,0 +1,50 @@
+# health-smoke: the runner's HTTP surface and `soil:metrics`, end to end.
+#
+# One name, one route, one 200, one counter. If the answer is wrong the fault is
+# in the host's linker, the registry or the gateway -- the Spore has nowhere
+# else to be wrong.
+#
+#     soil --root /tmp/smoke spore run spores/health-smoke --listen 127.0.0.1:8080
+#     curl -H 'Host: health-smoke.local' localhost:8080/healthz   # ok
+#     curl -H 'Host: health-smoke.local' localhost:8080/readyz    # bus=...,creds=...
+#     curl -H 'Host: health-smoke.local' localhost:8080/          # ok
+#     curl -H 'Host: health-smoke.local' localhost:8080/metrics   # health_smoke_answered_total
+schema = 1
+
+[spore]
+id = "dev.fungos.health-smoke"
+name = "health-smoke"
+title = "Health smoke"
+version = "0.1.0"
+license = "MIT"
+summary = "One 200 and one counter: the runner's HTTP surface and soil:metrics, end to end"
+description = "A probe target, not a product. Answers every request with 200 and increments health_smoke_answered_total in the host registry, so `GET /metrics` can be checked with a real Spore rather than a unit test."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { http = "0.2.12", metrics = "0.1.0" }
+
+[module]
+path = "module.wasm"
+
+[http]
+# One name, claimed here: the host refuses two live claims on one name, which
+# is why the smoke run passes `--state` at a scratch directory.
+hosts = ["health-smoke.local"]
+routes = [{ methods = ["GET"], path = "/" }]
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:metrics" = "publish one counter per answered request"
+"wasi:http" = "answer the one name the host routes here"
+"wasi:io" = "the response body stream"
+"wasi:clocks" = "the monotonic clock the HTTP types carry"
+
+[denied]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]

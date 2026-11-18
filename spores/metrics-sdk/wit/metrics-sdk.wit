@@ -1,0 +1,9 @@
+// The SDK's own world exists so `wit-bindgen` generates `soil:metrics` once, at
+// a path a guest can name in `with:`. A guest maps this module into its own
+// world, so the Spore, this SDK and the host all mean the same interface — a
+// second hand-written copy is exactly what would drift.
+package fungos:metrics-sdk@0.1.0;
+
+world metrics-sdk {
+  import soil:metrics/metrics@0.1.0;
+}

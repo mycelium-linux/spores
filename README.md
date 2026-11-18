@@ -139,6 +139,8 @@ spores/tui                 ratatui dashboard that emits ANSI frames
 spores/cli-http            the narrow host-mediated HTTP seam shared by CLI spores
 spores/media-probe         soil:media fixture
 spores/surface-probe       soil:surface-import fixture
+spores/health-smoke        one 200 and one counter: the runner's /metrics, end to end
+spores/metrics-sdk         typed Counter and Gauge over soil:metrics, for guests
 ```
 
 `terminal-host` is not here: it is the native Mycelium/PTY host in
