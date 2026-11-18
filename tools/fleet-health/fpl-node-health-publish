@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Publish fpl-node-health spool envelopes to the local Unibus hub.
+
+Unibus frames are `[u32 BE total][JSON envelope][binary payload]` and the hub
+authenticates a producer with a per-node token file. The JSON envelope is
+written here by hand because the alternative is a new Rust producer binary;
+the wire format is stable and the fields are validated server-side, so a failed
+publish is loud rather than silent.
+
+Contract (crates/unibus/src/envelope.rs, crates/unibus/src/framing.rs):
+  schema_version      2
+  installation_id     from /etc/unibus/hub.json
+  producer_id         node-health
+  message.message_type + flattened body
+
+Registration: send `register` first, then wait for `reply` with our request_id
+and `success: true` before publishing anything.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import random
+import socket
+import struct
+import string
+import sys
+import time
+
+HUB = os.environ.get("UNIBUS_HUB", "127.0.0.1:18790")
+HUB_CONFIG = os.environ.get("UNIBUS_HUB_CONFIG", "/etc/unibus/hub.json")
+TOKEN_FILE = os.environ.get("UNIBUS_TOKEN_FILE", "/etc/unibus/tokens/node-health.token")
+PRODUCER = os.environ.get("UNIBUS_PRODUCER", "node-health")
+KIND = os.environ.get("UNIBUS_KIND", "fpl.node.health.v1")
+SPOOL = os.environ.get("NODE_HEALTH_SPOOL", "/var/spool/fpl-node-health")
+ZONES = [z.strip() for z in os.environ.get("UNIBUS_ZONES", "default").split(",") if z.strip()]
+CAPABILITIES = [c.strip() for c in os.environ.get("UNIBUS_CAPABILITIES", "elmers.consume").split(",") if c.strip()]
+TIMEOUT = float(os.environ.get("UNIBUS_TIMEOUT", "5"))
+
+
+def log(msg: str) -> None:
+    print(f"fpl-node-health-publish: {msg}", file=sys.stderr, flush=True)
+
+
+def installation_id() -> str:
+    with open(HUB_CONFIG, encoding="utf-8") as handle:
+        return json.load(handle)["installation_id"]
+
+
+def request_id() -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "nh-" + "".join(random.choices(alphabet, k=20))
+
+
+def envelope(token: str, installation: str, kind: str, body: dict) -> bytes:
+    """Build one frame.
+
+    `observer`/`subject`/`state`/`idempotency_key` exist so many nodes reporting the
+    same down peer collapse to one state downstream. Unibus is L1 and never reads a
+    body, so dedupe belongs to the consumer: key on `subject`, take the newest
+    `observed_at_unix_ms`, and treat the state as shared rather than per-observer.
+    The key is stable for a given (subject, state) pair, so a repeated report of the
+    same state is idempotent while a transition produces a new key.
+    """
+    doc = {
+        "schema_version": 2,
+        "installation_id": installation,
+        "producer_id": PRODUCER,
+        "destination": None,
+        "target_screen": None,
+        "request_id": request_id(),
+        "issued_at_unix_ms": int(time.time() * 1000),
+        "ttl_ms": 60_000,
+        "payload_bytes": 0,
+        "token": token,
+        "message": {"message_type": kind, **body},
+    }
+    raw = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    return struct.pack(">I", len(raw)) + raw
+
+
+def recv_frame(sock: socket.socket) -> dict:
+    head = b""
+    while len(head) < 4:
+        chunk = sock.recv(4 - len(head))
+        if not chunk:
+            raise ConnectionError("hub closed the connection")
+        head += chunk
+    (total,) = struct.unpack(">I", head)
+    if total == 0 or total > 16 * 1024 * 1024:
+        raise ValueError(f"implausible frame length {total}")
+    body = b""
+    while len(body) < total:
+        chunk = sock.recv(total - len(body))
+        if not chunk:
+            raise ConnectionError("hub closed mid-frame")
+        body += chunk
+    return json.loads(body.decode("utf-8", "replace"))
+
+
+def connect() -> tuple[socket.socket, str, str]:
+    token = open(TOKEN_FILE, encoding="utf-8").read().strip()
+    if len(token) < 32:
+        raise SystemExit(f"token file {TOKEN_FILE} is missing or too short")
+    install = installation_id()
+    host, _, port = HUB.partition(":")
+    sock = socket.create_connection((host, int(port)), timeout=TIMEOUT)
+    sock.settimeout(TIMEOUT)
+
+    reg_envelope = {
+        "schema_version": 2,
+        "installation_id": install,
+        "producer_id": PRODUCER,
+        "destination": None,
+        "target_screen": None,
+        "request_id": request_id(),
+        "issued_at_unix_ms": int(time.time() * 1000),
+        "ttl_ms": 60_000,
+        "payload_bytes": 0,
+        "token": token,
+        "message": {
+            "message_type": "register",
+            "capabilities": CAPABILITIES,
+            "zones": ZONES,
+            "screen_anchors": [],
+        },
+    }
+    reg_raw = json.dumps(reg_envelope, separators=(",", ":")).encode("utf-8")
+    sock.sendall(struct.pack(">I", len(reg_raw)) + reg_raw)
+    deadline = time.time() + TIMEOUT
+    while time.time() < deadline:
+        reply = recv_frame(sock)
+        message = reply.get("message") or {}
+        if message.get("message_type") != "reply":
+            continue
+        if message.get("request_id") != reg_envelope["request_id"]:
+            continue
+        if not message.get("success"):
+            raise SystemExit(f"hub rejected registration: {message}")
+        return sock, token, install
+    raise SystemExit("timed out waiting for hub registration reply")
+
+
+def pending() -> list[str]:
+    try:
+        names = sorted(n for n in os.listdir(SPOOL) if n.endswith(".json"))
+    except FileNotFoundError:
+        return []
+    return [os.path.join(SPOOL, n) for n in names]
+
+
+def main() -> int:
+    files = pending()
+    if not files:
+        return 0
+    try:
+        sock, token, install = connect()
+    except (OSError, SystemExit) as exc:
+        log(f"cannot reach unibus hub ({exc}); leaving {len(files)} envelope(s) spooled")
+        return 0
+
+    sent = 0
+    with sock:
+        for path in files:
+            try:
+                body = json.load(open(path, encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                log(f"dropping unreadable spool file {path}: {exc}")
+                os.unlink(path)
+                continue
+            body.pop("ts", None)  # carried in issued_at_unix_ms instead
+            body["observer"] = body.get("host") or socket.gethostname()
+            body["observed_at_unix_ms"] = int(time.time() * 1000)
+            if body.get("subject") and body.get("state"):
+                body["idempotency_key"] = hashlib.sha256(
+                    f"{body['observer']}|{body['subject']}|{body['state']}".encode()
+                ).hexdigest()[:32]
+            try:
+                sock.sendall(envelope(token, install, KIND, body))
+            except OSError as exc:
+                log(f"publish failed, leaving {len(files) - sent} envelope(s): {exc}")
+                return 0
+            sent += 1
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    log(f"published {sent} node-health event(s) to {HUB} as {PRODUCER}/{KIND}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

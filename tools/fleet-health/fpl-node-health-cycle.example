@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Neo's fleet observations: bob's pool (local registry) and Shroud's deployer
+# (on beachhead-1, reachable over ssh because 7789 is firewalled to the host).
+# Publishes fpl.node.health.v1 to batty's hub as producer `node-health`.
+export UNIBUS_HUB=192.168.1.40:18790
+export UNIBUS_INSTALLATION_ID=fpl-cloud
+export UNIBUS_PRODUCER=node-health
+export UNIBUS_TOKEN_FILE="$HOME/.config/unibus/tokens/node-health.token"
+export UNIBUS_HUB_CONFIG="$HOME/.config/unibus/arborist.json"
+export NODE_HEALTH_STATE="$HOME/.local/state/fpl-node-health"
+export NODE_HEALTH_SPOOL="$HOME/.local/state/fpl-node-health/spool"
+export NODE_HEALTH_STREAMS=shroud,bob
+export NODE_HEALTH_SHROUD="beachhead-1=ssh://root@134.209.208.195"
+export NODE_HEALTH_BOB="neo=http://127.0.0.1:8796"
+mkdir -p "$NODE_HEALTH_STATE" "$NODE_HEALTH_SPOOL"
+"$HOME/.local/bin/fpl-node-health" || exit 0
+"$HOME/.local/bin/fpl-node-health-publish" || exit 0
+exit 0

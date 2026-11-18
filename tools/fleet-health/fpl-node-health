@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# FPL node health monitor -> journal + JSONL + Prometheus textfile + unibus spool.
+#
+# Why: on 2026-11-18 the lab could not reach the DO VPC and nobody would have been
+# told if a node vanished from the Mycelium mesh. Unibus already models producer
+# liveness (`{producer_id, online}` in crates/unibus/src/kinds.rs), so the long-term
+# sink is unibus; until a `node-health` producer token exists and a framing client is
+# wired, events also land in a spool directory that a producer can drain verbatim.
+#
+# Exit codes: 0 always (a monitor that fails is worse than one that reports).
+set -uo pipefail
+
+STATE_DIR="${NODE_HEALTH_STATE:-/var/lib/fpl-node-health}"
+SPOOL_DIR="${NODE_HEALTH_SPOOL:-/var/spool/fpl-node-health}"
+PROM_FILE="${NODE_HEALTH_PROM:-$STATE_DIR/node_health.prom}"
+EXPECTED_MESH="${NODE_HEALTH_EXPECTED:-fpl-beachhead-1 fpl-beachhead-2 fpl-beachhead-3 batty pris}"
+PROBES="${NODE_HEALTH_PROBES:-https://sso.fpl.dev/login https://ai.fpl.dev/health https://edge-canary.fpl.dev/ https://fpl.dev/}"
+MYCELIUM_BIN="${MYCELIUM_BIN:-/home/ajmwagar/.mycelium/bin/mycelium}"
+MYCELIUM_HOME_DIR="${MYCELIUM_HOME_DIR:-/home/ajmwagar/.mycelium}"
+
+mkdir -p "$STATE_DIR" "$SPOOL_DIR" 2>/dev/null || true
+STREAMS="${NODE_HEALTH_STREAMS:-mesh,probe,connector,shroud,bob}"
+want() { case ",$STREAMS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+emit() { # emit <stream> <subject> <state> <detail>
+    local stream="$1" subject="$2" state="$3"
+    # The detail is free text and can quote JSON (a shroud healthz body does),
+    # so escape it once here rather than at every call site.
+    local detail
+    detail=$(printf '%s' "${4:-}" | tr -d '\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    local event
+    event=$(printf '{"ts":"%s","host":"%s","stream":"%s","subject":"%s","state":"%s","detail":"%s"}' \
+        "$NOW" "$(hostname -s)" "$stream" "$subject" "$state" "$detail")
+    logger -t fpl-node-health -- "$stream $subject=$state ${detail:+($detail)}" 2>/dev/null || true
+    printf '%s\n' "$event" >> "$STATE_DIR/events.jsonl" 2>/dev/null || true
+    # Unibus sees a check only when its state changes; the journal, JSONL and
+    # Prometheus textfile are the history. A frame a minute is not a notification.
+    local marker="$STATE_DIR/last-$(printf '%s-%s' "$stream" "$subject" | tr -c 'a-zA-Z0-9._-' '_')"
+    local last=""
+    [ -f "$marker" ] && last=$(cat "$marker" 2>/dev/null)
+    if [ "$last" != "$state" ]; then
+        printf '%s' "$state" > "$marker" 2>/dev/null || true
+        printf '%s\n' "$event" > "$SPOOL_DIR/$(printf '%s-%s' "$stream" "$subject" | tr -c 'a-zA-Z0-9._-' '_').json" 2>/dev/null || true
+    fi
+}
+
+mesh_ok=0
+mesh_nodes=""
+if want mesh; then
+aux_fail=""
+mesh_nodes=""
+mesh_ok=0
+missing=""
+probe_fail=0
+cstate=""
+if command -v "$MYCELIUM_BIN" >/dev/null 2>&1; then
+    mesh_json=$(MYCELIUM_HOME="$MYCELIUM_HOME_DIR" timeout 20 "$MYCELIUM_BIN" topology --json 2>/dev/null)
+    if [ -n "$mesh_json" ]; then
+        mesh_ok=1
+        mesh_nodes=$(printf '%s' "$mesh_json" | python3 -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: raise SystemExit(0)
+names=set()
+for n in (d.get("nodes") or {}).values():
+    for h in n.get("hostnames") or []: names.add(h.split(".")[0])
+print(" ".join(sorted(names)))
+' 2>/dev/null)
+    fi
+fi
+
+if [ "$mesh_ok" != 1 ]; then
+    emit mesh "mesh" "unreadable" "topology command failed"
+else
+    emit mesh "mesh" "ok" "$(printf '%s' "$mesh_nodes" | wc -w) nodes"
+    missing=""
+    for want in $EXPECTED_MESH; do
+        case " $mesh_nodes " in *" $want "*) ;; *) missing="$missing $want" ;; esac
+    done
+    if [ -n "$missing" ]; then
+        emit mesh "peer" "down" "absent from mesh:$missing"
+    else
+        emit mesh "peer" "up" "all expected nodes present"
+    fi
+fi
+
+fi
+
+if want probe; then
+probe_fail=0
+for url in $PROBES; do
+    code=$(curl -sS -o /dev/null -m 12 -w '%{http_code}' "$url" 2>/dev/null || echo 000)
+    host=$(printf '%s' "$url" | sed -E 's#https?://([^/]+).*#\1#')
+    case "$code" in
+        2*|3*|401) emit probe "$host" "ok" "http $code" ;;
+        *) emit probe "$host" "fail" "http $code"; probe_fail=$((probe_fail + 1)) ;;
+    esac
+done
+
+fi
+
+if want connector; then
+# Connector health for the edge tunnel (local view; the other host is probed above).
+if command -v systemctl >/dev/null 2>&1; then
+    cstate=$(systemctl is-active cloudflared-edge.service 2>/dev/null || echo absent)
+    case "$cstate" in
+        active) emit connector "$(hostname -s)" "up" "cloudflared-edge active" ;;
+        absent) : ;;
+        *) emit connector "$(hostname -s)" "down" "cloudflared-edge $cstate" ;;
+    esac
+fi
+
+fi
+
+# Shroud controllers: /healthz is the deployer's own verdict (a paused
+# reconciliation answers 503 with {"ok":false}).
+#   NODE_HEALTH_SHROUD="beachhead-1=http://134.209.208.195:7789"
+if want shroud; then
+    for entry in ${NODE_HEALTH_SHROUD:-}; do
+        name=${entry%%=*}; base=${entry#*=}
+        case "$base" in
+            ssh://*)
+                body=$(ssh -o BatchMode=yes -o ConnectTimeout=6 "${base#ssh://}"                     "curl -sS -m 5 http://127.0.0.1:7789/healthz" 2>/dev/null) || body=""
+                ;;
+            *)
+                body=$(curl -sS -m 10 "$base/healthz" 2>/dev/null) || body=""
+                ;;
+        esac
+        if printf '%s' "$body" | grep -qF '"ok":true'; then
+            emit shroud "$name" ok "controller healthy"
+        else
+            detail=$(printf '%s' "${body:-no response from $base/healthz}" | head -c 200)
+            emit shroud "$name" fail "deployer unhealthy: $detail"
+            aux_fail="${aux_fail:+$aux_fail, }shroud $name"
+        fi
+    done
+fi
+
+# Bob's registry: the pool's own pressure is the verdict. Zero healthy builders
+# means the fleet cannot build.
+#   NODE_HEALTH_BOB="neo=http://127.0.0.1:8796"
+if want bob; then
+    for entry in ${NODE_HEALTH_BOB:-}; do
+        name=${entry%%=*}; base=${entry#*=}
+        pressure=$(curl -sS -m 10 "$base/pressure" 2>/dev/null) || pressure=""
+        if [ -z "$pressure" ]; then
+            emit bob "$name" fail "registry unreachable at $base"
+            aux_fail="${aux_fail:+$aux_fail, }bob $name"
+            continue
+        fi
+        parsed=$(printf '%s' "$pressure" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+print(d.get("healthy",0), d.get("members",0), d.get("queued",0), sep="|")' 2>/dev/null)
+        if [ -z "$parsed" ]; then
+            emit bob "$name" fail "pressure response unreadable"
+            aux_fail="${aux_fail:+$aux_fail, }bob $name"
+            continue
+        fi
+        healthy=${parsed%%|*}; rest=${parsed#*|}; members=${rest%%|*}; queued=${rest#*|}
+        if [ "${healthy:-0}" -eq 0 ]; then
+            emit bob "$name" fail "0 of ${members} builders healthy, ${queued} queued"
+            aux_fail="${aux_fail:+$aux_fail, }bob $name"
+        else
+            emit bob "$name" ok "${healthy} of ${members} builders healthy, ${queued} queued"
+        fi
+    done
+fi
+
+# Prometheus textfile so an existing scrape picks this up without a new exporter.
+if [ "$mesh_ok" = 1 ]; then
+    {
+        printf '# HELP fpl_mesh_nodes Nodes visible in the Mycelium mesh\n# TYPE fpl_mesh_nodes gauge\n'
+        printf 'fpl_mesh_nodes %s\n' "$(printf '%s' "$mesh_nodes" | wc -w)"
+        printf '# HELP fpl_mesh_expected_present 1 when every expected node is present\n# TYPE fpl_mesh_expected_present gauge\n'
+        [ -z "${missing:-}" ] && printf 'fpl_mesh_expected_present 1\n' || printf 'fpl_mesh_expected_present 0\n'
+        printf '# HELP fpl_probe_failures Public probe failures this cycle\n# TYPE fpl_probe_failures gauge\n'
+        printf 'fpl_probe_failures %s\n' "$probe_fail"
+    } > "$PROM_FILE.tmp" 2>/dev/null && mv "$PROM_FILE.tmp" "$PROM_FILE" 2>/dev/null
+fi
+
+# One nominal line per healthy transition, details for red. The per-subject
+# events above are the detail; this is the verdict, and it is emitted only when
+# it changes, so a green that repeats is not noise and a green after a red is
+# the recovery a person needs to see. `transition` makes each change a new key
+# for the consumer's `seen`.
+fleet_state=ok
+reasons=""
+[ "$mesh_ok" != 1 ] && { fleet_state=fail; reasons="mesh unreadable"; }
+if [ -n "${missing:-}" ]; then
+    fleet_state=fail
+    reasons="${reasons:+$reasons, }peer down:${missing# }"
+fi
+[ "${probe_fail:-0}" -gt 0 ] && {
+    fleet_state=fail
+    reasons="${reasons:+$reasons, }${probe_fail} probe failure(s)"
+}
+[ -n "$aux_fail" ] && { fleet_state=fail; reasons="${reasons:+$reasons, }$aux_fail"; }
+case "${cstate:-active}" in
+    active|absent|"") ;;
+    *) fleet_state=fail; reasons="${reasons:+$reasons, }connector $cstate" ;;
+esac
+if [ "$fleet_state" = ok ]; then
+    fleet_detail="all healthchecks passed"
+else
+    fleet_detail="${reasons:-unhealthy}"
+fi
+
+STATUS_FILE="$STATE_DIR/fleet-status.json"
+last_state=""
+transition=0
+if [ -f "$STATUS_FILE" ]; then
+    read -r last_state transition < <(python3 -c 'import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: d={}
+print(d.get("state",""), d.get("transition",0))' "$STATUS_FILE" 2>/dev/null)
+fi
+transition=${transition:-0}
+if [ "$fleet_state" != "$last_state" ]; then
+    transition=$((transition + 1))
+    printf '{"state":"%s","transition":%s,"ts":"%s"}\n' \
+        "$fleet_state" "$transition" "$NOW" > "$STATUS_FILE" 2>/dev/null || true
+    summary=$(printf '{"ts":"%s","host":"%s","stream":"fleet","subject":"status","state":"%s","detail":"%s","transition":%s}' \
+        "$NOW" "$(hostname -s)" "$fleet_state" "$fleet_detail" "$transition")
+    printf '%s\n' "$summary" >> "$STATE_DIR/events.jsonl" 2>/dev/null || true
+    printf '%s\n' "$summary" > "$SPOOL_DIR/fleet-status.json" 2>/dev/null || true
+fi
+
+exit 0
