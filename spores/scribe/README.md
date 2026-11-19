@@ -60,8 +60,17 @@ If inference is unavailable, the transcript is still stored and the record is
 `actions.json` is a convenience view; structured trigger records and JARVIS
 routing are the next slice.
 
-After writing, Scribe calls `soil:index.refresh()` and publishes
-`scribe.capture.stored.v1` with the record key and content IDs.
+After writing, Scribe calls `soil:index.refresh()` and publishes:
+
+- `scribe.capture.stored.v1` with the record key and content IDs.
+- `scribe.capture.enriched.v1` with summary/action content IDs, model,
+  duration, segment count and speaker count.
+- one `scribe.action_item.v1` per extracted action, with a stable
+  `action:<source>:<capture>:<index>` id and the action's quote/owner/kind.
+
+The action events are proposals. Scribe does not create marbles or tasks and
+does not execute anything. Elmers/JARVIS decide whether an item deserves a
+workflow or a marble.
 
 ## Grants
 

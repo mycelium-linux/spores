@@ -310,6 +310,71 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     .map_err(|error| format!("stored event JSON: {error}"))?;
     let _ = bus::publish("scribe.capture.stored.v1", &event_body, None, 60_000);
 
+    let duration_ms = event
+        .started_at_ms
+        .zip(event.ended_at_ms)
+        .map(|(start, end)| end.saturating_sub(start))
+        .unwrap_or(0);
+    let enriched_body = serde_json::to_vec(&json!({
+        "schema": "scribe.capture.enriched.v1",
+        "capture_id": event.capture_id,
+        "source": source,
+        "bundle": root,
+        "record": format!("capture:{source}:{}", event.capture_id),
+        "started_at_ms": event.started_at_ms,
+        "ended_at_ms": event.ended_at_ms,
+        "duration_ms": duration_ms,
+        "segment_count": segment_count,
+        "speaker_count": speaker_count,
+        "summary": {
+            "content_id": summary.content_id,
+            "path": summary.path,
+            "model": enrichment_model,
+        },
+        "actions": {
+            "content_id": actions.content_id,
+            "path": actions.path,
+            "count": event.actions.as_array().map(Vec::len).unwrap_or(0),
+        },
+        "enrichment": enrichment_status,
+    }))
+    .map_err(|error| format!("enriched event JSON: {error}"))?;
+    let _ = bus::publish("scribe.capture.enriched.v1", &enriched_body, None, 7 * 24 * 60 * 60 * 1000);
+
+    // One event per extracted action. Consumers (Elmers, Marbles, JARVIS) can
+    // decide whether an item is worth acting on; Scribe never creates one.
+    if let Some(items) = event.actions.as_array() {
+        for (index, item) in items.iter().enumerate() {
+            let action_id = format!("action:{source}:{}:{index}", event.capture_id);
+            let body = serde_json::to_vec(&json!({
+                "schema": "scribe.action_item.v1",
+                "id": action_id,
+                "capture_id": event.capture_id,
+                "source": source,
+                "bundle": root,
+                "record": format!("capture:{source}:{}", event.capture_id),
+                "started_at_ms": event.started_at_ms,
+                "ended_at_ms": event.ended_at_ms,
+                "kind": item.get("kind").cloned().unwrap_or(Value::Null),
+                "title": item.get("title").cloned().unwrap_or(Value::Null),
+                "owner": item.get("owner").cloned().unwrap_or(Value::Null),
+                "due_at": item.get("due_at").cloned().unwrap_or(Value::Null),
+                "quote": item.get("quote").cloned().unwrap_or(Value::Null),
+                "start_ms": item.get("start_ms").cloned().unwrap_or(Value::Null),
+                "end_ms": item.get("end_ms").cloned().unwrap_or(Value::Null),
+                "speaker": item.get("speaker").cloned().unwrap_or(Value::Null),
+                "confidence": item.get("confidence").cloned().unwrap_or(Value::Null),
+            }))
+            .map_err(|error| format!("action item event JSON: {error}"))?;
+            let _ = bus::publish(
+                "scribe.action_item.v1",
+                &body,
+                None,
+                7 * 24 * 60 * 60 * 1000,
+            );
+        }
+    }
+
     Ok(json!({
         "capture_id": event.capture_id,
         "record": format!("capture:{source}:{}", event.capture_id),
