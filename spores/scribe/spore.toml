@@ -1,0 +1,46 @@
+# The Scribe Spore: Omi capture events in, VFS bundle + records out.
+schema = 1
+
+[spore]
+id = "dev.fungos.scribe"
+name = "scribe"
+version = "0.1.0"
+license = "MIT"
+summary = "Ingest voice capture bundles into VFS, records, and the index"
+description = "Consumes omi.capture.v1 / transcript.capture.v1 events, writes the transcript, summary, and action manifest under a capture folder in VFS, writes the fungos.transcript/capture@1 record, and refreshes the derived index. The host owns bytes, durability, indexing, and Unibus transport."
+homepage = "https://github.com/mycelium-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { vfs = "1.0.0", vfs-mut = "0.1.0", index = "1.1.0", records = "0.1.0", unibus = "0.1.0", time = "1.0.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:vfs" = "stat parent folders before creating a capture bundle"
+"soil:vfs-mut" = "write transcript.json, summary.md, actions.json, and the bundle manifest"
+"soil:index" = "refresh the derived index after a capture bundle lands"
+"soil:records" = "write the capture@1 and trigger@1 records"
+"soil:unibus" = "poll capture events and publish scribe.capture.stored.v1"
+"soil:time" = "monotonic watch deadlines"
+"wasi:cli" = "Rust std stdio for the host's log stream"
+"wasi:clocks" = "Rust std runtime dependency"
+"wasi:io" = "Rust std runtime I/O primitives"
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "wall-clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["scribe", "transcript", "capture", "omi", "vfs", "records"]
+
+[presentation]
+badge = "S"
+color = "#22c55e"
