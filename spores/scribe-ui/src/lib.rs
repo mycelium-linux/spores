@@ -17,6 +17,7 @@ use wasi::http::types::{
 };
 
 use soil::vfs::vfs;
+use soil::vfs_mut::vfs_mut;
 
 const HTML: &str = include_str!("ui.html");
 const MAX_READ: u32 = 1024 * 1024;
@@ -47,6 +48,14 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                     &serde_json::to_vec(&value).unwrap_or_default(),
                 ),
                 Err(error) => api_error(500, &error),
+            },
+            (Method::Post, "/api/speaker") => match set_speaker(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
             },
             (Method::Get, "/api/capture") => match query_value(query, "path") {
                 Some(path) => match capture(&path) {
@@ -139,6 +148,35 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+fn set_speaker(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    let speaker = query_value(query, "speaker").ok_or("missing speaker")?;
+    let name = query_value(query, "name").ok_or("missing name")?;
+    if !path.starts_with("captures/") || path.contains("..") {
+        return Err("invalid capture path".into());
+    }
+    let name = name.trim();
+    if name.is_empty() || name.len() > 80 || speaker.is_empty() {
+        return Err("invalid speaker name".into());
+    }
+    let speakers_path = format!("{path}/speakers.json");
+    let mut speakers = read_json(&speakers_path).unwrap_or_else(|_| json!({}));
+    if !speakers.is_object() {
+        speakers = json!({});
+    }
+    speakers[&speaker] = json!({ "name": name, "source": "manual" });
+    let bytes = serde_json::to_vec_pretty(&speakers).map_err(|error| error.to_string())?;
+    vfs_mut::write(
+        &speakers_path,
+        &bytes,
+        "application/json",
+        None,
+        None,
+    )
+    .map_err(|error| format!("write speakers: {error:?}"))?;
+    Ok(json!({ "ok": true, "speakers": speakers }))
+}
+
 fn captures() -> Result<Value, String> {
     let mut cards = Vec::new();
     for source in dirs("captures")? {
@@ -225,6 +263,7 @@ fn capture(path: &str) -> Result<Value, String> {
     let actions = read_json(&format!("{path}/actions.json")).unwrap_or_else(|_| json!([]));
     let transcript = read_json(&format!("{path}/transcript.json"))?;
     let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
+    let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
     Ok(json!({
         "path": path,
         "title": meta
@@ -236,6 +275,7 @@ fn capture(path: &str) -> Result<Value, String> {
         "summary": summary,
         "actions": actions,
         "transcript": transcript,
+        "speakers": speakers,
         "started_at_ms": meta.get("started_at_ms").cloned().unwrap_or(Value::Null),
         "ended_at_ms": meta.get("ended_at_ms").cloned().unwrap_or(Value::Null),
     }))

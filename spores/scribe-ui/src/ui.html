@@ -26,7 +26,7 @@ h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spa
 .summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
 .turn{padding:10px 0;border-bottom:1px solid #eee8de}
-.speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:820px}
+.speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:820px}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
 .actions h2{margin:4px 0 12px}
 .action{padding:11px 0;border-bottom:1px solid var(--line)}
@@ -71,6 +71,11 @@ const speakerName = (speaker) => {
   return match ? `Speaker ${Number(match[1])}` : String(speaker);
 };
 const speakerLabel = (segment) => segment?.is_user ? 'You' : speakerName(segment?.speaker);
+const displaySpeaker = (capture, raw) => {
+  const key = raw == null ? 'Speaker' : String(raw);
+  const mapped = capture?.speakers?.[key]?.name;
+  return mapped || (key === 'You' ? 'You' : speakerName(key));
+};
 const speakerColor = (label) => {
   let hash = 0;
   for (const ch of String(label)) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
@@ -185,7 +190,8 @@ function render(capture) {
   const turns = [];
   if (segments.length) {
     for (const segment of segments) {
-      const speaker = speakerLabel(segment);
+      const speakerKey = segment.is_user ? 'You' : (segment.speaker ?? 'Speaker');
+      const speaker = displaySpeaker(capture, speakerKey);
       const text = (segment.text || '').trim();
       if (!text) continue;
       const start = Number(segment.start ?? 0);
@@ -196,7 +202,7 @@ function render(capture) {
         const last = turns[turns.length - 1];
         const pause = last ? start - last.end : Infinity;
         if (index > 0 || !last || last.speaker !== speaker || pause > 1.4) {
-          turns.push({speaker, text: piece, start, end});
+          turns.push({speaker, speakerKey, text: piece, start, end});
         } else {
           last.text += ' ' + piece;
           last.end = Math.max(last.end, end);
@@ -205,14 +211,15 @@ function render(capture) {
     }
   } else {
     for (const word of words) {
-      const speaker = word.is_user ? 'You' : speakerName(word.speaker);
+      const speakerKey = word.is_user ? 'You' : (word.speaker ?? 'Speaker');
+      const speaker = displaySpeaker(capture, speakerKey);
       const token = word.word ?? '';
       if (!token) continue;
       const start = Number(word.start ?? 0);
       const end = Number(word.end ?? start);
       const last = turns[turns.length - 1];
       const pause = last ? start - last.end : Infinity;
-      if (!last || last.speaker !== speaker || pause > 1.8) turns.push({speaker, text: token, start, end});
+      if (!last || last.speaker !== speaker || pause > 1.8) turns.push({speaker, speakerKey, text: token, start, end});
       else {
         if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
         else last.text += ' ' + token;
@@ -221,7 +228,7 @@ function render(capture) {
     }
   }
   const transcript = turns.length
-    ? turns.map(turn => `<div class="turn"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i>${esc(turn.speaker)}</div><div class="text">${esc(turn.text)}</div></div>`).join('')
+    ? turns.map(turn => `<div class="turn"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name" data-speaker="${esc(turn.speakerKey)}">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
   detail.innerHTML = `
     <h1>${esc(capture.title)}</h1>
@@ -229,6 +236,15 @@ function render(capture) {
     <div class="summary">${markdown((capture.summary || 'No summary yet.').replace(/^#\s+.*\n+/, ''))}</div>
     <h2>Transcript</h2>
     ${transcript}`;
+  detail.querySelectorAll('.speaker-name').forEach(button => {
+    button.addEventListener('click', async () => {
+      const key = button.dataset.speaker;
+      const name = prompt(`Name for ${displaySpeaker(capture, key)}`, '');
+      if (!name || !name.trim()) return;
+      const response = await fetch(`/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`, { method: 'POST' });
+      if (response.ok) loadCapture(capture.path);
+    });
+  });
   actionsEl.innerHTML = actions.length ? actions.map(action => `
     <div class="action">
       <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
