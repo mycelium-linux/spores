@@ -535,11 +535,29 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
         let path = item.get("path").and_then(Value::as_str).unwrap_or("");
         let speaker = item.get("speaker").and_then(Value::as_str).unwrap_or("");
         let name = item.get("name").and_then(Value::as_str).unwrap_or("");
-        let person_id = item
+        let requested_person_id = item
             .get("person_id")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .unwrap_or(name);
+        // A display name can already belong to an enrolled person under a
+        // different stable id (for example Avery is `ajmwagar`). Reuse that
+        // identity instead of creating a second template for the same voice.
+        let person_id = templates
+            .get("templates")
+            .and_then(Value::as_array)
+            .and_then(|list| {
+                list.iter().find(|template| {
+                    template
+                        .get("display_name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|display| display.eq_ignore_ascii_case(name))
+                })
+            })
+            .and_then(|template| template.get("person_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| requested_person_id.to_string());
         if path.is_empty() || speaker.is_empty() || name.is_empty() {
             continue;
         }
@@ -593,7 +611,7 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
         });
         if let Some(list) = templates.get_mut("templates").and_then(Value::as_array_mut) {
             if let Some(existing) = list.iter_mut().find(|template| {
-                template.get("person_id").and_then(Value::as_str) == Some(person_id)
+                template.get("person_id").and_then(Value::as_str) == Some(person_id.as_str())
             }) {
                 *existing = update;
             } else {
