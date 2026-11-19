@@ -113,6 +113,25 @@ interface inference {
     usage: option<embed-usage>,
   }
 
+  /// One PCM16LE mono utterance for speaker/voice embedding. The model and
+  /// checkpoint are named explicitly: voice templates are only comparable to
+  /// embeddings from the same pipeline.
+  record voice-embedding-request {
+    model: string,
+    checkpoint: string,
+    sample-rate: u32,
+    /// Expected embedding width, when the caller wants the host to verify it.
+    dimensions: option<u32>,
+    /// Raw PCM16 little-endian mono samples, not a container format.
+    pcm16: list<u8>,
+  }
+
+  record voice-embedding-response {
+    model: string,
+    embedding: list<f32>,
+    usage: option<embed-usage>,
+  }
+
   record chunk {
     /// Raw provider chunk. For OpenAI-compatible SSE this is the event payload.
     data: list<u8>,
@@ -153,6 +172,10 @@ interface inference {
   /// Non-streaming text embeddings. The host scrubs every input before it
   /// leaves the process and returns vectors in input order.
   embed: func(request: embed-request) -> result<embed-response, error>;
+
+  /// Non-streaming speaker embedding. This is an audio path, deliberately
+  /// separate from text `embed`: it sends PCM16, not scrubbed text.
+  voice-embed: func(request: voice-embedding-request) -> result<voice-embedding-response, error>;
 
   /// Open a streaming completion. The returned resource is bounded by the host
   /// session and must be cancelled or dropped when the guest is done.

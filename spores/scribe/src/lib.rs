@@ -36,6 +36,12 @@ struct Args {
     event: Option<String>,
     model: String,
     enrich: bool,
+    path: Option<String>,
+    templates: String,
+    templates_json: Option<String>,
+    checkpoint: String,
+    threshold: f64,
+    margin: f64,
 }
 
 impl Default for Args {
@@ -47,6 +53,13 @@ impl Default for Args {
             event: None,
             model: "scribe/summarize".to_string(),
             enrich: true,
+            path: None,
+            templates: "voiceprints/templates.json".to_string(),
+            templates_json: None,
+            checkpoint: "sha256:394365a16176e8a002f0151b4ee8b1cc1f73d031cdfaa337d0bfb4eaf86676fb"
+                .to_string(),
+            threshold: 0.80,
+            margin: 0.08,
         }
     }
 }
@@ -79,9 +92,23 @@ impl Args {
                 "--event" => args.event = Some(value()?),
                 "--model" => args.model = value()?,
                 "--no-enrich" => args.enrich = false,
+                "--path" => args.path = Some(value()?),
+                "--templates" => args.templates = value()?,
+                "--templates-json" => args.templates_json = Some(value()?),
+                "--checkpoint" => args.checkpoint = value()?,
+                "--threshold" => {
+                    args.threshold = value()?
+                        .parse()
+                        .map_err(|_| "--threshold must be a number".to_string())?
+                }
+                "--margin" => {
+                    args.margin = value()?
+                        .parse()
+                        .map_err(|_| "--margin must be a number".to_string())?
+                }
                 "--help" | "-h" => {
                     return Err(
-                        "scribe commands: watch [--hold-ms N] [--once] | ingest --event JSON [--model ALIAS] [--no-enrich]"
+                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | ingest --event JSON [--model ALIAS] [--no-enrich]"
                             .into(),
                     )
                 }
@@ -121,12 +148,14 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
                 .ok_or_else(|| "ingest needs --event JSON".to_string())?;
             let body: Value =
                 serde_json::from_str(raw_event).map_err(|error| format!("event JSON: {error}"))?;
-            let stored = process_event(&body, &args.model, args.enrich)?;
+            let stored = process_event(&body, &args.model, args.enrich, true)?;
             finish(json!({"ok": true, "command": "ingest", "capture": stored}));
             Ok(())
         }
         "watch" => watch(args),
         "receive" => receive(args),
+        "enrich" => enrich_watch(args),
+        "voiceprint" => voiceprint(args),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -235,7 +264,7 @@ fn receive_one(mut session: duplex::Session, args: &Args) -> Result<Value, Strin
         .get("checkpoint")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let stored = process_event(&body, &args.model, args.enrich && !checkpoint)?;
+    let stored = process_event(&body, &args.model, false, !checkpoint)?;
     session
         .write(b"OK\n")
         .map_err(|error| format!("ack: {error:?}"))?;
@@ -340,6 +369,355 @@ impl<'a> StreamReader<'a> {
     }
 }
 
+/// Consume Scribe's own durable handoff. This is deliberately a separate
+/// process from `receive`: capture acknowledgement stays fast, and the LLM can
+/// fail or lag without holding the transport open.
+fn enrich_watch(args: Args) -> Result<(), String> {
+    let started = now_ms()?;
+    let mut cursor: Option<String> = None;
+    let mut seen = 0_u64;
+    let mut enriched = 0_u64;
+    let mut skipped = 0_u64;
+    let mut failed = 0_u64;
+    loop {
+        let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
+            .map_err(|error| format!("unibus poll: {error:?}"))?;
+        for frame in page.frames {
+            seen += 1;
+            let body: Value = match serde_json::from_slice(&frame.body) {
+                Ok(body) => body,
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("scribe: enrich event JSON: {error}");
+                    continue;
+                }
+            };
+            if body.get("enrichment").and_then(Value::as_str) != Some("pending") {
+                skipped += 1;
+                continue;
+            }
+            let Some(bundle) = body.get("bundle").and_then(Value::as_str) else {
+                failed += 1;
+                eprintln!("scribe: pending capture event has no bundle");
+                continue;
+            };
+            match load_bundle_event(&body, bundle) {
+                Ok(mut event) => {
+                    // The stored event is already durable; don't republish it
+                    // and create a second enrichment turn.
+                    event["checkpoint"] = Value::Bool(false);
+                    match process_event(&event, &args.model, true, false) {
+                        Ok(_) => {
+                            enriched += 1;
+                            if let Err(error) = voiceprint_capture(&args, bundle) {
+                                eprintln!("scribe: voiceprint {bundle}: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            failed += 1;
+                            eprintln!("scribe: enrich {bundle}: {error}");
+                        }
+                    }
+                }
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("scribe: load {bundle}: {error}");
+                }
+            }
+        }
+        cursor = page.next;
+        if args.once || now_ms()?.saturating_sub(started) >= args.hold_ms {
+            break;
+        }
+        let _ = time::tick(250);
+    }
+    finish(json!({
+        "ok": true,
+        "command": "enrich",
+        "seen": seen,
+        "enriched": enriched,
+        "skipped": skipped,
+        "failed": failed,
+    }));
+    Ok(())
+}
+
+fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
+    let transcript = read_json(&format!("{bundle}/transcript.json"))?;
+    let meta = read_json(&format!("{bundle}/capture.json")).unwrap_or_else(|_| json!({}));
+    let summary = read_text(&format!("{bundle}/summary.omi.md"))
+        .or_else(|_| read_text(&format!("{bundle}/summary.md")))
+        .unwrap_or_default();
+    let actions = read_json(&format!("{bundle}/actions.omi.json"))
+        .or_else(|_| read_json(&format!("{bundle}/actions.json")))
+        .unwrap_or_else(|_| json!([]));
+    Ok(json!({
+        "capture_id": stored.get("capture_id").cloned().unwrap_or(Value::Null),
+        "source": stored.get("source").cloned().unwrap_or_else(|| json!("omi")),
+        "date": meta.get("date").cloned().unwrap_or(Value::Null),
+        "started_at_ms": stored.get("started_at_ms").cloned().or_else(|| meta.get("started_at_ms").cloned()).unwrap_or(Value::Null),
+        "ended_at_ms": stored.get("ended_at_ms").cloned().or_else(|| meta.get("ended_at_ms").cloned()).unwrap_or(Value::Null),
+        "title": meta.get("title").cloned().unwrap_or(Value::Null),
+        "summary_md": summary,
+        "actions": actions,
+        "transcript": transcript,
+        "checkpoint": false,
+    }))
+}
+
+fn read_text(path: &str) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let chunk = vfs::read(path, offset, 1024 * 1024).map_err(|error| format!("{error:?}"))?;
+        let len = chunk.data.len();
+        bytes.extend(chunk.data);
+        if chunk.eof || len == 0 {
+            break;
+        }
+        offset += len as u64;
+    }
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+fn read_json(path: &str) -> Result<Value, String> {
+    serde_json::from_str(&read_text(path)?).map_err(|error| error.to_string())
+}
+
+fn voiceprint(args: Args) -> Result<(), String> {
+    if let Some(raw) = args.templates_json.as_deref() {
+        let value: Value =
+            serde_json::from_str(raw).map_err(|error| format!("templates JSON: {error}"))?;
+        let bytes = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
+        vfs_mut::write(&args.templates, &bytes, "application/json", None, None)
+            .map_err(|error| format!("write templates: {error:?}"))?;
+        finish(json!({"ok": true, "command": "voiceprint", "templates": args.templates}));
+        return Ok(());
+    }
+    let path = args
+        .path
+        .as_deref()
+        .ok_or("voiceprint needs --path or --templates-json")?;
+    let result = voiceprint_capture(&args, path)?;
+    finish(json!({"ok": true, "command": "voiceprint", "capture": path, "result": result}));
+    Ok(())
+}
+
+fn voiceprint_capture(args: &Args, path: &str) -> Result<Value, String> {
+    let templates = match read_json(&args.templates) {
+        Ok(value) => value,
+        Err(_) => return Ok(json!({"status": "no templates"})),
+    };
+    let items = templates
+        .get("templates")
+        .and_then(Value::as_array)
+        .ok_or("templates JSON needs a templates array")?;
+    if items.is_empty() {
+        return Ok(json!({"status": "no templates"}));
+    }
+    let transcript = read_json(&format!("{path}/transcript.json"))?;
+    let mut by_speaker: std::collections::BTreeMap<String, (f64, f64)> =
+        std::collections::BTreeMap::new();
+    let mut add = |item: &Value, start: f64, end: f64| {
+        if end <= start {
+            return;
+        }
+        let key = if item.get("is_user").and_then(Value::as_bool) == Some(true) {
+            "You".to_string()
+        } else {
+            item.get("speaker")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    item.get("speaker")
+                        .and_then(Value::as_i64)
+                        .map(|value| format!("SPEAKER_{value:02}"))
+                })
+                .unwrap_or_else(|| "Speaker".to_string())
+        };
+        let entry = by_speaker.entry(key).or_insert((start, end));
+        // Prefer a complete utterance window, not a tiny word.
+        if end - start > entry.1 - entry.0 {
+            *entry = (start, end);
+        }
+    };
+    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+        for segment in segments {
+            let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+            let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+            add(segment, start, end);
+        }
+    } else if let Some(words) = transcript.get("words").and_then(Value::as_array) {
+        for word in words {
+            let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+            let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
+            add(word, start, end);
+        }
+    }
+    if by_speaker.is_empty() {
+        return Err("transcript has no speaker timestamps".into());
+    }
+    let audio = format!("{path}/audio.wav");
+    let mut speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+    if !speakers.is_object() {
+        speakers = json!({});
+    }
+    let mut recognized = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for (speaker, (start, end)) in by_speaker {
+        if speakers
+            .get(&speaker)
+            .and_then(|entry| entry.get("source"))
+            .and_then(Value::as_str)
+            == Some("manual")
+        {
+            continue;
+        }
+        let pcm = match wav_pcm_segment(&audio, start, end) {
+            Ok(pcm) if pcm.len() >= 32_000 => pcm,
+            Ok(pcm) => {
+                eprintln!(
+                    "scribe: voiceprint {speaker} audio too short: {} bytes",
+                    pcm.len()
+                );
+                continue;
+            }
+            Err(error) => {
+                errors.push(format!("{speaker} audio: {error}"));
+                continue;
+            }
+        };
+        eprintln!(
+            "scribe: voiceprint {speaker} {start:.1}-{end:.1}s pcm={}",
+            pcm.len()
+        );
+        let request = inference::VoiceEmbeddingRequest {
+            model: "fpl/spkrec-ecapa-voxceleb".to_string(),
+            checkpoint: args.checkpoint.clone(),
+            sample_rate: 16_000,
+            dimensions: Some(192),
+            pcm16: pcm,
+        };
+        let response = match inference::voice_embed(&request) {
+            Ok(response) => response,
+            Err(error) => {
+                errors.push(format!("{speaker} embedding: {error:?}"));
+                continue;
+            }
+        };
+        let response_embedding: Vec<f64> = response
+            .embedding
+            .iter()
+            .map(|value| *value as f64)
+            .collect();
+        let probe = match normalize_embedding(&response_embedding) {
+            Ok(probe) => probe,
+            Err(error) => {
+                errors.push(format!("{speaker} normalize: {error}"));
+                continue;
+            }
+        };
+        let mut ranked: Vec<(f64, &Value)> = items
+            .iter()
+            .filter_map(|item| {
+                let embedding = item.get("embedding")?.as_array()?;
+                let values = embedding
+                    .iter()
+                    .map(Value::as_f64)
+                    .collect::<Option<Vec<f64>>>()?;
+                Some((cosine(&probe, &normalize_embedding(&values).ok()?), item))
+            })
+            .collect();
+        ranked.sort_by(|left, right| right.0.total_cmp(&left.0));
+        let Some((best, template)) = ranked.first() else {
+            continue;
+        };
+        let runner_up = ranked.get(1).map(|entry| entry.0).unwrap_or(-1.0);
+        if *best < args.threshold || *best - runner_up < args.margin {
+            speakers[&speaker] = json!({
+                "source": "jarvis",
+                "person_id": Value::Null,
+                "name": Value::Null,
+                "score": best,
+                "best_score": best,
+                "model": response.model,
+                "pipeline": "ecapa-mono16k-v1",
+            });
+            continue;
+        }
+        let person_id = template
+            .get("person_id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let name = template
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or(person_id);
+        speakers[&speaker] = json!({
+            "source": "jarvis",
+            "person_id": person_id,
+            "name": name,
+            "score": best,
+            "model": response.model,
+            "pipeline": "ecapa-mono16k-v1",
+        });
+        recognized += 1;
+    }
+    let bytes = serde_json::to_vec_pretty(&speakers).map_err(|error| error.to_string())?;
+    vfs_mut::write(
+        &format!("{path}/speakers.json"),
+        &bytes,
+        "application/json",
+        None,
+        None,
+    )
+    .map_err(|error| format!("write speakers: {error:?}"))?;
+    Ok(json!({"recognized": recognized, "speakers": speakers, "errors": errors}))
+}
+
+fn wav_pcm_segment(path: &str, start: f64, end: f64) -> Result<Vec<u8>, String> {
+    let header = read_vfs_bytes(path, 0, 4096)?;
+    let data_at = header
+        .windows(4)
+        .position(|window| window == b"data")
+        .map(|at| at + 8)
+        .unwrap_or(44) as u64;
+    let start_at = data_at + (start.max(0.0) * 32_000.0) as u64;
+    let wanted = ((end - start).clamp(1.0, 30.0) * 32_000.0) as u64;
+    read_vfs_bytes(path, start_at, wanted)
+}
+
+fn read_vfs_bytes(path: &str, offset: u64, length: u64) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::with_capacity(length as usize);
+    let mut at = offset;
+    while (bytes.len() as u64) < length {
+        let want = (length - bytes.len() as u64).min(1024 * 1024) as u32;
+        let chunk = vfs::read(path, at, want).map_err(|error| format!("{error:?}"))?;
+        let len = chunk.data.len();
+        bytes.extend(chunk.data);
+        if chunk.eof || len == 0 {
+            break;
+        }
+        at += len as u64;
+    }
+    Ok(bytes)
+}
+
+fn normalize_embedding(values: &[f64]) -> Result<Vec<f64>, String> {
+    if values.len() != 192 || values.iter().any(|value| !value.is_finite()) {
+        return Err("expected 192 finite embedding values".into());
+    }
+    let norm = values.iter().map(|value| value * value).sum::<f64>().sqrt();
+    if norm < 1e-12 {
+        return Err("zero-norm embedding".into());
+    }
+    Ok(values.iter().map(|value| value / norm).collect())
+}
+
+fn cosine(left: &[f64], right: &[f64]) -> f64 {
+    left.iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
 fn watch(args: Args) -> Result<(), String> {
     let started = now_ms()?;
     let mut cursor: Option<String> = None;
@@ -359,7 +737,7 @@ fn watch(args: Args) -> Result<(), String> {
                     continue;
                 }
             };
-            match process_event(&body, &args.model, args.enrich) {
+            match process_event(&body, &args.model, false, true) {
                 Ok(_) => stored += 1,
                 Err(error) => {
                     failed += 1;
@@ -384,7 +762,12 @@ fn watch(args: Args) -> Result<(), String> {
     Ok(())
 }
 
-fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, String> {
+fn process_event(
+    body: &Value,
+    model: &str,
+    enrich: bool,
+    publish_stored: bool,
+) -> Result<Value, String> {
     let mut event = parse_event(body)?;
     let source = sanitize(&event.source)?;
     let date = normalize_date(event.date.as_deref());
@@ -585,7 +968,7 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     )?;
     let _ = index::refresh();
 
-    if !event.checkpoint {
+    if !event.checkpoint && publish_stored {
         let event_body = serde_json::to_vec(&json!({
         "schema": "scribe.capture.stored.v1",
         "capture_id": event.capture_id,
