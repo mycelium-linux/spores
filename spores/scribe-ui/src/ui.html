@@ -44,7 +44,7 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
 <body>
 <header>
   <div class="brand">Scribe<b>.</b></div><span class="tag">captures</span>
-  <div class="spacer"></div><button id="refresh">Refresh</button>
+  <div class="spacer"></div>
 </header>
 <main>
   <aside class="chats">
@@ -253,9 +253,9 @@ function render(capture) {
     </div>`).join('') : '<div class="empty">No action items extracted.</div>';
 }
 
-document.getElementById('refresh').addEventListener('click', () => loadList().catch(showError));
 function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
 loadList().catch(showError);
+setInterval(() => { loadList().catch(() => {}); }, 5000);
 </script>
 </body>
 </html>
