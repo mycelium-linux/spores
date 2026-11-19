@@ -23,10 +23,10 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}
 .summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}
-.summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px}.summary h3{font-size:16px}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
+.summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
 .turn{padding:10px 0;border-bottom:1px solid #eee8de}
-.speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:3px}.text{white-space:pre-wrap;max-width:820px}
+.speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:820px}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
 .actions h2{margin:4px 0 12px}
 .action{padding:11px 0;border-bottom:1px solid var(--line)}
@@ -69,6 +69,12 @@ const speakerName = (speaker) => {
   if (typeof speaker === 'number') return `Speaker ${speaker}`;
   const match = String(speaker).match(/(\d+)/);
   return match ? `Speaker ${Number(match[1])}` : String(speaker);
+};
+const speakerLabel = (segment) => segment?.is_user ? 'You' : speakerName(segment?.speaker);
+const speakerColor = (label) => {
+  let hash = 0;
+  for (const ch of String(label)) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  return `hsl(${Math.abs(hash) % 360} 35% 42%)`;
 };
 
 async function loadList() {
@@ -157,6 +163,21 @@ function markdown(source) {
   return out.join('');
 }
 
+function paragraphs(text) {
+  if (text.length <= 460) return [text];
+  const chunks = [];
+  let rest = text.trim();
+  while (rest.length > 460) {
+    let cut = rest.lastIndexOf('. ', 460);
+    if (cut < 160) cut = rest.lastIndexOf(' ', 460);
+    if (cut < 160) cut = 460;
+    chunks.push(rest.slice(0, cut + (rest[cut] === '.' ? 1 : 0)).trim());
+    rest = rest.slice(cut + (rest[cut] === '.' ? 1 : 0)).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+
 function render(capture) {
   const actions = Array.isArray(capture.actions) ? capture.actions : [];
   const segments = capture.transcript?.segments || [];
@@ -164,26 +185,43 @@ function render(capture) {
   const turns = [];
   if (segments.length) {
     for (const segment of segments) {
-      const speaker = segment.speaker ?? null;
+      const speaker = speakerLabel(segment);
       const text = (segment.text || '').trim();
       if (!text) continue;
-      const last = turns[turns.length - 1];
-      if (!last || last.speaker !== speaker) turns.push({speaker, text});
-      else last.text += ' ' + text;
+      const start = Number(segment.start ?? 0);
+      const end = Number(segment.end ?? start);
+      const pieces = paragraphs(text);
+      for (let index = 0; index < pieces.length; index++) {
+        const piece = pieces[index];
+        const last = turns[turns.length - 1];
+        const pause = last ? start - last.end : Infinity;
+        if (index > 0 || !last || last.speaker !== speaker || pause > 1.4) {
+          turns.push({speaker, text: piece, start, end});
+        } else {
+          last.text += ' ' + piece;
+          last.end = Math.max(last.end, end);
+        }
+      }
     }
   } else {
     for (const word of words) {
-      const speaker = word.speaker ?? null;
+      const speaker = word.is_user ? 'You' : speakerName(word.speaker);
       const token = word.word ?? '';
       if (!token) continue;
+      const start = Number(word.start ?? 0);
+      const end = Number(word.end ?? start);
       const last = turns[turns.length - 1];
-      if (!last || last.speaker !== speaker) turns.push({speaker, text: token});
-      else if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
-      else last.text += ' ' + token;
+      const pause = last ? start - last.end : Infinity;
+      if (!last || last.speaker !== speaker || pause > 1.8) turns.push({speaker, text: token, start, end});
+      else {
+        if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
+        else last.text += ' ' + token;
+        last.end = Math.max(last.end, end);
+      }
     }
   }
   const transcript = turns.length
-    ? turns.map(turn => `<div class="turn"><div class="speaker">${esc(speakerName(turn.speaker))}</div><div class="text">${esc(turn.text)}</div></div>`).join('')
+    ? turns.map(turn => `<div class="turn"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i>${esc(turn.speaker)}</div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
   detail.innerHTML = `
     <h1>${esc(capture.title)}</h1>
