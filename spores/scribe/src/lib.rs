@@ -301,11 +301,19 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     let event_body = serde_json::to_vec(&json!({
         "schema": "scribe.capture.stored.v1",
         "capture_id": event.capture_id,
+        "source": source,
+        "bundle": root,
         "record": format!("capture:{source}:{}", event.capture_id),
+        "started_at_ms": event.started_at_ms,
+        "ended_at_ms": event.ended_at_ms,
+        "segment_count": segment_count,
+        "speaker_count": speaker_count,
         "transcript_content_id": transcript.content_id,
         "summary_content_id": summary.content_id,
         "actions_content_id": actions.content_id,
         "action_count": event.actions.as_array().map(Vec::len).unwrap_or(0),
+        "enrichment": enrichment_status,
+        "model": enrichment_model,
     }))
     .map_err(|error| format!("stored event JSON: {error}"))?;
     let _ = bus::publish("scribe.capture.stored.v1", &event_body, None, 60_000);
