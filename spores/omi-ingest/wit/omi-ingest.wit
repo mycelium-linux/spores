@@ -1,9 +1,0 @@
-package fungos:omi-ingest@0.1.0;
-
-world omi-ingest {
-  import soil:streams/duplex@0.1.0;
-  import soil:vfs-mut/vfs-mut@0.1.0;
-  import soil:time/time@1.1.0;
-
-  export run: func(args: list<string>) -> result<_, string>;
-}
