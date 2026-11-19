@@ -5,30 +5,38 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scribe</title>
 <style>
-:root{--bg:#f7f4ee;--card:#fffdf9;--ink:#1e1b17;--muted:#786f63;--line:#e6ded2;--accent:#2f6f56;--accent-soft:#e6f0ea;--warn:#9b5b26}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:18px 24px;border-bottom:1px solid var(--line);background:rgba(247,244,238,.94);position:sticky;top:0;z-index:5;backdrop-filter:blur(8px)}
-.brand{font-family:ui-serif,Georgia,serif;font-size:24px;letter-spacing:-.03em}.brand b{color:var(--accent)}
-.tag{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 8px}
-header .spacer{flex:1}button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 11px}button:hover{border-color:#cfc4b5}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-main{display:grid;grid-template-columns:minmax(260px,340px) 1fr;min-height:calc(100vh - 70px)}
-aside{border-right:1px solid var(--line);padding:16px;overflow:auto;max-height:calc(100vh - 70px)}
-.list-title{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.1em;margin:4px 4px 12px}
-.capture{width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:10px;padding:11px 12px;margin-bottom:4px}
-.capture:hover{background:#efe9df}.capture.active{background:var(--card);border-color:var(--line);box-shadow:0 1px 2px rgba(30,27,23,.04)}
-.capture .row{display:flex;justify-content:space-between;gap:8px}.capture .date{font-size:12px;color:var(--muted)}.capture .name{font-weight:600;margin:3px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.capture .preview{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.badge{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:2px 7px;white-space:nowrap}
-section{padding:28px 34px;max-width:980px}.empty{color:var(--muted);padding:70px 10px;text-align:center}
-h1{font-family:ui-serif,Georgia,serif;font-size:36px;line-height:1.12;letter-spacing:-.035em;margin:0 0 8px}
-.meta{color:var(--muted);font-size:13px;margin-bottom:26px}
-.summary{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:26px;white-space:pre-wrap}
-h2{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:28px 0 10px}
-.action{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:13px 15px;margin:8px 0}.action .top{display:flex;gap:8px;align-items:center;justify-content:space-between}.action .title{font-weight:600}.action .quote{color:var(--muted);font-size:13px;border-left:2px solid var(--accent);padding-left:10px;margin-top:8px}
-.pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 7px}
-.turn{display:grid;grid-template-columns:76px 1fr;gap:14px;padding:10px 0;border-bottom:1px solid #eee7dd}.speaker{font-size:12px;color:var(--muted);padding-top:2px}.text{white-space:pre-wrap}
-.error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:10px;padding:10px 12px}
-@media(max-width:800px){main{grid-template-columns:1fr}aside{max-height:none;border-right:0;border-bottom:1px solid var(--line)}section{padding:22px 18px}h1{font-size:29px}}
+:root{--bg:#faf8f4;--panel:#f3efe7;--ink:#1d1b18;--muted:#7b7266;--line:#e4ddd2;--accent:#2f6f56;--accent-soft:#e3eee7}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:12px;height:58px;padding:0 22px;border-bottom:1px solid var(--line)}
+.brand{font-family:ui-serif,Georgia,serif;font-size:23px;letter-spacing:-.03em}.brand b{color:var(--accent)}
+.tag{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 7px}
+header .spacer{flex:1}button{font:inherit;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:7px;padding:6px 10px}button:hover{background:#f0ebe2}
+main{display:grid;grid-template-columns:250px minmax(0,1fr) 300px;height:calc(100vh - 58px)}
+aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:14px 10px}
+.list-title{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.13em;padding:0 8px 9px}
+.chat{display:block;width:100%;text-align:left;border:0;border-radius:7px;padding:8px;margin:0 0 2px;background:transparent}
+.chat:hover{background:#f0ebe2}.chat.active{background:#ece6dc}
+.chat .name{font-weight:560;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat .when{font-size:11px;color:var(--muted);margin-top:2px}
+.center{padding:30px 38px 60px;overflow:auto}
+h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
+.meta{color:var(--muted);font-size:12px;margin-bottom:28px}
+.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:28px;border-bottom:1px solid var(--line);white-space:pre-wrap}
+h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
+.turn{display:grid;grid-template-columns:72px 1fr;gap:18px;padding:9px 0;border-bottom:1px solid #eee8de}
+.speaker{font-size:11px;color:var(--muted);padding-top:3px}.text{white-space:pre-wrap;max-width:820px}
+.actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
+.actions h2{margin:4px 0 12px}
+.action{padding:11px 0;border-bottom:1px solid var(--line)}
+.action:last-child{border-bottom:0}
+.action .title{font-weight:560;line-height:1.35}
+.action .quote{color:var(--muted);font-size:12px;margin-top:5px;padding-left:9px;border-left:2px solid var(--accent)}
+.action .who{font-size:11px;color:var(--muted);margin-top:6px}
+.pill{display:inline-block;font-size:10px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 6px;margin-left:4px}
+.empty{color:var(--muted);padding:40px 4px;font-size:13px}
+.error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:8px;padding:10px 12px}
+@media(max-width:900px){main{grid-template-columns:220px minmax(0,1fr)}.actions{display:none}}
+@media(max-width:640px){main{display:block;height:auto}.chats{border-right:0;border-bottom:1px solid var(--line);max-height:220px}.center{padding:22px 18px}.actions{display:block;border-left:0;border-top:1px solid var(--line)}}
 </style>
 </head>
 <body>
@@ -37,43 +45,46 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--mute
   <div class="spacer"></div><button id="refresh">Refresh</button>
 </header>
 <main>
-  <aside>
-    <div class="list-title"><span>Recent</span><span id="count"></span></div>
+  <aside class="chats">
+    <div class="list-title">Chats</div>
     <div id="list"></div>
   </aside>
-  <section id="detail"><div class="empty">Choose a capture to read the transcript, summary and action items.</div></section>
+  <section class="center" id="detail"><div class="empty">Choose a capture.</div></section>
+  <aside class="actions">
+    <h2>Action items</h2>
+    <div id="actions"><div class="empty">No capture selected.</div></div>
+  </aside>
 </main>
 <script>
 const list = document.getElementById('list');
 const detail = document.getElementById('detail');
-const count = document.getElementById('count');
+const actionsEl = document.getElementById('actions');
 let selected = null;
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const speakerName = (speaker) => {
   if (speaker == null) return 'Speaker';
-  if (typeof speaker === 'number') return `Speaker ${speaker + 1}`;
+  if (typeof speaker === 'number') return `Speaker ${speaker}`;
   const match = String(speaker).match(/(\d+)/);
-  return match ? `Speaker ${Number(match[1]) + 1}` : String(speaker);
+  return match ? `Speaker ${Number(match[1])}` : String(speaker);
 };
 
 async function loadList() {
   const response = await fetch('/api/captures');
   if (!response.ok) throw new Error(await response.text());
   const body = await response.json();
-  count.textContent = body.captures.length;
   list.innerHTML = body.captures.map(item => `
-    <button class="capture ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
-      <div class="row"><span class="date">${esc(item.date)}</span>${item.actions ? `<span class="badge">${item.actions} action${item.actions === 1 ? '' : 's'}</span>` : ''}</div>
+    <button class="chat ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
       <div class="name">${esc(item.title)}</div>
-      <div class="preview">${esc(item.preview || item.summary || item.id)}</div>
+      <div class="when">${esc(item.date)}</div>
     </button>`).join('') || '<div class="empty">No captures yet.</div>';
-  list.querySelectorAll('.capture').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
+  list.querySelectorAll('.chat').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
+  if (!selected && body.captures.length) loadCapture(body.captures[0].path);
 }
 
 async function loadCapture(path) {
   selected = path;
-  list.querySelectorAll('.capture').forEach(button => button.classList.toggle('active', button.dataset.path === path));
+  list.querySelectorAll('.chat').forEach(button => button.classList.toggle('active', button.dataset.path === path));
   detail.innerHTML = '<div class="empty">Loading…</div>';
   try {
     const response = await fetch(`/api/capture?path=${encodeURIComponent(path)}`);
@@ -81,6 +92,7 @@ async function loadCapture(path) {
     render(await response.json());
   } catch (error) {
     detail.innerHTML = `<div class="error">${esc(error.message)}</div>`;
+    actionsEl.innerHTML = '';
   }
 }
 
@@ -104,15 +116,14 @@ function render(capture) {
     <h1>${esc(capture.title)}</h1>
     <div class="meta">${esc(capture.path)}</div>
     <div class="summary">${esc(capture.summary || 'No summary yet.')}</div>
-    <h2>Action items</h2>
-    ${actions.length ? actions.map(action => `
-      <div class="action">
-        <div class="top"><span class="title">${esc(action.title || action.quote || 'Untitled action')}</span><span class="pill">${esc(action.kind || 'action')}</span></div>
-        ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
-        ${action.owner ? `<div class="meta" style="margin:8px 0 0">Owner: ${esc(action.owner)}${action.due_at ? ` · ${esc(action.due_at)}` : ''}</div>` : ''}
-      </div>`).join('') : '<div class="empty">No action items extracted.</div>'}
     <h2>Transcript</h2>
     ${transcript}`;
+  actionsEl.innerHTML = actions.length ? actions.map(action => `
+    <div class="action">
+      <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
+      ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
+      <div class="who">${esc(speakerName(action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}</div>
+    </div>`).join('') : '<div class="empty">No action items extracted.</div>';
 }
 
 document.getElementById('refresh').addEventListener('click', () => loadList().catch(showError));

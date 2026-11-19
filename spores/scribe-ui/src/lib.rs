@@ -253,6 +253,15 @@ fn title(summary: &str) -> Option<String> {
     summary
         .lines()
         .map(str::trim)
-        .find(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("Overview:"))
-        .map(|line| line.trim_start_matches("Overview:").trim().chars().take(80).collect())
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            let line = line
+                .trim_start_matches('#')
+                .trim()
+                .trim_start_matches("Overview:")
+                .trim();
+            let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
+            first.chars().take(90).collect()
+        })
+        .filter(|line: &String| !line.is_empty())
 }

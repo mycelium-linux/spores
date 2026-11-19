@@ -19,7 +19,7 @@ abi = { vfs = "1.0.0", http = "0.2.12" }
 path = "module.wasm"
 
 [http]
-hosts = ["scribe.local"]
+hosts = ["scribe.local", "scribe.localhost"]
 routes = [
   { methods = ["GET"], path = "/" },
   { methods = ["GET"], path = "/api/captures" },
