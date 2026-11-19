@@ -1,0 +1,29 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.omi-ingest"
+name = "omi-ingest"
+version = "0.1.0"
+license = "MIT"
+summary = "Receive an Omi capture bundle over WSS and write it into Soil"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { stream = "0.1.0", vfs-mut = "0.1.0", time = "1.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:stream" = "accept one capture bundle stream"
+"soil:vfs-mut" = "write audio, transcript, summary and capture metadata"
+"soil:time" = "poll for the next stream"
+
+[denied]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
