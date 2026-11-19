@@ -5,7 +5,9 @@ Consumes capture events and writes the durable bundle: VFS files, the
 
 ## Input
 
-`omi.capture.v1` on Unibus, or `ingest --event JSON` for tests.
+`scribe.capture.v1` on Unibus, or `ingest --event JSON` for tests. The event may
+carry `summary_md`/`actions`; if they are absent, Scribe generates them through
+`soil:inference`.
 
 ```json
 {
@@ -32,8 +34,8 @@ compatibility. `body` wrappers are unwrapped.
 ## Commands
 
 ```text
-scribe watch [--hold-ms N] [--once]
-scribe ingest --event '<json>'
+scribe watch [--hold-ms N] [--once] [--model ALIAS] [--no-enrich]
+scribe ingest --event '<json>' [--model ALIAS] [--no-enrich]
 scribe snapshot
 ```
 
@@ -50,9 +52,13 @@ captures/<source>/<date>/<capture_id>/
 ```
 
 The record is `capture/<source>:<capture_id>`, schema
-`fungos.transcript/capture@1`, holding content IDs, counts, bundle path, and
-status. `actions.json` is a convenience view; structured trigger records and
-JARVIS routing are the next slice.
+`fungos.transcript/capture@1`, holding content IDs, counts, bundle path,
+enrichment status, and the model that produced the summary.
+
+If inference is unavailable, the transcript is still stored and the record is
+`stored_enrichment_pending`; rerun enrichment later without losing the capture.
+`actions.json` is a convenience view; structured trigger records and JARVIS
+routing are the next slice.
 
 After writing, Scribe calls `soil:index.refresh()` and publishes
 `scribe.capture.stored.v1` with the record key and content IDs.
@@ -60,8 +66,9 @@ After writing, Scribe calls `soil:index.refresh()` and publishes
 ## Grants
 
 `soil:vfs` (stat), `soil:vfs-mut` (write/mkdir), `soil:index` (refresh),
-`soil:records` (upsert), `soil:unibus` (poll/publish), `soil:time` (tick), plus
-the WASI std runtime. No socket, process, secret, raw filesystem, or wall clock.
+`soil:records` (upsert), `soil:unibus` (poll/publish), `soil:inference`
+(summaries and action extraction), `soil:time` (tick), plus the WASI std
+runtime. No socket, process, secret, raw filesystem, or wall clock.
 
 ## Build
 
@@ -71,6 +78,9 @@ cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/scribe_spore.wasm module.wasm
 ```
 
-The pure event/path/count mapping is unit-tested. End-to-end execution needs a
+The default model alias is `scribe/summarize`. Map it in the host/Bifrost catalog
+to the 9B for routine captures and add `scribe/deep` for the 65B escalation.
+
+The pure event/path/count/transcript mapping is unit-tested. End-to-end execution needs a
 host composition that links VFS, VFS mutation, index, records, and Unibus;
 `soil-dev-host` currently links records and Unibus but not VFS.

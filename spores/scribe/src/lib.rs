@@ -9,6 +9,7 @@ use std::cell::RefCell;
 
 use serde_json::{json, Value};
 use soil::index::index;
+use soil::inference::inference;
 use soil::records::records::{self, Entry, Key};
 use soil::time::time;
 use soil::unibus::bus;
@@ -32,6 +33,8 @@ struct Args {
     hold_ms: u64,
     once: bool,
     event: Option<String>,
+    model: String,
+    enrich: bool,
 }
 
 impl Default for Args {
@@ -41,6 +44,8 @@ impl Default for Args {
             hold_ms: 5_000,
             once: false,
             event: None,
+            model: "scribe/summarize".to_string(),
+            enrich: true,
         }
     }
 }
@@ -71,9 +76,11 @@ impl Args {
                 }
                 "--once" => args.once = true,
                 "--event" => args.event = Some(value()?),
+                "--model" => args.model = value()?,
+                "--no-enrich" => args.enrich = false,
                 "--help" | "-h" => {
                     return Err(
-                        "scribe commands: watch [--hold-ms N] [--once] | ingest --event JSON"
+                        "scribe commands: watch [--hold-ms N] [--once] | ingest --event JSON [--model ALIAS] [--no-enrich]"
                             .into(),
                     )
                 }
@@ -113,7 +120,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
                 .ok_or_else(|| "ingest needs --event JSON".to_string())?;
             let body: Value =
                 serde_json::from_str(raw_event).map_err(|error| format!("event JSON: {error}"))?;
-            let stored = process_event(&body)?;
+            let stored = process_event(&body, &args.model, args.enrich)?;
             finish(json!({"ok": true, "command": "ingest", "capture": stored}));
             Ok(())
         }
@@ -141,7 +148,7 @@ fn watch(args: Args) -> Result<(), String> {
                     continue;
                 }
             };
-            match process_event(&body) {
+            match process_event(&body, &args.model, args.enrich) {
                 Ok(_) => stored += 1,
                 Err(error) => {
                     failed += 1;
@@ -166,13 +173,30 @@ fn watch(args: Args) -> Result<(), String> {
     Ok(())
 }
 
-fn process_event(body: &Value) -> Result<Value, String> {
-    let event = parse_event(body)?;
+fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, String> {
+    let mut event = parse_event(body)?;
     let source = sanitize(&event.source)?;
     let date = normalize_date(event.date.as_deref());
     let id = sanitize(&event.capture_id)?;
     let root = format!("captures/{source}/{date}/{id}");
     mkdir_recursive(&root)?;
+
+    let mut enrichment_model = "provided".to_string();
+    let mut enrichment_status = "provided";
+    if enrich && event.summary.trim().is_empty() {
+        match enrich_capture(&event, model) {
+            Ok(enriched) => {
+                event.summary = enriched.summary;
+                event.actions = enriched.actions;
+                enrichment_model = enriched.model;
+                enrichment_status = "complete";
+            }
+            Err(error) => {
+                eprintln!("scribe: enrichment pending for {}: {error}", event.capture_id);
+                enrichment_status = "pending";
+            }
+        }
+    }
 
     let transcript_bytes = serde_json::to_vec_pretty(&event.transcript)
         .map_err(|error| format!("transcript JSON: {error}"))?;
@@ -237,7 +261,15 @@ fn process_event(body: &Value) -> Result<Value, String> {
         "audio_content_id": event.audio_content_id,
         "segment_count": segment_count,
         "speaker_count": speaker_count,
-        "status": "stored",
+        "status": if enrichment_status == "complete" || enrichment_status == "provided" {
+            "stored"
+        } else {
+            "stored_enrichment_pending"
+        },
+        "enrichment": {
+            "status": enrichment_status,
+            "model": enrichment_model,
+        },
         "scribe": SOURCE_SPORE,
     });
     upsert_record(
@@ -265,7 +297,219 @@ fn process_event(body: &Value) -> Result<Value, String> {
         "bundle": root,
         "segments": segment_count,
         "speakers": speaker_count,
+        "enrichment": enrichment_status,
     }))
+}
+
+#[derive(Debug)]
+struct Enriched {
+    summary: String,
+    actions: Value,
+    model: String,
+}
+
+fn enrich_capture(event: &CaptureEvent, model: &str) -> Result<Enriched, String> {
+    let text = transcript_text(&event.transcript);
+    if text.trim().is_empty() {
+        return Err("transcript has no text".into());
+    }
+    let chunks = split_chunks(&text, 24_000, 500);
+    let mut summaries = Vec::new();
+    let mut actions: Vec<Value> = Vec::new();
+    let mut model_used = model.to_string();
+
+    for (index, chunk) in chunks.iter().enumerate() {
+        let request = inference::Request {
+            model: model.to_string(),
+            messages: vec![
+                inference::Message {
+                    role: inference::Role::System,
+                    content: Some(
+                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks.                          If no action exists return an empty array. Keep summary_md concise with overview, decisions, and open questions."
+                            .into(),
+                    ),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    attachments: vec![],
+                    reasoning: None,
+                },
+                inference::Message {
+                    role: inference::Role::User,
+                    content: Some(format!(
+                        "MEETING TRANSCRIPT part {}/{}:\n\n{}",
+                        index + 1,
+                        chunks.len(),
+                        chunk
+                    )),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    attachments: vec![],
+                    reasoning: None,
+                },
+            ],
+            tools: vec![],
+            max_output_tokens: Some(2048),
+            temperature: Some(0.2),
+            prompt_cache_key: Some(format!("scribe:{}", event.capture_id)),
+        };
+        let response = inference::complete(&request).map_err(|error| format!("inference: {error:?}"))?;
+        model_used = response.model.clone();
+        let content = response
+            .message
+            .content
+            .as_deref()
+            .ok_or_else(|| "inference returned no content".to_string())?;
+        let value = parse_model_json(content)?;
+        summaries.push(
+            value
+                .get("summary_md")
+                .or_else(|| value.get("summary"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+        );
+        if let Some(items) = value.get("actions").and_then(Value::as_array) {
+            for item in items {
+                let title = item.get("title").and_then(Value::as_str).unwrap_or("");
+                let quote = item.get("quote").and_then(Value::as_str).unwrap_or("");
+                if title.is_empty() && quote.is_empty() {
+                    continue;
+                }
+                if !actions.iter().any(|existing| {
+                    existing.get("title").and_then(Value::as_str) == Some(title)
+                        && existing.get("quote").and_then(Value::as_str) == Some(quote)
+                }) {
+                    actions.push(item.clone());
+                }
+            }
+        }
+    }
+
+    let summary = summaries
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+    Ok(Enriched {
+        summary,
+        actions: Value::Array(actions),
+        model: model_used,
+    })
+}
+
+fn transcript_text(transcript: &Value) -> String {
+    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+        let lines: Vec<String> = segments
+            .iter()
+            .filter_map(|segment| {
+                let text = segment.get("text").and_then(Value::as_str)?;
+                let speaker = speaker_label(segment.get("speaker"));
+                let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+                Some(format!("[{start:.1}-{end:.1}] {speaker}: {text}"))
+            })
+            .collect();
+        if !lines.is_empty() {
+            return lines.join("\n");
+        }
+    }
+    if let Some(words) = transcript.get("words").and_then(Value::as_array) {
+        let mut lines = Vec::new();
+        let mut current_speaker = String::new();
+        let mut current_text = String::new();
+        let mut current_start = 0.0_f64;
+        let mut current_end = 0.0_f64;
+        for word in words {
+            let speaker = speaker_label(word.get("speaker"));
+            let text = word.get("word").and_then(Value::as_str).unwrap_or("");
+            let start = word.get("start").and_then(Value::as_f64).unwrap_or(current_end);
+            let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
+            if speaker != current_speaker {
+                if !current_text.trim().is_empty() {
+                    lines.push(format!("[{current_start:.1}-{current_end:.1}] {current_speaker}: {}", current_text.trim()));
+                }
+                current_speaker = speaker;
+                current_text.clear();
+                current_start = start;
+            }
+            current_end = end;
+            if !current_text.is_empty() {
+                current_text.push(' ');
+            }
+            current_text.push_str(text);
+        }
+        if !current_text.trim().is_empty() {
+            lines.push(format!("[{current_start:.1}-{current_end:.1}] {current_speaker}: {}", current_text.trim()));
+        }
+        if !lines.is_empty() {
+            return lines.join("\n");
+        }
+    }
+    transcript
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn speaker_label(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::Number(number)) => number
+            .as_i64()
+            .map(|number| format!("SPEAKER_{number:02}"))
+            .unwrap_or_else(|| "SPEAKER_00".into()),
+        Some(Value::String(label)) => label.trim_matches('"').to_string(),
+        _ => "SPEAKER_00".into(),
+    }
+}
+
+fn split_chunks(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
+    if text.len() <= max_chars {
+        return vec![text.to_string()];
+    }
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < text.len() {
+        let mut end = (start + max_chars).min(text.len());
+        while end > start && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end < text.len() {
+            if let Some(last_newline) = text[start..end].rfind('\n') {
+                if last_newline > max_chars / 2 {
+                    end = start + last_newline;
+                }
+            }
+        }
+        chunks.push(text[start..end].to_string());
+        if end >= text.len() {
+            break;
+        }
+        start = end.saturating_sub(overlap);
+        while start < text.len() && !text.is_char_boundary(start) {
+            start += 1;
+        }
+    }
+    chunks
+}
+
+fn parse_model_json(content: &str) -> Result<Value, String> {
+    let trimmed = content.trim();
+    let trimmed = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .unwrap_or(trimmed)
+        .trim();
+    let trimmed = trimmed.strip_suffix("```").unwrap_or(trimmed).trim();
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
+    }
+    let start = trimmed.find('{').ok_or_else(|| "model output has no JSON object".to_string())?;
+    let end = trimmed.rfind('}').ok_or_else(|| "model output has no JSON object".to_string())?;
+    serde_json::from_str(&trimmed[start..=end]).map_err(|error| format!("model JSON: {error}"))
 }
 
 #[derive(Debug)]
@@ -471,6 +715,34 @@ mod tests {
             ]
         });
         assert_eq!(speaker_count(&transcript), 2);
+    }
+
+    #[test]
+    fn transcript_text_keeps_speakers_and_times() {
+        let transcript = json!({
+            "words": [
+                {"word": "hello", "start": 0.0, "end": 0.5, "speaker": 1},
+                {"word": "there", "start": 0.5, "end": 0.9, "speaker": 1},
+                {"word": "hi", "start": 1.0, "end": 1.2, "speaker": 2}
+            ]
+        });
+        let text = transcript_text(&transcript);
+        assert!(text.contains("SPEAKER_01"));
+        assert!(text.contains("SPEAKER_02"));
+        assert!(text.contains("[0.0-0.9]"));
+    }
+
+    #[test]
+    fn model_json_accepts_fences() {
+        let value = parse_model_json("```json\n{\"summary_md\":\"ok\",\"actions\":[]}\n```").unwrap();
+        assert_eq!(value["summary_md"], "ok");
+    }
+
+    #[test]
+    fn split_chunks_keeps_short_text_whole() {
+        assert_eq!(split_chunks("hello", 100, 10), vec!["hello".to_string()]);
+        let chunks = split_chunks(&"a".repeat(250), 100, 10);
+        assert!(chunks.len() >= 3);
     }
 
     #[test]

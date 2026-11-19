@@ -9,6 +9,7 @@ world scribe {
   import soil:vfs-mut/vfs-mut@0.1.0;
   import soil:index/index@1.1.0;
   import soil:records/records@0.1.0;
+  import soil:inference/inference@0.3.0;
   import soil:unibus/bus@0.1.0;
   import soil:time/time@1.0.0;
 

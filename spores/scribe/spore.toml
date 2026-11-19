@@ -13,7 +13,7 @@ homepage = "https://github.com/mycelium-linux/spores"
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { vfs = "1.0.0", vfs-mut = "0.1.0", index = "1.1.0", records = "0.1.0", unibus = "0.1.0", time = "1.0.0" }
+abi = { vfs = "1.0.0", vfs-mut = "0.1.0", index = "1.1.0", records = "0.1.0", unibus = "0.1.0", inference = "0.3.0", time = "1.0.0" }
 
 [module]
 path = "module.wasm"
@@ -28,6 +28,7 @@ surfaces = ["native"]
 "soil:index" = "refresh the derived index after a capture bundle lands"
 "soil:records" = "write the capture@1 and trigger@1 records"
 "soil:unibus" = "poll capture events and publish scribe.capture.stored.v1"
+"soil:inference" = "summarize the transcript and extract action items through the host model tier"
 "soil:time" = "monotonic watch deadlines"
 "wasi:cli" = "Rust std stdio for the host's log stream"
 "wasi:clocks" = "Rust std runtime dependency"
