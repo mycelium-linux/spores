@@ -1,0 +1,41 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.scribe-ui"
+name = "scribe-ui"
+title = "Scribe"
+version = "0.1.0"
+license = "MIT"
+summary = "Read captures, summaries, decisions and action items from the VFS"
+description = "A Granola-shaped browser view over Scribe capture bundles. The Spore owns presentation; the host owns VFS bytes and routing."
+homepage = "https://github.com/mycelium-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { vfs = "1.0.0", http = "0.2.12" }
+
+[module]
+path = "module.wasm"
+
+[http]
+hosts = ["scribe.local"]
+routes = [
+  { methods = ["GET"], path = "/" },
+  { methods = ["GET"], path = "/api/captures" },
+  { methods = ["GET"], path = "/api/capture" },
+]
+
+[launch]
+default = "native"
+surfaces = ["native", "web"]
+
+[grants]
+"soil:vfs" = "list capture bundles and read transcript, summary and actions"
+"wasi:http" = "answer the Scribe UI host"
+"wasi:io" = "the response body stream"
+"wasi:clocks" = "HTTP type timestamps"
+
+[denied]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
