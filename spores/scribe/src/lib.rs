@@ -316,7 +316,12 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         "model": enrichment_model,
     }))
     .map_err(|error| format!("stored event JSON: {error}"))?;
-    let _ = bus::publish("scribe.capture.stored.v1", &event_body, None, 60_000);
+    let _ = bus::publish(
+        "scribe.capture.stored.v1",
+        &event_body,
+        None,
+        7 * 24 * 60 * 60 * 1000,
+    );
 
     let duration_ms = event
         .started_at_ms
