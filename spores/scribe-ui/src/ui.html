@@ -98,16 +98,28 @@ async function loadCapture(path) {
 
 function render(capture) {
   const actions = Array.isArray(capture.actions) ? capture.actions : [];
+  const segments = capture.transcript?.segments || [];
   const words = capture.transcript?.words || [];
   const turns = [];
-  for (const word of words) {
-    const speaker = word.speaker ?? null;
-    const token = word.word ?? '';
-    if (!token) continue;
-    const last = turns[turns.length - 1];
-    if (!last || last.speaker !== speaker) turns.push({speaker, text: token});
-    else if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
-    else last.text += ' ' + token;
+  if (segments.length) {
+    for (const segment of segments) {
+      const speaker = segment.speaker ?? null;
+      const text = (segment.text || '').trim();
+      if (!text) continue;
+      const last = turns[turns.length - 1];
+      if (!last || last.speaker !== speaker) turns.push({speaker, text});
+      else last.text += ' ' + text;
+    }
+  } else {
+    for (const word of words) {
+      const speaker = word.speaker ?? null;
+      const token = word.word ?? '';
+      if (!token) continue;
+      const last = turns[turns.length - 1];
+      if (!last || last.speaker !== speaker) turns.push({speaker, text: token});
+      else if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
+      else last.text += ' ' + token;
+    }
   }
   const transcript = turns.length
     ? turns.map(turn => `<div class="turn"><div class="speaker">${esc(speakerName(turn.speaker))}</div><div class="text">${esc(turn.text)}</div></div>`).join('')
@@ -115,7 +127,7 @@ function render(capture) {
   detail.innerHTML = `
     <h1>${esc(capture.title)}</h1>
     <div class="meta">${esc(capture.path)}</div>
-    <div class="summary">${esc(capture.summary || 'No summary yet.')}</div>
+    <div class="summary">${esc((capture.summary || 'No summary yet.').replace(/^#\s+.*\n+/, ''))}</div>
     <h2>Transcript</h2>
     ${transcript}`;
   actionsEl.innerHTML = actions.length ? actions.map(action => `
