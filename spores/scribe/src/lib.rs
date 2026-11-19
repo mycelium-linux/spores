@@ -108,7 +108,7 @@ impl Args {
                 }
                 "--help" | "-h" => {
                     return Err(
-                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | ingest --event JSON [--model ALIAS] [--no-enrich]"
+                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
                             .into(),
                     )
                 }
@@ -156,6 +156,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "receive" => receive(args),
         "enrich" => enrich_watch(args),
         "voiceprint" => voiceprint(args),
+        "learn" => learn_command(args),
         other => Err(format!("unknown command {other}")),
     }
 }
@@ -380,6 +381,9 @@ fn enrich_watch(args: Args) -> Result<(), String> {
     let mut skipped = 0_u64;
     let mut failed = 0_u64;
     loop {
+        if let Err(error) = learn_manual(&args) {
+            eprintln!("scribe: manual voice learning: {error}");
+        }
         let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
             .map_err(|error| format!("unibus poll: {error:?}"))?;
         for frame in page.frames {
@@ -482,6 +486,171 @@ fn read_text(path: &str) -> Result<String, String> {
 
 fn read_json(path: &str) -> Result<Value, String> {
     serde_json::from_str(&read_text(path)?).map_err(|error| error.to_string())
+}
+
+fn learn_command(args: Args) -> Result<(), String> {
+    let result = learn_manual(&args)?;
+    finish(json!({"ok": true, "command": "learn", "result": result}));
+    Ok(())
+}
+
+/// Turn manual speaker tags into reusable voice templates. The queue is
+/// written by Scribe UI; this worker owns the audio/model call so the HTTP
+/// path stays fast and a missing embedding backend can retry later.
+fn learn_manual(args: &Args) -> Result<Value, String> {
+    let queue_path = "voiceprints/learn.json";
+    let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    if !queue.is_array() {
+        queue = json!([]);
+    }
+    let Some(items) = queue.as_array().cloned() else {
+        return Ok(json!({"learned": 0, "pending": 0}));
+    };
+    if items.is_empty() {
+        return Ok(json!({"learned": 0, "pending": 0}));
+    }
+    let mut templates = read_json(&args.templates).unwrap_or_else(|_| {
+        json!({
+            "model": "speechbrain/spkrec-ecapa-voxceleb@sha256:394365a16176e8a002f0151b4ee8b1cc1f73d031cdfaa337d0bfb4eaf86676fb",
+            "pipeline": "ecapa-mono16k-v1",
+            "templates": []
+        })
+    });
+    let model = templates
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("speechbrain/spkrec-ecapa-voxceleb@sha256:394365a16176e8a002f0151b4ee8b1cc1f73d031cdfaa337d0bfb4eaf86676fb")
+        .to_string();
+    let pipeline = templates
+        .get("pipeline")
+        .and_then(Value::as_str)
+        .unwrap_or("ecapa-mono16k-v1")
+        .to_string();
+    if !templates.get("templates").is_some_and(Value::is_array) {
+        templates["templates"] = json!([]);
+    }
+    let mut learned = 0usize;
+    let mut pending = Vec::new();
+    for item in items {
+        let path = item.get("path").and_then(Value::as_str).unwrap_or("");
+        let speaker = item.get("speaker").and_then(Value::as_str).unwrap_or("");
+        let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+        let person_id = item
+            .get("person_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(name);
+        if path.is_empty() || speaker.is_empty() || name.is_empty() {
+            continue;
+        }
+        let transcript = match read_json(&format!("{path}/transcript.json")) {
+            Ok(value) => value,
+            Err(_) => {
+                pending.push(item.clone());
+                continue;
+            }
+        };
+        let Some((start, end)) = speaker_window(&transcript, speaker) else {
+            pending.push(item.clone());
+            continue;
+        };
+        let pcm = match wav_pcm_segment(&format!("{path}/audio.wav"), start, end) {
+            Ok(pcm) if pcm.len() >= 32_000 => pcm,
+            _ => {
+                pending.push(item.clone());
+                continue;
+            }
+        };
+        let request = inference::VoiceEmbeddingRequest {
+            model: "fpl/spkrec-ecapa-voxceleb".to_string(),
+            checkpoint: args.checkpoint.clone(),
+            sample_rate: 16_000,
+            dimensions: Some(192),
+            pcm16: pcm,
+        };
+        let response = match inference::voice_embed(&request) {
+            Ok(response) => response,
+            Err(_) => {
+                pending.push(item.clone());
+                continue;
+            }
+        };
+        let embedding: Vec<f64> = response
+            .embedding
+            .iter()
+            .map(|value| *value as f64)
+            .collect();
+        if normalize_embedding(&embedding).is_err() {
+            pending.push(item.clone());
+            continue;
+        }
+        let update = json!({
+            "person_id": person_id,
+            "display_name": name,
+            "model": model,
+            "pipeline": pipeline,
+            "embedding": embedding,
+        });
+        if let Some(list) = templates.get_mut("templates").and_then(Value::as_array_mut) {
+            if let Some(existing) = list.iter_mut().find(|template| {
+                template.get("person_id").and_then(Value::as_str) == Some(person_id)
+            }) {
+                *existing = update;
+            } else {
+                list.push(update);
+            }
+        }
+        learned += 1;
+    }
+    if learned > 0 {
+        let bytes = serde_json::to_vec_pretty(&templates).map_err(|error| error.to_string())?;
+        vfs_mut::write(&args.templates, &bytes, "application/json", None, None)
+            .map_err(|error| format!("write templates: {error:?}"))?;
+    }
+    let remaining = serde_json::to_vec_pretty(&pending).map_err(|error| error.to_string())?;
+    vfs_mut::write(queue_path, &remaining, "application/json", None, None)
+        .map_err(|error| format!("write learning queue: {error:?}"))?;
+    Ok(json!({"learned": learned, "pending": pending.len()}))
+}
+
+fn speaker_window(transcript: &Value, wanted: &str) -> Option<(f64, f64)> {
+    let mut best: Option<(f64, f64)> = None;
+    let mut consider = |item: &Value| {
+        let key = if item.get("is_user").and_then(Value::as_bool) == Some(true) {
+            "You".to_string()
+        } else {
+            item.get("speaker")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    item.get("speaker")
+                        .and_then(Value::as_i64)
+                        .map(|value| format!("SPEAKER_{value:02}"))
+                })
+                .unwrap_or_else(|| "Speaker".to_string())
+        };
+        if key != wanted {
+            return;
+        }
+        let start = item.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+        let end = item.get("end").and_then(Value::as_f64).unwrap_or(start);
+        if end <= start {
+            return;
+        }
+        if best.is_none_or(|(old_start, old_end)| end - start > old_end - old_start) {
+            best = Some((start, end));
+        }
+    };
+    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+        for segment in segments {
+            consider(segment);
+        }
+    } else if let Some(words) = transcript.get("words").and_then(Value::as_array) {
+        for word in words {
+            consider(word);
+        }
+    }
+    best
 }
 
 fn voiceprint(args: Args) -> Result<(), String> {
