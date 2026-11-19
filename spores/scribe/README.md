@@ -48,6 +48,10 @@ cursor. `--once` processes one page and exits; this is the test/dev path.
 captures/<source>/<date>/<capture_id>/
   transcript.json
   summary.md
+  summary.md          # display: Scribe's when available, else Omi's
+  summary.omi.md      # Omi's supplied summary, preserved when present
+  summary.scribe.md   # Scribe's generated summary, when enrichment ran
+  summary.json        # provenance: display source + both content ids
   actions.json
 ```
 
@@ -57,8 +61,11 @@ enrichment status, and the model that produced the summary.
 
 If inference is unavailable, the transcript is still stored and the record is
 `stored_enrichment_pending`; rerun enrichment later without losing the capture.
-`actions.json` is a convenience view; structured trigger records and JARVIS
-routing are the next slice.
+Scribe keeps Omi's summary and its own summary side by side. `summary.md` is
+the display copy: Scribe's when enrichment succeeded, otherwise Omi's. The
+Omi text is never overwritten, so a model regression is reversible.
+`actions.json` is Scribe's current extraction; Omi's supplied actions are kept
+as `actions.omi.json` when present.
 
 After writing, Scribe calls `soil:index.refresh()` and publishes:
 

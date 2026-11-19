@@ -181,22 +181,42 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     let root = format!("captures/{source}/{date}/{id}");
     mkdir_recursive(&root)?;
 
+    let supplied_summary = event.summary.trim().to_string();
+    let supplied_actions = event.actions.clone();
+    let mut generated_summary: Option<String> = None;
+    let mut generated_actions: Option<Value> = None;
     let mut enrichment_model = "provided".to_string();
-    let mut enrichment_status = "provided";
-    if enrich && event.summary.trim().is_empty() {
+    let mut enrichment_status = if supplied_summary.is_empty() {
+        "pending"
+    } else {
+        "provided"
+    };
+    if enrich {
         match enrich_capture(&event, model) {
             Ok(enriched) => {
-                event.summary = enriched.summary;
-                event.actions = enriched.actions;
+                generated_summary = Some(enriched.summary);
+                generated_actions = Some(enriched.actions);
                 enrichment_model = enriched.model;
                 enrichment_status = "complete";
             }
             Err(error) => {
                 eprintln!("scribe: enrichment pending for {}: {error}", event.capture_id);
-                enrichment_status = "pending";
             }
         }
     }
+    if let Some(summary) = generated_summary.as_ref() {
+        event.summary = summary.clone();
+    }
+    if let Some(actions) = generated_actions.as_ref() {
+        event.actions = actions.clone();
+    }
+    let summary_source = if generated_summary.is_some() {
+        "scribe"
+    } else if !supplied_summary.is_empty() {
+        "omi"
+    } else {
+        "empty"
+    };
 
     let transcript_bytes = serde_json::to_vec_pretty(&event.transcript)
         .map_err(|error| format!("transcript JSON: {error}"))?;
@@ -219,6 +239,52 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         &actions_bytes,
         "application/json",
     )?;
+    let omi_summary = if supplied_summary.is_empty() {
+        None
+    } else {
+        Some(write_file(
+            &format!("{root}/summary.omi.md"),
+            supplied_summary.as_bytes(),
+            "text/markdown",
+        )?)
+    };
+    let scribe_summary = if let Some(summary) = generated_summary.as_ref() {
+        Some(write_file(
+            &format!("{root}/summary.scribe.md"),
+            summary.as_bytes(),
+            "text/markdown",
+        )?)
+    } else {
+        None
+    };
+    let _omi_actions = if supplied_actions.as_array().is_some_and(|items| !items.is_empty()) {
+        Some(write_file(
+            &format!("{root}/actions.omi.json"),
+            &serde_json::to_vec_pretty(&supplied_actions)
+                .map_err(|error| format!("Omi actions JSON: {error}"))?,
+            "application/json",
+        )?)
+    } else {
+        None
+    };
+    let summary_index = json!({
+        "display": summary_source,
+        "omi": omi_summary.as_ref().map(|file| json!({
+            "path": file.path,
+            "content_id": file.content_id,
+        })),
+        "scribe": scribe_summary.as_ref().map(|file| json!({
+            "path": file.path,
+            "content_id": file.content_id,
+            "model": enrichment_model,
+        })),
+    });
+    let _summary_index = write_file(
+        &format!("{root}/summary.json"),
+        &serde_json::to_vec_pretty(&summary_index)
+            .map_err(|error| format!("summary index JSON: {error}"))?,
+        "application/json",
+    )?;
     let title = event
         .title
         .clone()
@@ -229,6 +295,7 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         "source": event.source,
         "date": date,
         "title": title,
+        "summary_source": summary_source,
         "started_at_ms": event.started_at_ms,
         "ended_at_ms": event.ended_at_ms,
     }))
@@ -270,6 +337,9 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
             "content_id": summary.content_id,
             "path": summary.path,
             "media_type": "text/markdown",
+            "source": summary_source,
+            "omi_path": omi_summary.as_ref().map(|file| file.path.clone()),
+            "scribe_path": scribe_summary.as_ref().map(|file| file.path.clone()),
         },
         "actions": {
             "content_id": actions.content_id,
@@ -310,6 +380,9 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         "speaker_count": speaker_count,
         "transcript_content_id": transcript.content_id,
         "summary_content_id": summary.content_id,
+        "summary_source": summary_source,
+        "omi_summary_content_id": omi_summary.as_ref().map(|file| file.content_id.clone()),
+        "scribe_summary_content_id": scribe_summary.as_ref().map(|file| file.content_id.clone()),
         "actions_content_id": actions.content_id,
         "action_count": event.actions.as_array().map(Vec::len).unwrap_or(0),
         "enrichment": enrichment_status,
@@ -343,6 +416,9 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
             "content_id": summary.content_id,
             "path": summary.path,
             "model": enrichment_model,
+            "source": summary_source,
+            "omi_content_id": omi_summary.as_ref().map(|file| file.content_id.clone()),
+            "scribe_content_id": scribe_summary.as_ref().map(|file| file.content_id.clone()),
         },
         "actions": {
             "content_id": actions.content_id,
