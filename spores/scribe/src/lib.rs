@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use soil::index::index;
 use soil::inference::inference;
 use soil::records::records::{self, Entry, Key};
+use soil::streams::duplex;
 use soil::time::time;
 use soil::unibus::bus;
 use soil::vfs::vfs;
@@ -125,7 +126,217 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
             Ok(())
         }
         "watch" => watch(args),
+        "receive" => receive(args),
         other => Err(format!("unknown command {other}")),
+    }
+}
+
+const MAX_STREAM_PATH: usize = 1024;
+const MAX_STREAM_FILE: u64 = 2 * 60 * 60 * 16_000 * 2 + 4096;
+const STREAM_CHUNK: usize = 64 * 1024;
+
+/// Accept one host-owned WSS bundle, then run the normal Scribe pipeline.
+/// The wire format is Scribe's capture transport, not a second product:
+///
+/// ```text
+/// "OMI1"
+/// repeat: u16 path-len, path, u64 data-len, data
+/// u16 0
+/// ```
+fn receive(args: Args) -> Result<(), String> {
+    let mut stored = 0_u64;
+    loop {
+        let Some(session) = duplex::accept("wss").map_err(|error| format!("accept: {error:?}"))?
+        else {
+            time::tick(50).map_err(|error| format!("tick: {error:?}"))?;
+            continue;
+        };
+        match receive_one(session, &args) {
+            Ok(event) => {
+                stored += 1;
+                eprintln!(
+                    "scribe: received {} ({} segment(s))",
+                    event["capture_id"].as_str().unwrap_or("capture"),
+                    event["segments"].as_u64().unwrap_or(0)
+                );
+            }
+            Err(error) => eprintln!("scribe: receive failed: {error}"),
+        }
+        if args.once {
+            break;
+        }
+    }
+    finish(json!({"ok": true, "command": "receive", "stored": stored}));
+    Ok(())
+}
+
+fn receive_one(mut session: duplex::Session, args: &Args) -> Result<Value, String> {
+    let mut reader = StreamReader::new(&mut session);
+    let mut magic = [0u8; 4];
+    if !reader.read_exact(&mut magic)? || &magic != b"OMI1" {
+        return Err("bad capture stream magic".into());
+    }
+    let mut event_bytes: Option<Vec<u8>> = None;
+    loop {
+        let Some(path_len) = reader.read_u16()? else {
+            break;
+        };
+        let path_len = path_len as usize;
+        if path_len == 0 {
+            break;
+        }
+        if path_len > MAX_STREAM_PATH {
+            return Err(format!("bad path length {path_len}"));
+        }
+        let mut path_raw = vec![0u8; path_len];
+        if !reader.read_exact(&mut path_raw)? {
+            return Err("truncated path".into());
+        }
+        let path = String::from_utf8(path_raw).map_err(|_| "path is not utf-8")?;
+        if !stream_path(&path) {
+            return Err(format!("unsafe path {path:?}"));
+        }
+        let len = reader
+            .read_u64()?
+            .ok_or_else(|| format!("missing data length for {path}"))?;
+        if len > MAX_STREAM_FILE {
+            return Err(format!("file {path} is too large: {len}"));
+        }
+        let writer = vfs_mut::begin_write(&path, stream_media_type(&path), Some(len), None, None)
+            .map_err(|error| format!("begin-write {path}: {error:?}"))?;
+        let mut remaining = len;
+        let mut kept = Vec::new();
+        while remaining > 0 {
+            let want = remaining.min(STREAM_CHUNK as u64) as usize;
+            let chunk = reader
+                .read_some(want)?
+                .ok_or_else(|| format!("truncated data for {path}"))?;
+            if path.ends_with("/event.json") && kept.len() < 4 * 1024 * 1024 {
+                let left = (4 * 1024 * 1024 - kept.len()).min(chunk.len());
+                kept.extend_from_slice(&chunk[..left]);
+            }
+            writer
+                .write(&chunk)
+                .map_err(|error| format!("write {path}: {error:?}"))?;
+            remaining -= chunk.len() as u64;
+        }
+        writer
+            .finish()
+            .map_err(|error| format!("finish {path}: {error:?}"))?;
+        if path.ends_with("/event.json") {
+            event_bytes = Some(kept);
+        }
+    }
+    let raw = event_bytes.ok_or_else(|| "capture stream had no event.json".to_string())?;
+    let body: Value =
+        serde_json::from_slice(&raw).map_err(|error| format!("event JSON: {error}"))?;
+    let body = body.get("event").cloned().unwrap_or(body);
+    let checkpoint = body
+        .get("checkpoint")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let stored = process_event(&body, &args.model, args.enrich && !checkpoint)?;
+    session
+        .write(b"OK\n")
+        .map_err(|error| format!("ack: {error:?}"))?;
+    session
+        .close()
+        .map_err(|error| format!("close: {error:?}"))?;
+    Ok(stored)
+}
+
+fn stream_path(path: &str) -> bool {
+    path.starts_with("captures/")
+        && !path.contains("..")
+        && !path.contains('\\')
+        && !path.ends_with('/')
+        && path.len() <= MAX_STREAM_PATH
+}
+
+fn stream_media_type(path: &str) -> &'static str {
+    if path.ends_with(".wav") {
+        "audio/wav"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".md") {
+        "text/markdown; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+struct StreamReader<'a> {
+    session: &'a mut duplex::Session,
+    buffer: Vec<u8>,
+    offset: usize,
+}
+
+impl<'a> StreamReader<'a> {
+    fn new(session: &'a mut duplex::Session) -> Self {
+        Self {
+            session,
+            buffer: Vec::new(),
+            offset: 0,
+        }
+    }
+
+    fn fill(&mut self) -> Result<bool, String> {
+        if self.offset < self.buffer.len() {
+            return Ok(true);
+        }
+        self.buffer.clear();
+        self.offset = 0;
+        match self
+            .session
+            .read(STREAM_CHUNK as u32)
+            .map_err(|error| format!("read: {error:?}"))?
+        {
+            Some(bytes) if !bytes.is_empty() => {
+                self.buffer = bytes;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn read_some(&mut self, max: usize) -> Result<Option<Vec<u8>>, String> {
+        if !self.fill()? {
+            return Ok(None);
+        }
+        let take = (self.buffer.len() - self.offset).min(max);
+        let out = self.buffer[self.offset..self.offset + take].to_vec();
+        self.offset += take;
+        Ok(Some(out))
+    }
+
+    fn read_exact(&mut self, out: &mut [u8]) -> Result<bool, String> {
+        let mut at = 0;
+        while at < out.len() {
+            if !self.fill()? {
+                return Ok(false);
+            }
+            let take = (self.buffer.len() - self.offset).min(out.len() - at);
+            out[at..at + take].copy_from_slice(&self.buffer[self.offset..self.offset + take]);
+            self.offset += take;
+            at += take;
+        }
+        Ok(true)
+    }
+
+    fn read_u16(&mut self) -> Result<Option<u16>, String> {
+        let mut bytes = [0u8; 2];
+        if !self.read_exact(&mut bytes)? {
+            return Ok(None);
+        }
+        Ok(Some(u16::from_be_bytes(bytes)))
+    }
+
+    fn read_u64(&mut self) -> Result<Option<u64>, String> {
+        let mut bytes = [0u8; 8];
+        if !self.read_exact(&mut bytes)? {
+            return Ok(None);
+        }
+        Ok(Some(u64::from_be_bytes(bytes)))
     }
 }
 
@@ -200,7 +411,10 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
                 enrichment_status = "complete";
             }
             Err(error) => {
-                eprintln!("scribe: enrichment pending for {}: {error}", event.capture_id);
+                eprintln!(
+                    "scribe: enrichment pending for {}: {error}",
+                    event.capture_id
+                );
             }
         }
     }
@@ -257,7 +471,10 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     } else {
         None
     };
-    let _omi_actions = if supplied_actions.as_array().is_some_and(|items| !items.is_empty()) {
+    let _omi_actions = if supplied_actions
+        .as_array()
+        .is_some_and(|items| !items.is_empty())
+    {
         Some(write_file(
             &format!("{root}/actions.omi.json"),
             &serde_json::to_vec_pretty(&supplied_actions)
@@ -368,7 +585,8 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
     )?;
     let _ = index::refresh();
 
-    let event_body = serde_json::to_vec(&json!({
+    if !event.checkpoint {
+        let event_body = serde_json::to_vec(&json!({
         "schema": "scribe.capture.stored.v1",
         "capture_id": event.capture_id,
         "source": source,
@@ -389,78 +607,84 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         "model": enrichment_model,
     }))
     .map_err(|error| format!("stored event JSON: {error}"))?;
-    let _ = bus::publish(
-        "scribe.capture.stored.v1",
-        &event_body,
-        None,
-        7 * 24 * 60 * 60 * 1000,
-    );
+        let _ = bus::publish(
+            "scribe.capture.stored.v1",
+            &event_body,
+            None,
+            7 * 24 * 60 * 60 * 1000,
+        );
 
-    let duration_ms = event
-        .started_at_ms
-        .zip(event.ended_at_ms)
-        .map(|(start, end)| end.saturating_sub(start))
-        .unwrap_or(0);
-    let enriched_body = serde_json::to_vec(&json!({
-        "schema": "scribe.capture.enriched.v1",
-        "capture_id": event.capture_id,
-        "source": source,
-        "bundle": root,
-        "record": format!("capture:{source}:{}", event.capture_id),
-        "started_at_ms": event.started_at_ms,
-        "ended_at_ms": event.ended_at_ms,
-        "duration_ms": duration_ms,
-        "segment_count": segment_count,
-        "speaker_count": speaker_count,
-        "summary": {
-            "content_id": summary.content_id,
-            "path": summary.path,
-            "model": enrichment_model,
-            "source": summary_source,
-            "omi_content_id": omi_summary.as_ref().map(|file| file.content_id.clone()),
-            "scribe_content_id": scribe_summary.as_ref().map(|file| file.content_id.clone()),
-        },
-        "actions": {
-            "content_id": actions.content_id,
-            "path": actions.path,
-            "count": event.actions.as_array().map(Vec::len).unwrap_or(0),
-        },
-        "enrichment": enrichment_status,
-    }))
-    .map_err(|error| format!("enriched event JSON: {error}"))?;
-    let _ = bus::publish("scribe.capture.enriched.v1", &enriched_body, None, 7 * 24 * 60 * 60 * 1000);
+        let duration_ms = event
+            .started_at_ms
+            .zip(event.ended_at_ms)
+            .map(|(start, end)| end.saturating_sub(start))
+            .unwrap_or(0);
+        let enriched_body = serde_json::to_vec(&json!({
+            "schema": "scribe.capture.enriched.v1",
+            "capture_id": event.capture_id,
+            "source": source,
+            "bundle": root,
+            "record": format!("capture:{source}:{}", event.capture_id),
+            "started_at_ms": event.started_at_ms,
+            "ended_at_ms": event.ended_at_ms,
+            "duration_ms": duration_ms,
+            "segment_count": segment_count,
+            "speaker_count": speaker_count,
+            "summary": {
+                "content_id": summary.content_id,
+                "path": summary.path,
+                "model": enrichment_model,
+                "source": summary_source,
+                "omi_content_id": omi_summary.as_ref().map(|file| file.content_id.clone()),
+                "scribe_content_id": scribe_summary.as_ref().map(|file| file.content_id.clone()),
+            },
+            "actions": {
+                "content_id": actions.content_id,
+                "path": actions.path,
+                "count": event.actions.as_array().map(Vec::len).unwrap_or(0),
+            },
+            "enrichment": enrichment_status,
+        }))
+        .map_err(|error| format!("enriched event JSON: {error}"))?;
+        let _ = bus::publish(
+            "scribe.capture.enriched.v1",
+            &enriched_body,
+            None,
+            7 * 24 * 60 * 60 * 1000,
+        );
 
-    // One event per extracted action. Consumers (Elmers, Marbles, JARVIS) can
-    // decide whether an item is worth acting on; Scribe never creates one.
-    if let Some(items) = event.actions.as_array() {
-        for (index, item) in items.iter().enumerate() {
-            let action_id = format!("action:{source}:{}:{index}", event.capture_id);
-            let body = serde_json::to_vec(&json!({
-                "schema": "scribe.action_item.v1",
-                "id": action_id,
-                "capture_id": event.capture_id,
-                "source": source,
-                "bundle": root,
-                "record": format!("capture:{source}:{}", event.capture_id),
-                "started_at_ms": event.started_at_ms,
-                "ended_at_ms": event.ended_at_ms,
-                "kind": item.get("kind").cloned().unwrap_or(Value::Null),
-                "title": item.get("title").cloned().unwrap_or(Value::Null),
-                "owner": item.get("owner").cloned().unwrap_or(Value::Null),
-                "due_at": item.get("due_at").cloned().unwrap_or(Value::Null),
-                "quote": item.get("quote").cloned().unwrap_or(Value::Null),
-                "start_ms": item.get("start_ms").cloned().unwrap_or(Value::Null),
-                "end_ms": item.get("end_ms").cloned().unwrap_or(Value::Null),
-                "speaker": item.get("speaker").cloned().unwrap_or(Value::Null),
-                "confidence": item.get("confidence").cloned().unwrap_or(Value::Null),
-            }))
-            .map_err(|error| format!("action item event JSON: {error}"))?;
-            let _ = bus::publish(
-                "scribe.action_item.v1",
-                &body,
-                None,
-                7 * 24 * 60 * 60 * 1000,
-            );
+        // One event per extracted action. Consumers (Elmers, Marbles, JARVIS) can
+        // decide whether an item is worth acting on; Scribe never creates one.
+        if let Some(items) = event.actions.as_array() {
+            for (index, item) in items.iter().enumerate() {
+                let action_id = format!("action:{source}:{}:{index}", event.capture_id);
+                let body = serde_json::to_vec(&json!({
+                    "schema": "scribe.action_item.v1",
+                    "id": action_id,
+                    "capture_id": event.capture_id,
+                    "source": source,
+                    "bundle": root,
+                    "record": format!("capture:{source}:{}", event.capture_id),
+                    "started_at_ms": event.started_at_ms,
+                    "ended_at_ms": event.ended_at_ms,
+                    "kind": item.get("kind").cloned().unwrap_or(Value::Null),
+                    "title": item.get("title").cloned().unwrap_or(Value::Null),
+                    "owner": item.get("owner").cloned().unwrap_or(Value::Null),
+                    "due_at": item.get("due_at").cloned().unwrap_or(Value::Null),
+                    "quote": item.get("quote").cloned().unwrap_or(Value::Null),
+                    "start_ms": item.get("start_ms").cloned().unwrap_or(Value::Null),
+                    "end_ms": item.get("end_ms").cloned().unwrap_or(Value::Null),
+                    "speaker": item.get("speaker").cloned().unwrap_or(Value::Null),
+                    "confidence": item.get("confidence").cloned().unwrap_or(Value::Null),
+                }))
+                .map_err(|error| format!("action item event JSON: {error}"))?;
+                let _ = bus::publish(
+                    "scribe.action_item.v1",
+                    &body,
+                    None,
+                    7 * 24 * 60 * 60 * 1000,
+                );
+            }
         }
     }
 
@@ -527,7 +751,8 @@ fn enrich_capture(event: &CaptureEvent, model: &str) -> Result<Enriched, String>
             temperature: Some(0.2),
             prompt_cache_key: Some(format!("scribe:{}", event.capture_id)),
         };
-        let response = inference::complete(&request).map_err(|error| format!("inference: {error:?}"))?;
+        let response =
+            inference::complete(&request).map_err(|error| format!("inference: {error:?}"))?;
         model_used = response.model.clone();
         let content = response
             .message
@@ -598,11 +823,17 @@ fn transcript_text(transcript: &Value) -> String {
         for word in words {
             let speaker = speaker_label(word.get("speaker"));
             let text = word.get("word").and_then(Value::as_str).unwrap_or("");
-            let start = word.get("start").and_then(Value::as_f64).unwrap_or(current_end);
+            let start = word
+                .get("start")
+                .and_then(Value::as_f64)
+                .unwrap_or(current_end);
             let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
             if speaker != current_speaker {
                 if !current_text.trim().is_empty() {
-                    lines.push(format!("[{current_start:.1}-{current_end:.1}] {current_speaker}: {}", current_text.trim()));
+                    lines.push(format!(
+                        "[{current_start:.1}-{current_end:.1}] {current_speaker}: {}",
+                        current_text.trim()
+                    ));
                 }
                 current_speaker = speaker;
                 current_text.clear();
@@ -615,7 +846,10 @@ fn transcript_text(transcript: &Value) -> String {
             current_text.push_str(text);
         }
         if !current_text.trim().is_empty() {
-            lines.push(format!("[{current_start:.1}-{current_end:.1}] {current_speaker}: {}", current_text.trim()));
+            lines.push(format!(
+                "[{current_start:.1}-{current_end:.1}] {current_speaker}: {}",
+                current_text.trim()
+            ));
         }
         if !lines.is_empty() {
             return lines.join("\n");
@@ -680,8 +914,12 @@ fn parse_model_json(content: &str) -> Result<Value, String> {
     if let Ok(value) = serde_json::from_str(trimmed) {
         return Ok(value);
     }
-    let start = trimmed.find('{').ok_or_else(|| "model output has no JSON object".to_string())?;
-    let end = trimmed.rfind('}').ok_or_else(|| "model output has no JSON object".to_string())?;
+    let start = trimmed
+        .find('{')
+        .ok_or_else(|| "model output has no JSON object".to_string())?;
+    let end = trimmed
+        .rfind('}')
+        .ok_or_else(|| "model output has no JSON object".to_string())?;
     serde_json::from_str(&trimmed[start..=end]).map_err(|error| format!("model JSON: {error}"))
 }
 
@@ -697,10 +935,14 @@ struct CaptureEvent {
     actions: Value,
     audio_content_id: Option<String>,
     title: Option<String>,
+    checkpoint: bool,
 }
 
 fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
-    let value = body.get("body").unwrap_or(body);
+    let value = body
+        .get("body")
+        .or_else(|| body.get("event"))
+        .unwrap_or(body);
     let capture_id = value
         .get("capture_id")
         .or_else(|| value.get("conversation_id"))
@@ -742,8 +984,17 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
     let title = value
         .get("title")
         .and_then(Value::as_str)
-        .or_else(|| value.get("omi").and_then(|omi| omi.get("title")).and_then(Value::as_str))
+        .or_else(|| {
+            value
+                .get("omi")
+                .and_then(|omi| omi.get("title"))
+                .and_then(Value::as_str)
+        })
         .map(str::to_string);
+    let checkpoint = value
+        .get("checkpoint")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     Ok(CaptureEvent {
         capture_id,
         source,
@@ -755,6 +1006,7 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         actions,
         audio_content_id,
         title,
+        checkpoint,
     })
 }
 
@@ -923,7 +1175,8 @@ mod tests {
 
     #[test]
     fn model_json_accepts_fences() {
-        let value = parse_model_json("```json\n{\"summary_md\":\"ok\",\"actions\":[]}\n```").unwrap();
+        let value =
+            parse_model_json("```json\n{\"summary_md\":\"ok\",\"actions\":[]}\n```").unwrap();
         assert_eq!(value["summary_md"], "ok");
     }
 

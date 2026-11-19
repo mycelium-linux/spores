@@ -36,9 +36,12 @@ compatibility. `body` wrappers are unwrapped.
 ```text
 scribe watch [--hold-ms N] [--once] [--model ALIAS] [--no-enrich]
 scribe ingest --event '<json>' [--model ALIAS] [--no-enrich]
+scribe receive [--once] [--model ALIAS] [--no-enrich]
 scribe snapshot
 ```
 
+`receive` is the host-owned WSS transport: it accepts one bundle, writes the
+audio and event through VFS, then runs the same ingest/enrichment path.
 `watch` polls `omi.capture.v1`, processes each frame, and advances the Unibus
 cursor. `--once` processes one page and exits; this is the test/dev path.
 

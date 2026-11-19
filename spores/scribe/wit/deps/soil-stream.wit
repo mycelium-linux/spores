@@ -1,0 +1,45 @@
+// Host-issued byte streams.
+//
+// A Spore never creates a listener, dials a socket, or holds a TLS key. The
+// host accepts the transport, authenticates the peer, and queues a bounded
+// duplex session. A Spore polls `accept`, then reads and writes the bytes.
+package soil:streams@0.1.0;
+
+interface duplex {
+  enum error {
+    denied,
+    invalid,
+    closed,
+    over-budget,
+    unavailable,
+    io,
+  }
+
+  record info {
+    protocol: string,
+    peer: option<string>,
+    principal: option<string>,
+    media-type: option<string>,
+  }
+
+  resource session {
+    info: func() -> info;
+    /// `none` is end of stream. A read never waits forever; the host may
+    /// return `none` when the peer is gone or the session was closed.
+    read: func(max: u32) -> result<option<list<u8>>, error>;
+    write: func(data: list<u8>) -> result<u64, error>;
+    close: func() -> result<_, error>;
+  }
+
+  /// Take the next authenticated session for `protocol`, or `none` when the
+  /// queue is empty. This is a poll, not a listener.
+  accept: func(protocol: string) -> result<option<session>, error>;
+}
+
+world host {
+  import duplex;
+}
+
+world guest {
+  import duplex;
+}

@@ -29,6 +29,24 @@ interface vfs-mut {
     mode: u32,
   }
 
+  /// Stream one file into the VFS. The host owns the temp object, hashing,
+  /// quotas and the atomic commit. `write` returns the bytes accepted so far.
+  resource writer {
+    write: func(data: list<u8>) -> result<u64, error>;
+    finish: func() -> result<write-result, error>;
+    abort: func() -> result<_, error>;
+  }
+
+  /// Open a streaming writer. `expected-size` is an advisory quota; the host
+  /// may still enforce a smaller per-principal limit.
+  begin-write: func(
+    path: string,
+    media-type: string,
+    expected-size: option<u64>,
+    expected-version: option<u64>,
+    mode: option<u32>,
+  ) -> result<writer, error>;
+
   /// Create or replace one file. `expected-version` is the optimistic
   /// concurrency check; `none` means create/replace unconditionally. `mode`
   /// names the permission bits for a caller that has a real file to describe
