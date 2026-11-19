@@ -219,6 +219,25 @@ fn process_event(body: &Value, model: &str, enrich: bool) -> Result<Value, Strin
         &actions_bytes,
         "application/json",
     )?;
+    let title = event
+        .title
+        .clone()
+        .or_else(|| summary_title(&event.summary))
+        .unwrap_or_else(|| "Untitled capture".to_string());
+    let capture_meta = serde_json::to_vec_pretty(&json!({
+        "capture_id": event.capture_id,
+        "source": event.source,
+        "date": date,
+        "title": title,
+        "started_at_ms": event.started_at_ms,
+        "ended_at_ms": event.ended_at_ms,
+    }))
+    .map_err(|error| format!("capture meta JSON: {error}"))?;
+    let _meta = write_file(
+        &format!("{root}/capture.json"),
+        &capture_meta,
+        "application/json",
+    )?;
 
     let segment_count = event
         .transcript
@@ -523,6 +542,7 @@ struct CaptureEvent {
     summary: String,
     actions: Value,
     audio_content_id: Option<String>,
+    title: Option<String>,
 }
 
 fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
@@ -565,6 +585,11 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         .get("audio_content_id")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("omi").and_then(|omi| omi.get("title")).and_then(Value::as_str))
+        .map(str::to_string);
     Ok(CaptureEvent {
         capture_id,
         source,
@@ -575,7 +600,17 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         summary,
         actions,
         audio_content_id,
+        title,
     })
+}
+
+fn summary_title(summary: &str) -> Option<String> {
+    summary
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.trim_start_matches('#').trim().to_string())
+        .filter(|line| !line.is_empty())
 }
 
 fn speaker_count(transcript: &Value) -> usize {

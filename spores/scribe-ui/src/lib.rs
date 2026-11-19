@@ -149,6 +149,17 @@ fn captures() -> Result<Value, String> {
                     .ok()
                     .and_then(|value| value.as_array().map(|items| items.len()))
                     .unwrap_or(0);
+                let meta = read_json(&format!("{}/capture.json", capture.path)).ok();
+                let started_at_ms = meta
+                    .as_ref()
+                    .and_then(|value| value.get("started_at_ms"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let ended_at_ms = meta
+                    .as_ref()
+                    .and_then(|value| value.get("ended_at_ms"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(started_at_ms);
                 let transcript = read_json(&format!("{}/transcript.json", capture.path)).ok();
                 let text = transcript
                     .as_ref()
@@ -175,19 +186,33 @@ fn captures() -> Result<Value, String> {
                     "source": base(&source.path),
                     "date": base(&date.path),
                     "id": base(&capture.path),
-                    "title": title(&summary).unwrap_or_else(|| base(&capture.path)),
+                    "title": meta
+                        .as_ref()
+                        .and_then(|value| value.get("title"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| title(&summary))
+                        .unwrap_or_else(|| base(&capture.path)),
                     "summary": summary,
                     "preview": text.chars().take(220).collect::<String>(),
                     "actions": actions,
                     "speakers": speakers,
+                    "started_at_ms": started_at_ms,
+                    "ended_at_ms": ended_at_ms,
                 }));
             }
         }
     }
     cards.sort_by(|a, b| {
-        b.get("path")
-            .and_then(Value::as_str)
-            .cmp(&a.get("path").and_then(Value::as_str))
+        b.get("started_at_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            .cmp(&a.get("started_at_ms").and_then(Value::as_u64).unwrap_or(0))
+            .then_with(|| {
+                b.get("path")
+                    .and_then(Value::as_str)
+                    .cmp(&a.get("path").and_then(Value::as_str))
+            })
     });
     Ok(json!({"captures": cards}))
 }
@@ -199,12 +224,20 @@ fn capture(path: &str) -> Result<Value, String> {
     let summary = read_text(&format!("{path}/summary.md")).unwrap_or_default();
     let actions = read_json(&format!("{path}/actions.json")).unwrap_or_else(|_| json!([]));
     let transcript = read_json(&format!("{path}/transcript.json"))?;
+    let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
     Ok(json!({
         "path": path,
-        "title": title(&summary).unwrap_or_else(|| base(path)),
+        "title": meta
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| title(&summary))
+            .unwrap_or_else(|| base(path)),
         "summary": summary,
         "actions": actions,
         "transcript": transcript,
+        "started_at_ms": meta.get("started_at_ms").cloned().unwrap_or(Value::Null),
+        "ended_at_ms": meta.get("ended_at_ms").cloned().unwrap_or(Value::Null),
     }))
 }
 
