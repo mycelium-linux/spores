@@ -1,0 +1,12 @@
+// `marbles.myc`: the Marbles work graph as a server-rendered page.
+//
+// The Spore owns the HTML and the projections under it. The host owns routing,
+// the records book, and the clock we refuse to invent: "now" is the newest
+// moment the book records.
+package fungos:marbles-ui@0.1.0;
+
+world marbles-ui {
+  import soil:records/records@0.1.0;
+
+  export wasi:http/incoming-handler@0.2.12;
+}

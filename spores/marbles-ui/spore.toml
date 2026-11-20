@@ -1,0 +1,86 @@
+# marbles-ui: the Marbles work graph as a server-rendered page.
+#
+# One name, one records book, no client state. The Spore reads the `marbles`
+# collection the host opens, computes every projection (kanban, burndown,
+# projects, plans) in the guest, and answers with HTML. The host owns routing,
+# durability, and the clock: "now" is the newest moment in the book, so the
+# same book renders the same page whenever it is read.
+schema = 1
+
+[spore]
+id = "dev.fungos.marbles-ui"
+name = "marbles-ui"
+title = "Marbles"
+version = "0.1.0"
+license = "MIT"
+summary = "Kanban, burndown and project rollups over a Marbles records book"
+description = "The Marbles work graph as a server-rendered web page: a kanban by status, a burndown against the pace that would have cleared the scope, per-project rollups, plan membership, and issue detail. Reads `soil:records` only; the tracker stays the single writer."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[docs]
+man = "README.md"
+
+[catalog]
+categories = ["developer-tools", "productivity"]
+keywords = ["marbles", "kanban", "burndown", "issues", "board", "ssr"]
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { records = "0.1.0", http = "0.2.12" }
+
+[module]
+path = "module.wasm"
+
+[http]
+hosts = ["marbles.local", "marbles.localhost", "marbles.fpl.dev", "marbles.myc", "127.0.0.1", "localhost"]
+routes = [
+  { methods = ["GET"], path = "/" },
+  { methods = ["GET"], path = "/board" },
+  { methods = ["GET"], path = "/burndown" },
+  { methods = ["GET"], path = "/projects" },
+  { methods = ["GET"], path = "/plans" },
+  { methods = ["GET"], path = "/plan" },
+  { methods = ["GET"], path = "/issue" },
+  { methods = ["GET"], path = "/healthz" },
+]
+
+# No `[records]` table. Marbles keeps every record type in one collection
+# literally named `marbles` (issues are `issue/[...]` entities inside it), and
+# the operator names the book at launch:
+#
+#   soil spore run spores/marbles-ui --mode http --listen 127.0.0.1:8089 \
+#     --records ~/.local/share/fungos/records \
+#     --book personal/avery/marbles --collection marbles
+#
+# `--collection` is also the read grant, so this is the statement that the page
+# is read-only: it holds `soil:records` and never writes.
+
+[anycast]
+name = "marbles"
+kind = "marbles"
+alpns = ["soil/http/1"]
+ttl_secs = 240
+
+[launch]
+default = "web"
+surfaces = ["web"]
+
+[grants]
+"soil:records" = "read the marbles collection the host opens"
+"wasi:http" = "answer the name the host routes here"
+"wasi:io" = "the response body stream"
+"wasi:clocks" = "the HTTP types carry a monotonic clock"
+# The floor the Rust standard library links in, not authority this Spore uses.
+"wasi:cli" = "Rust std diagnostics; no args, environment, or process launch"
+
+[denied]
+# A view. The tracker is the only writer, and the network is not this Spore's
+# business at all.
+"soil:records.write" = ["the tracker is the only writer a board may show"]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
+
+[presentation]
+badge = "M"
+color = "#6ea8fe"
