@@ -57,6 +57,9 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             (Method::Get, "/") | (Method::Get, "/index.html") => {
                 respond(200, "text/html; charset=utf-8", HTML.as_bytes())
             }
+            (Method::Get, path) if path == "/c" || path.starts_with("/c/") => {
+                respond(200, "text/html; charset=utf-8", HTML.as_bytes())
+            }
             (Method::Get, "/api/captures") => {
                 let offset = query_value(query, "offset")
                     .and_then(|value| value.parse::<usize>().ok())
@@ -137,7 +140,9 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 ),
                 Err(error) => api_error(400, &error),
             },
-            (Method::Get, "/api/capture") => match query_value(query, "path") {
+            (Method::Get, "/api/capture") => match query_value(query, "path").or_else(|| {
+                query_value(query, "id").and_then(|id| find_capture(&id).ok())
+            }) {
                 Some(path) => match capture(&path) {
                     Ok(value) => respond(
                         200,
@@ -766,6 +771,22 @@ fn speaker_count(transcript: &Value) -> usize {
     speakers.len()
 }
 
+fn find_capture(id: &str) -> Result<String, String> {
+    if id.is_empty() || id.contains('/') || id.contains("..") {
+        return Err("invalid capture id".into());
+    }
+    for source in dirs("captures")? {
+        for date in dirs(&source.path)? {
+            for capture in dirs(&date.path)? {
+                if base(&capture.path) == id {
+                    return Ok(capture.path);
+                }
+            }
+        }
+    }
+    Err("capture not found".into())
+}
+
 fn capture(path: &str) -> Result<Value, String> {
     if !path.starts_with("captures/") || path.contains("..") {
         return Err("invalid capture path".into());
@@ -786,6 +807,7 @@ fn capture(path: &str) -> Result<Value, String> {
     let ended = meta.get("ended_at_ms").and_then(Value::as_u64).unwrap_or(started);
     Ok(json!({
         "path": path,
+        "id": base(path),
         "title": meta
             .get("title")
             .and_then(Value::as_str)

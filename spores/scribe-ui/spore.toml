@@ -19,7 +19,7 @@ abi = { vfs = "1.0.0", http = "0.2.12", index = "1.1.0" }
 path = "module.wasm"
 
 [http]
-hosts = ["scribe.local", "scribe.localhost"]
+hosts = ["scribe.local", "scribe.localhost", "scribe.fpl.dev"]
 routes = [
   { methods = ["POST"], path = "/api/speaker" },
   { methods = ["POST"], path = "/api/swap" },
@@ -29,6 +29,7 @@ routes = [
   { methods = ["GET"], path = "/api/captures" },
   { methods = ["GET"], path = "/api/search" },
   { methods = ["GET"], path = "/api/capture" },
+  { methods = ["GET"], path = "/c" },
   { methods = ["GET"], path = "/" },
 ]
 

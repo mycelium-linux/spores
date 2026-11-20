@@ -37,7 +37,7 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
 .pill{display:inline-block;font-size:10px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 6px;margin-left:4px}
 .empty{color:var(--muted);padding:40px 4px;font-size:13px}
 .error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:8px;padding:10px 12px}
-@media(max-width:900px){main{grid-template-columns:220px minmax(0,1fr)}.actions{display:none}}
+@media(max-width:900px){main{grid-template-columns:220px minmax(0,1fr)}.actions{display:none}}body.shared .chats{display:none}body.shared main{grid-template-columns:minmax(0,1fr) 320px}body.shared .center{max-width:980px;margin:0 auto;width:100%}
 @media(max-width:640px){main{display:block;height:auto}.chats{border-right:0;border-bottom:1px solid var(--line);max-height:220px}.center{padding:22px 18px}.actions{display:block;border-left:0;border-top:1px solid var(--line)}}
 </style>
 </head>
@@ -67,6 +67,7 @@ const list = document.getElementById('list');
 const detail = document.getElementById('detail');
 const actionsEl = document.getElementById('actions');
 let selected = null;
+const shared = location.pathname === '/c' || location.pathname.startsWith('/c/');
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const shortTitle = (value, max = 64) => {
@@ -346,13 +347,14 @@ function render(capture) {
     ? turns.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
   const named = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
-  const tools = [
+  const tools = shared ? '' : [
     named.length >= 1 ? `<button class="mini" id="voicefix-lines">Auto-fix lines</button>` : '',
     named.length >= 2 ? `<button class="mini" id="swap-speakers">Swap names</button><button class="mini" id="relearn-speakers">Relearn voices</button>` : '',
   ].join('');
   const designSummary = capture.design_summary || '';
   const summaryTools = `<div class="summary-tools">
     <button class="mini" id="copy-llm">Copy for LLM</button>
+    ${shared ? '' : `<button class="mini" id="copy-link">Copy link</button>`}
     ${designSummary ? `<button class="mini" id="summary-view">Summary</button><button class="mini" id="design-view">Design doc</button>` : `<button class="mini" id="design-view">Design doc</button>`}
   </div>`;
   detail.innerHTML = `
@@ -378,6 +380,10 @@ function render(capture) {
       alert('Queued a technical design-doc rewrite.');
       setTimeout(() => loadCapture(capture.path), 8000);
     }
+  });
+  document.getElementById('copy-link')?.addEventListener('click', async () => {
+    const url = `${location.origin}/c/${encodeURIComponent(capture.id)}`;
+    try { await navigator.clipboard.writeText(url); alert(url); } catch (error) { alert(url); }
   });
   document.getElementById('copy-llm')?.addEventListener('click', async () => {
     const people = [...new Set(Object.values(capture.speakers || {}).map(value => value?.name).filter(Boolean))];
@@ -436,9 +442,18 @@ function render(capture) {
 }
 
 function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
-document.getElementById('search-btn')?.addEventListener('click', runSearch);
-document.getElementById('search')?.addEventListener('keydown', event => { if (event.key === 'Enter') runSearch(); });
-loadList(true).catch(showError);
+if (shared) {
+  document.body.classList.add('shared');
+  const id = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  fetch(`/api/capture?id=${encodeURIComponent(id)}`)
+    .then(response => response.ok ? response.json() : Promise.reject(new Error(response.statusText)))
+    .then(capture => { selected = capture.path; render(capture); })
+    .catch(showError);
+} else {
+  document.getElementById('search-btn')?.addEventListener('click', runSearch);
+  document.getElementById('search')?.addEventListener('keydown', event => { if (event.key === 'Enter') runSearch(); });
+  loadList(true).catch(showError);
+}
 </script>
 </body>
 </html>
