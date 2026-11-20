@@ -18,7 +18,7 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 .chat:hover{background:#f0ebe2}.chat.active{background:#ece6dc}
 .chat .name{font-weight:560;font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat .when{font-size:10px;color:var(--muted);margin-top:1px}
-.date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
+.searchbar{padding:0 7px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}.searchbar input{width:100%;font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}.searchbar .dates{display:flex;align-items:center;gap:4px;margin-top:6px}.searchbar .dates input{font-size:10px;padding:4px}.searchbar .dates button{font-size:10px;padding:4px 6px;flex:none}.group-header{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:transparent;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg);cursor:pointer}.group-header:hover{color:var(--ink)}.group-header span{font-size:9px;letter-spacing:0}.load-more{display:block;width:calc(100% - 14px);margin:10px 7px;font-size:11px;padding:7px;border-radius:6px}.loading{display:flex;justify-content:center;padding:14px}.loading.hidden{display:none}.spinner{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
 .center{padding:30px 38px 60px;overflow:auto}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
@@ -49,6 +49,11 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
 <main>
   <aside class="chats">
     <div class="list-title">Chats</div>
+    <div class="searchbar">
+      <input id="search" placeholder="Search captures…" autocomplete="off">
+      <div class="dates"><input id="from" type="date" title="From date"><span>–</span><input id="to" type="date" title="To date"><button id="search-btn">Search</button></div>
+    </div>
+    <div id="loading" class="loading hidden"><span class="spinner"></span></div>
     <div id="list"></div>
   </aside>
   <section class="center" id="detail"><div class="empty">Choose a capture.</div></section>
@@ -109,25 +114,106 @@ const speakerColor = (label) => {
   return `hsl(${Math.abs(hash) % 360} 35% 42%)`;
 };
 
-async function loadList() {
-  const response = await fetch('/api/captures');
-  if (!response.ok) throw new Error(await response.text());
-  const body = await response.json();
-  let lastDay = '';
-  const dayName = (ms) => ms ? new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : 'Unknown date';
-  const clock = (ms) => ms ? new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-  list.innerHTML = body.captures.map(item => {
-    const day = dayName(item.started_at_ms);
-    const header = day !== lastDay ? `<div class="date-header">${esc(day)}</div>` : '';
-    lastDay = day;
-    return `${header}<button class="chat ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
-      <div class="name">${esc(shortTitle(item.title))}</div>
-      <div class="when">${esc(clock(item.started_at_ms))}</div>
-    </button>`;
-  }).join('') || '<div class="empty">No captures yet.</div>';
-  list.querySelectorAll('.chat').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
-  if (!selected && body.captures.length) loadCapture(body.captures[0].path);
+let cards = [];
+let offset = 0;
+let total = 0;
+let hasMore = true;
+let loading = false;
+let searchQuery = '';
+const collapsedGroups = new Set();
+
+const relativeGroup = (ms) => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = 86400000;
+  if (!ms || ms >= today) return 'Today';
+  if (ms >= today - day) return 'Yesterday';
+  if (ms >= today - 7 * day) return 'Last 7 days';
+  if (ms >= today - 30 * day) return 'Last 30 days';
+  return 'Older';
+};
+
+function setLoading(on) {
+  document.getElementById('loading')?.classList.toggle('hidden', !on);
 }
+
+function renderList() {
+  const clock = (ms) => ms ? new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  const groups = new Map();
+  for (const item of cards) {
+    const group = relativeGroup(item.started_at_ms);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(item);
+  }
+  let html = '';
+  for (const [group, items] of groups) {
+    const open = !collapsedGroups.has(group);
+    html += `<button class="group-header" data-group="${esc(group)}">${esc(group)}<span>${items.length}</span></button>`;
+    if (open) {
+      html += items.map(item => `<button class="chat ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
+        <div class="name">${esc(shortTitle(item.title))}</div>
+        <div class="when">${esc(clock(item.started_at_ms))}</div>
+      </button>`).join('');
+    }
+  }
+  if (hasMore) html += '<button class="load-more" id="load-more">Load more</button>';
+  list.innerHTML = html || '<div class="empty">No captures found.</div>';
+  list.querySelectorAll('.chat').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
+  list.querySelectorAll('.group-header').forEach(button => button.addEventListener('click', () => {
+    const group = button.dataset.group;
+    if (collapsedGroups.has(group)) collapsedGroups.delete(group);
+    else collapsedGroups.add(group);
+    renderList();
+  }));
+  document.getElementById('load-more')?.addEventListener('click', () => loadList(false));
+}
+
+async function loadList(reset = false) {
+  if (loading) return;
+  if (reset) {
+    cards = [];
+    offset = 0;
+    hasMore = true;
+  }
+  loading = true;
+  setLoading(true);
+  try {
+    const from = document.getElementById('from')?.value || '';
+    const to = document.getElementById('to')?.value || '';
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    let url;
+    if (searchQuery) {
+      params.set('q', searchQuery);
+      url = `/api/search?${params}`;
+    } else {
+      params.set('offset', String(offset));
+      params.set('limit', '40');
+      url = `/api/captures?${params}`;
+    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    const body = await response.json();
+    cards = cards.concat(body.captures || []);
+    offset = cards.length;
+    total = Number(body.total || cards.length);
+    hasMore = Boolean(body.next);
+    renderList();
+    if (reset && !selected && cards.length) loadCapture(cards[0].path);
+  } finally {
+    loading = false;
+    setLoading(false);
+  }
+}
+
+const runSearch = () => {
+  searchQuery = document.getElementById('search')?.value.trim() || '';
+  selected = null;
+  loadList(true).catch(showError);
+};
+
+async function loadCapture(path) {
 
 async function loadCapture(path) {
   selected = path;
@@ -315,8 +401,9 @@ function render(capture) {
 }
 
 function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
-loadList().catch(showError);
-setInterval(() => { loadList().catch(() => {}); }, 5000);
+document.getElementById('search-btn')?.addEventListener('click', runSearch);
+document.getElementById('search')?.addEventListener('keydown', event => { if (event.key === 'Enter') runSearch(); });
+loadList(true).catch(showError);
 </script>
 </body>
 </html>

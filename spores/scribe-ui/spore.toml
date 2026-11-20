@@ -13,7 +13,7 @@ homepage = "https://github.com/mycelium-linux/spores"
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { vfs = "1.0.0", http = "0.2.12" }
+abi = { vfs = "1.0.0", http = "0.2.12", index = "1.1.0" }
 
 [module]
 path = "module.wasm"
@@ -26,6 +26,7 @@ routes = [
   { methods = ["POST"], path = "/api/relearn" },
   { methods = ["POST"], path = "/api/voicefix" },
   { methods = ["GET"], path = "/api/captures" },
+  { methods = ["GET"], path = "/api/search" },
   { methods = ["GET"], path = "/api/capture" },
   { methods = ["GET"], path = "/" },
 ]
@@ -37,6 +38,7 @@ surfaces = ["native", "web"]
 [grants]
 "soil:vfs" = "list capture bundles and read transcript, summary and actions"
 "soil:vfs-mut" = "save speaker names and edits"
+"soil:index" = "search the Scribe capture index"
 "wasi:http" = "answer the Scribe UI host"
 "wasi:io" = "the response body stream"
 "wasi:clocks" = "HTTP type timestamps"

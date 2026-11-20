@@ -16,6 +16,7 @@ use wasi::http::types::{
     Fields, IncomingRequest, Method, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
 
+use soil::index::index;
 use soil::vfs::vfs;
 use soil::vfs_mut::vfs_mut;
 
@@ -56,14 +57,46 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             (Method::Get, "/") | (Method::Get, "/index.html") => {
                 respond(200, "text/html; charset=utf-8", HTML.as_bytes())
             }
-            (Method::Get, "/api/captures") => match captures(query_value(query, "suppressed").as_deref() == Some("1")) {
-                Ok(value) => respond(
-                    200,
-                    "application/json; charset=utf-8",
-                    &serde_json::to_vec(&value).unwrap_or_default(),
-                ),
-                Err(error) => api_error(500, &error),
-            },
+            (Method::Get, "/api/captures") => {
+                let offset = query_value(query, "offset")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let limit = query_value(query, "limit")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(50)
+                    .clamp(1, 100);
+                let from = query_value(query, "from").filter(|value| !value.is_empty());
+                let to = query_value(query, "to").filter(|value| !value.is_empty());
+                match captures(
+                    query_value(query, "suppressed").as_deref() == Some("1"),
+                    offset,
+                    limit,
+                    from.as_deref(),
+                    to.as_deref(),
+                ) {
+                    Ok(value) => respond(
+                        200,
+                        "application/json; charset=utf-8",
+                        &serde_json::to_vec(&value).unwrap_or_default(),
+                    ),
+                    Err(error) => api_error(500, &error),
+                }
+            }
+            (Method::Get, "/api/search") => {
+                let from = query_value(query, "from").filter(|value| !value.is_empty());
+                let to = query_value(query, "to").filter(|value| !value.is_empty());
+                match query_value(query, "q").filter(|value| !value.trim().is_empty()) {
+                    Some(text) => match search_captures(&text, from.as_deref(), to.as_deref()) {
+                        Ok(value) => respond(
+                            200,
+                            "application/json; charset=utf-8",
+                            &serde_json::to_vec(&value).unwrap_or_default(),
+                        ),
+                        Err(error) => api_error(500, &error),
+                    },
+                    None => api_error(400, "missing q"),
+                }
+            }
             (Method::Post, "/api/speaker") => match set_speaker(query) {
                 Ok(value) => respond(
                     200,
@@ -502,86 +535,81 @@ fn is_low_signal(title: &str, summary: &str, text: &str) -> bool {
     .any(|low| summary.contains(low))
 }
 
-fn captures(show_suppressed: bool) -> Result<Value, String> {
-    let mut cards = Vec::new();
-    for source in dirs("captures")? {
-        for date in dirs(&source.path)? {
-            for capture in dirs(&date.path)? {
-                let summary = read_text(&format!("{}/summary.md", capture.path)).unwrap_or_default();
-                let actions = read_json(&format!("{}/actions.json", capture.path))
-                    .ok()
-                    .and_then(|value| value.as_array().map(|items| items.len()))
-                    .unwrap_or(0);
-                let meta = read_json(&format!("{}/capture.json", capture.path)).ok();
-                let started_at_ms = meta
-                    .as_ref()
-                    .and_then(|value| value.get("started_at_ms"))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let ended_at_ms = meta
-                    .as_ref()
-                    .and_then(|value| value.get("ended_at_ms"))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(started_at_ms);
-                let transcript = read_json(&format!("{}/transcript.json", capture.path)).ok();
-                let text = transcript
-                    .as_ref()
-                    .and_then(|value| {
-                        value
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                            .or_else(|| {
-                                value.get("segments").and_then(Value::as_array).map(|segments| {
-                                    segments
-                                        .iter()
-                                        .filter_map(|segment| {
-                                            segment.get("text").and_then(Value::as_str)
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join(" ")
-                                })
-                            })
+fn date_in_range(date: &str, from: Option<&str>, to: Option<&str>) -> bool {
+    from.is_none_or(|from| date >= from) && to.is_none_or(|to| date <= to)
+}
+
+fn capture_card(path: &str) -> Result<Value, String> {
+    let summary = read_text(&format!("{path}/summary.md")).unwrap_or_default();
+    let actions = read_json(&format!("{path}/actions.json"))
+        .ok()
+        .and_then(|value| value.as_array().map(|items| items.len()))
+        .unwrap_or(0);
+    let meta = read_json(&format!("{path}/capture.json")).ok();
+    let started_at_ms = meta
+        .as_ref()
+        .and_then(|value| value.get("started_at_ms"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let ended_at_ms = meta
+        .as_ref()
+        .and_then(|value| value.get("ended_at_ms"))
+        .and_then(Value::as_u64)
+        .unwrap_or(started_at_ms);
+    let transcript = read_json(&format!("{path}/transcript.json")).ok();
+    let text = transcript
+        .as_ref()
+        .and_then(|value| {
+            value
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    value.get("segments").and_then(Value::as_array).map(|segments| {
+                        segments
+                            .iter()
+                            .filter_map(|segment| segment.get("text").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join(" ")
                     })
-                    .unwrap_or_default();
-                let title = meta
-                    .as_ref()
-                    .and_then(|value| value.get("title"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| title(&summary))
-                    .unwrap_or_else(|| base(&capture.path));
-                let low_signal = is_low_signal(&title, &summary, &text);
-                if low_signal != show_suppressed {
-                    continue;
-                }
-                let words = text.split_whitespace().count();
-                let speakers = transcript
-                    .as_ref()
-                    .map(speaker_count)
-                    .unwrap_or(0);
-                let duration_ms = ended_at_ms.saturating_sub(started_at_ms);
-                let suppressed_until_ms = ended_at_ms.saturating_add(7 * 24 * 60 * 60 * 1000);
-                cards.push(json!({
-                    "path": capture.path,
-                    "source": base(&source.path),
-                    "date": base(&date.path),
-                    "id": base(&capture.path),
-                    "title": title,
-                    "summary": summary,
-                    "preview": text.chars().take(220).collect::<String>(),
-                    "actions": actions,
-                    "speakers": speakers,
-                    "words": words,
-                    "duration_ms": duration_ms,
-                    "suppressed": low_signal,
-                    "suppressed_until_ms": suppressed_until_ms,
-                    "started_at_ms": started_at_ms,
-                    "ended_at_ms": ended_at_ms,
-                }));
-            }
-        }
-    }
+                })
+        })
+        .unwrap_or_default();
+    let title = meta
+        .as_ref()
+        .and_then(|value| value.get("title"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| title(&summary))
+        .unwrap_or_else(|| base(path));
+    let low_signal = is_low_signal(&title, &summary, &text);
+    let date = path.split('/').nth(2).unwrap_or("undated").to_string();
+    let source = path.split('/').nth(1).unwrap_or("unknown").to_string();
+    let id = path.rsplit('/').next().unwrap_or(path).to_string();
+    let words = text.split_whitespace().count();
+    let speakers = transcript.as_ref().map(speaker_count).unwrap_or(0);
+    let duration_ms = ended_at_ms.saturating_sub(started_at_ms);
+    let suppressed_until_ms = ended_at_ms.saturating_add(7 * 24 * 60 * 60 * 1000);
+    Ok(json!({
+        "path": path,
+        "source": source,
+        "date": date,
+        "id": id,
+        "title": title,
+        "summary": summary,
+        "preview": text.chars().take(220).collect::<String>(),
+        "actions": actions,
+        "speakers": speakers,
+        "words": words,
+        "duration_ms": duration_ms,
+        "suppressed": low_signal,
+        "suppressed_until_ms": suppressed_until_ms,
+        "started_at_ms": started_at_ms,
+        "ended_at_ms": ended_at_ms,
+    }))
+}
+
+fn sort_cards(cards: &mut [Value]) {
     cards.sort_by(|a, b| {
         b.get("started_at_ms")
             .and_then(Value::as_u64)
@@ -593,7 +621,93 @@ fn captures(show_suppressed: bool) -> Result<Value, String> {
                     .cmp(&a.get("path").and_then(Value::as_str))
             })
     });
-    Ok(json!({"captures": cards}))
+}
+
+fn captures(
+    show_suppressed: bool,
+    offset: usize,
+    limit: usize,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Value, String> {
+    let mut cards = Vec::new();
+    for source in dirs("captures")? {
+        for date in dirs(&source.path)? {
+            let day = base(&date.path);
+            if !date_in_range(&day, from, to) {
+                continue;
+            }
+            for capture in dirs(&date.path)? {
+                let Ok(card) = capture_card(&capture.path) else {
+                    continue;
+                };
+                if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false)
+                    != show_suppressed
+                {
+                    continue;
+                }
+                cards.push(card);
+            }
+        }
+    }
+    sort_cards(&mut cards);
+    let total = cards.len();
+    let page: Vec<Value> = cards.into_iter().skip(offset).take(limit).collect();
+    let next = offset.saturating_add(page.len()) < total;
+    Ok(json!({
+        "captures": page,
+        "total": total,
+        "next": next.then_some((offset + page.len()).to_string()),
+    }))
+}
+
+fn capture_root(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() >= 5 && parts[0] == "captures" {
+        Some(parts[..4].join("/"))
+    } else {
+        None
+    }
+}
+
+fn search_captures(
+    text: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Value, String> {
+    let query = index::Query {
+        text: text.to_string(),
+        mode: Some(index::Mode::FullText),
+        parent: None,
+        media_type_prefix: None,
+        offset: 0,
+        limit: 256,
+    };
+    let page = index::search(&query)
+        .or_else(|_| {
+            index::search(&index::Query {
+                mode: Some(index::Mode::Substring),
+                ..query.clone()
+            })
+        })
+        .map_err(|error| format!("index search: {error:?}"))?;
+    let mut roots = std::collections::BTreeSet::new();
+    for hit in page.hits {
+        if let Some(root) = capture_root(&hit.path) {
+            let date = root.split('/').nth(2).unwrap_or("");
+            if date_in_range(date, from, to) {
+                roots.insert(root);
+            }
+        }
+    }
+    let mut cards = Vec::new();
+    for root in roots {
+        if let Ok(card) = capture_card(&root) {
+            cards.push(card);
+        }
+    }
+    sort_cards(&mut cards);
+    Ok(json!({"captures": cards, "total": cards.len(), "next": null}))
 }
 
 fn speaker_count(transcript: &Value) -> usize {
