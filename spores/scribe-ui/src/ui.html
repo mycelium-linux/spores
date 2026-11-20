@@ -31,7 +31,7 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
 .speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:980px;font-size:15px;line-height:1.7}.turn.flash{background:var(--highlight);box-shadow:inset 3px 0 0 var(--accent)}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
 .actions h2{margin:4px 0 12px}
-.action{padding:11px 0;border-bottom:1px solid var(--line)}
+.action{padding:11px 0;border-bottom:1px solid var(--line)}.action-click{cursor:pointer}.action-click:hover{background:var(--hover)}
 .action:last-child{border-bottom:0}
 .action .title{font-weight:560;line-height:1.35}
 .action .quote{color:var(--muted);font-size:12px;margin-top:5px;padding-left:9px;border-left:2px solid var(--accent)}
@@ -505,7 +505,7 @@ function render(capture) {
     if (response.ok) alert('Queued both named voices for enrollment. The enrich worker will update templates.');
   });
   detail.querySelector('#actions').innerHTML = actions.length ? actions.map(action => `
-    <div class="action">
+    <div class="action action-click" data-start="${action.start_ms != null ? Number(action.start_ms) : ''}" title="${action.start_ms != null ? 'Open source in transcript' : 'Action item'}">
       <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
       ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
       <div class="who">${esc(displaySpeaker(capture, action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}${action.start_ms != null ? `<button class="source-btn action-source" data-start="${Number(action.start_ms)}">Source</button>` : ''}</div>
@@ -522,7 +522,11 @@ function render(capture) {
   document.getElementById('summary-sources')?.addEventListener('click', () => jumpToTranscript());
   document.getElementById('action-sources')?.addEventListener('click', () => jumpToTranscript(actions[0]?.start_ms));
   document.getElementById('transcript-sources')?.addEventListener('click', () => jumpToTranscript());
-  detail.querySelectorAll('.action-source').forEach(button => button.addEventListener('click', () => jumpToTranscript(Number(button.dataset.start))));
+  detail.querySelectorAll('.action-source').forEach(button => button.addEventListener('click', (event) => { event.stopPropagation(); jumpToTranscript(Number(button.dataset.start)); }));
+  detail.querySelectorAll('.action-click').forEach(action => action.addEventListener('click', () => {
+    const start = action.dataset.start;
+    jumpToTranscript(start === '' ? null : Number(start));
+  }));
 }
 
 function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
