@@ -55,6 +55,7 @@ spores/jarvis-telemetry/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37
 spores/pinetime/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/colmi-ring/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/jarvis-inbox/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/marbles-ui/wit/deps/soil-records.wit 07787edb7001a773dfb294bdbe4baa6db91ed69d
 spores/jarvis-brief/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 apps/doc-shell/guest/wit/deps/soil-records/package.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/vitals-view/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb

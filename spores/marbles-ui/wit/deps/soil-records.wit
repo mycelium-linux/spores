@@ -44,6 +44,10 @@ interface records {
   ///
   /// The frame is, repeated until the buffer ends, all integers little-endian:
   ///   u32 id-length, id bytes, u64 revision, u32 body-length, body bytes
+  ///
+  /// This exists for callers that read a whole book: lowering thousands of
+  /// `entry` values costs more than the bytes, while one `list<u8>` crosses the
+  /// boundary once. There is no `deleted` field; packed scans are live-only.
   record packed-page {
     entries: list<u8>,
     /// Opaque cursor for the next page, or none at the end.
