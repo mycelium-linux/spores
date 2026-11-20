@@ -22,7 +22,7 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 .center{padding:30px 38px 60px;overflow:auto}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
-.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}
+.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}.summary-tools{display:flex;gap:6px;margin:0 0 12px}.summary-tools .mini{font-size:11px;padding:3px 8px;border-radius:5px}.summary-tools .mini.active{background:var(--accent-soft);color:var(--accent);border-color:#c7dbcf}
 .summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
 .turn{padding:10px 0;border-bottom:1px solid #eee8de;cursor:pointer}.turn:hover{background:#f7f3ec}
@@ -214,8 +214,6 @@ const runSearch = () => {
 };
 
 async function loadCapture(path) {
-
-async function loadCapture(path) {
   selected = path;
   list.querySelectorAll('.chat').forEach(button => button.classList.toggle('active', button.dataset.path === path));
   detail.innerHTML = '<div class="empty">Loading…</div>';
@@ -352,12 +350,49 @@ function render(capture) {
     named.length >= 1 ? `<button class="mini" id="voicefix-lines">Auto-fix lines</button>` : '',
     named.length >= 2 ? `<button class="mini" id="swap-speakers">Swap names</button><button class="mini" id="relearn-speakers">Relearn voices</button>` : '',
   ].join('');
+  const designSummary = capture.design_summary || '';
+  const summaryTools = `<div class="summary-tools">
+    <button class="mini" id="copy-llm">Copy for LLM</button>
+    ${designSummary ? `<button class="mini" id="summary-view">Summary</button><button class="mini" id="design-view">Design doc</button>` : `<button class="mini" id="design-view">Design doc</button>`}
+  </div>`;
   detail.innerHTML = `
     <h1>${esc(shortTitle(capture.title, 90))}</h1>
     <div class="meta">${esc(metaLine(capture))}${tools}</div>
-    <div class="summary">${markdown((capture.summary || 'No summary yet.').replace(/^#\s+.*\n+/, ''))}</div>
+    ${summaryTools}
+    <div id="summary-body" class="summary"></div>
     <h2>Transcript</h2>
     ${transcript}`;
+  let summaryView = 'summary';
+  const summaryText = () => summaryView === 'design' ? designSummary : (capture.summary || 'No summary yet.');
+  const renderSummaryBody = () => {
+    document.getElementById('summary-body').innerHTML = markdown(summaryText().replace(/^#\s+.*\n+/, ''));
+    document.getElementById('summary-view')?.classList.toggle('active', summaryView === 'summary');
+    document.getElementById('design-view')?.classList.toggle('active', summaryView === 'design');
+  };
+  renderSummaryBody();
+  document.getElementById('summary-view')?.addEventListener('click', () => { summaryView = 'summary'; renderSummaryBody(); });
+  document.getElementById('design-view')?.addEventListener('click', async () => {
+    if (designSummary) { summaryView = 'design'; renderSummaryBody(); return; }
+    const response = await fetch(`/api/restyle?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued a technical design-doc rewrite.');
+      setTimeout(() => loadCapture(capture.path), 8000);
+    }
+  });
+  document.getElementById('copy-llm')?.addEventListener('click', async () => {
+    const people = [...new Set(Object.values(capture.speakers || {}).map(value => value?.name).filter(Boolean))];
+    const actionLines = actions.map(action => `- [${action.kind || 'action'}] ${action.title || action.quote || 'Untitled'}${action.owner ? ` — ${displaySpeaker(capture, action.owner)}` : ''}${action.due_at ? ` (${action.due_at})` : ''}`).join('\n');
+    const transcriptLines = turns.map(turn => `${turn.speaker}: ${turn.text}`).join('\n');
+    const text = `# ${shortTitle(capture.title, 90)}\n\n${metaLine(capture)}${people.length ? `\nParticipants: ${people.join(', ')}` : ''}\n\n## ${summaryView === 'design' ? 'Design doc' : 'Summary'}\n${summaryText()}\n\n## Action items\n${actionLines || 'None captured.'}\n\n## Transcript\n${transcriptLines || capture.transcript?.text || ''}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      const button = document.getElementById('copy-llm');
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy for LLM'; }, 1500);
+    } catch (error) {
+      alert(`Copy failed: ${error.message}`);
+    }
+  });
   detail.querySelectorAll('.turn[data-speaker]').forEach(turn => {
     turn.addEventListener('click', async () => {
       const key = turn.dataset.speaker;

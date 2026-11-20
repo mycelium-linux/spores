@@ -121,6 +121,14 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 ),
                 Err(error) => api_error(400, &error),
             },
+            (Method::Post, "/api/restyle") => match queue_restyle(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
+            },
             (Method::Post, "/api/voicefix") => match queue_voicefix(query) {
                 Ok(value) => respond(
                     200,
@@ -417,6 +425,28 @@ fn swap_speakers(query: &str) -> Result<Value, String> {
     }
     apply_speaker_names(&path, &speakers)?;
     Ok(json!({"ok": true, "speakers": speakers}))
+}
+
+fn queue_restyle(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    if !valid_capture(&path) {
+        return Err("invalid capture path".into());
+    }
+    let queue_path = "voiceprints/restyle.json";
+    let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    if !queue.is_array() {
+        queue = json!([]);
+    }
+    if let Some(items) = queue.as_array_mut() {
+        let already = items
+            .iter()
+            .any(|item| item.get("path").and_then(Value::as_str) == Some(path.as_str()));
+        if !already {
+            items.push(json!({"path": path, "style": "design"}));
+        }
+    }
+    write_json(queue_path, &queue)?;
+    Ok(json!({"ok": true, "queued": path}))
 }
 
 fn queue_voicefix(query: &str) -> Result<Value, String> {
@@ -746,6 +776,7 @@ fn capture(path: &str) -> Result<Value, String> {
     let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
     let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
     let overrides = read_overrides(path);
+    let design_summary = read_text(&format!("{path}/summary.design.md")).ok();
     let text = transcript
         .get("text")
         .and_then(Value::as_str)
@@ -762,6 +793,7 @@ fn capture(path: &str) -> Result<Value, String> {
             .or_else(|| title(&summary))
             .unwrap_or_else(|| base(path)),
         "summary": summary,
+        "design_summary": design_summary,
         "actions": actions,
         "transcript": transcript,
         "speakers": speakers,

@@ -177,6 +177,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "enrich" => enrich_watch(args),
         "voiceprint" => voiceprint(args),
         "voicefix" => voicefix(args),
+        "restyle" => restyle(args),
         "names" => names(args),
         "learn" => learn_command(args),
         other => Err(format!("unknown command {other}")),
@@ -415,6 +416,9 @@ fn enrich_watch(args: Args) -> Result<(), String> {
         }
         if let Err(error) = voicefix_queue(&args) {
             eprintln!("scribe: line voice fixes: {error}");
+        }
+        if let Err(error) = restyle_queue(&args) {
+            eprintln!("scribe: summary restyle: {error}");
         }
         let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
             .map_err(|error| format!("unibus poll: {error:?}"))?;
@@ -1130,6 +1134,107 @@ fn voicefix_capture(args: &Args, path: &str) -> Result<Value, String> {
     Ok(json!({"turns": matched, "skipped": skipped, "errors": errors}))
 }
 
+fn restyle(args: Args) -> Result<(), String> {
+    let path = args.path.as_deref().ok_or("restyle needs --path")?;
+    let result = restyle_capture(&args, path)?;
+    finish(json!({"ok": true, "command": "restyle", "capture": path, "result": result}));
+    Ok(())
+}
+
+fn restyle_queue(args: &Args) -> Result<(), String> {
+    let queue_path = "voiceprints/restyle.json";
+    let queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    let Some(items) = queue.as_array() else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut pending = Vec::new();
+    for item in items {
+        let Some(path) = item.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        match restyle_capture(args, path) {
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("scribe: restyle {path}: {error}");
+                pending.push(item.clone());
+            }
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&json!(pending)).map_err(|error| error.to_string())?;
+    vfs_mut::write(queue_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write restyle queue: {error:?}"))?;
+    Ok(())
+}
+
+fn restyle_capture(args: &Args, path: &str) -> Result<Value, String> {
+    let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
+    let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+    let mut source = read_text(&format!("{path}/summary.md")).unwrap_or_default();
+    if source.trim().is_empty() {
+        source = transcript_text(
+            &read_json(&format!("{path}/transcript.json")).unwrap_or_else(|_| json!({})),
+        );
+    }
+    if let Some(entries) = speakers.as_object() {
+        for (label, entry) in entries {
+            if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                source = source.replace(label, name);
+            }
+        }
+    }
+    let transcript = json!({"text": source});
+    let capture_id = meta
+        .get("capture_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| path.rsplit('/').next().unwrap_or(path).to_string());
+    let event = json!({
+        "capture_id": capture_id,
+        "source": meta.get("source").and_then(Value::as_str).unwrap_or("omi"),
+        "date": meta.get("date").and_then(Value::as_str),
+        "started_at_ms": meta.get("started_at_ms").cloned(),
+        "ended_at_ms": meta.get("ended_at_ms").cloned(),
+        "title": meta.get("title").cloned(),
+        "summary_md": "",
+        "actions": [],
+        "transcript": transcript,
+    });
+    let event = parse_event(&event)?;
+    let enriched = enrich_capture(
+        &event,
+        &args.model,
+        &args.deep_model,
+        args.deep_after_chars,
+        true,
+    )?;
+    let mut design = enriched.summary;
+    if let Some(entries) = speakers.as_object() {
+        for (label, entry) in entries {
+            if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                design = design.replace(label, name);
+            }
+        }
+    }
+    let summary = write_file(
+        &format!("{path}/summary.design.md"),
+        design.as_bytes(),
+        "text/markdown",
+    )?;
+    let index_path = format!("{path}/summary.json");
+    let mut index = read_json(&index_path).unwrap_or_else(|_| json!({}));
+    index["design"] = json!({
+        "path": summary.path,
+        "content_id": summary.content_id,
+        "model": enriched.model,
+    });
+    let bytes = serde_json::to_vec_pretty(&index).map_err(|error| error.to_string())?;
+    write_file(&index_path, &bytes, "application/json")?;
+    Ok(json!({"summary": summary.path, "model": enriched.model}))
+}
+
 fn names(args: Args) -> Result<(), String> {
     let path = args.path.as_deref().ok_or("names needs --path")?;
     let speakers = read_json(&format!("{path}/speakers.json"))?;
@@ -1155,37 +1260,50 @@ fn apply_speaker_names(path: &str, speakers: &Value) -> Result<bool, String> {
     if labels.is_empty() {
         return Ok(false);
     }
-    let actions_path = format!("{path}/actions.json");
-    let Ok(mut actions) = read_json(&actions_path) else {
-        return Ok(false);
-    };
-    let Some(items) = actions.as_array_mut() else {
-        return Ok(false);
+    let replace = |text: &str| {
+        let mut next = text.to_string();
+        for (label, name) in &labels {
+            next = next.replace(label, name);
+        }
+        next
     };
     let mut changed = false;
-    for action in items {
-        let Some(fields) = action.as_object_mut() else {
-            continue;
-        };
-        for field in ["title", "quote", "owner", "speaker"] {
-            let Some(value) = fields.get(field).and_then(Value::as_str).map(str::to_string)
-            else {
-                continue;
-            };
-            let mut next = value;
-            for (label, name) in &labels {
-                next = next.replace(label, name);
-            }
-            if next != fields.get(field).and_then(Value::as_str).unwrap_or_default() {
-                fields.insert(field.to_string(), Value::String(next));
-                changed = true;
+    let actions_path = format!("{path}/actions.json");
+    if let Ok(mut actions) = read_json(&actions_path) {
+        if let Some(items) = actions.as_array_mut() {
+            for action in items {
+                let Some(fields) = action.as_object_mut() else {
+                    continue;
+                };
+                for field in ["title", "quote", "owner", "speaker"] {
+                    let Some(value) = fields.get(field).and_then(Value::as_str).map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    let next = replace(&value);
+                    if next != value {
+                        fields.insert(field.to_string(), Value::String(next));
+                        changed = true;
+                    }
+                }
             }
         }
+        if changed {
+            let bytes = serde_json::to_vec_pretty(&actions).map_err(|error| error.to_string())?;
+            vfs_mut::write(&actions_path, &bytes, "application/json", None, None)
+                .map_err(|error| format!("write actions: {error:?}"))?;
+        }
     }
-    if changed {
-        let bytes = serde_json::to_vec_pretty(&actions).map_err(|error| error.to_string())?;
-        vfs_mut::write(&actions_path, &bytes, "application/json", None, None)
-            .map_err(|error| format!("write actions: {error:?}"))?;
+    for file in ["summary.md", "summary.design.md"] {
+        let summary_path = format!("{path}/{file}");
+        let Ok(text) = read_text(&summary_path) else {
+            continue;
+        };
+        let next = replace(&text);
+        if next != text {
+            write_file(&summary_path, next.as_bytes(), "text/markdown")?;
+            changed = true;
+        }
     }
     Ok(changed)
 }
@@ -1310,7 +1428,7 @@ fn process_event(
         "provided"
     };
     if enrich {
-        match enrich_capture(&event, model, deep_model, deep_after_chars) {
+        match enrich_capture(&event, model, deep_model, deep_after_chars, false) {
             Ok(enriched) => {
                 generated_summary = Some(enriched.summary);
                 generated_actions = Some(enriched.actions);
@@ -1618,6 +1736,7 @@ fn enrich_capture(
     model: &str,
     deep_model: &str,
     deep_after_chars: usize,
+    design: bool,
 ) -> Result<Enriched, String> {
     let text = transcript_text(&event.transcript);
     if text.trim().is_empty() {
@@ -1647,10 +1766,11 @@ fn enrich_capture(
             messages: vec![
                 inference::Message {
                     role: inference::Role::System,
-                    content: Some(
+                    content: Some(if design {
+                        "You are Scribe in technical design-doc mode. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 3-8 words naming the concrete technical subject. Then use these sections with bullets where possible: ## Context, ## Current design, ## Decisions, ## Open questions, ## Next steps. Preserve exact APIs, schemas, model names, file paths, constraints, and numbers. Prefer architecture/decision language over a narrative recap. Do not invent facts.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\", \"title\": string, \"owner\": string, \"due_at\": string|null, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. If no action exists return an empty array."
+                    } else {
                         "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 3-8 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks. If no action exists return an empty array."
-                            .into(),
-                    ),
+                    }.into()),
                     name: None,
                     tool_call_id: None,
                     tool_calls: vec![],
