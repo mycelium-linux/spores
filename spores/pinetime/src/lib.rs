@@ -45,6 +45,7 @@ struct Args {
     scan_ms: u32,
     hold_ms: u64,
     category: String,
+    seconds: u64,
     title: String,
     body: String,
     artist: String,
@@ -85,6 +86,7 @@ impl Default for Args {
             scan_ms: 8_000,
             hold_ms: 5_000,
             category: "simple".to_string(),
+            seconds: 300,
             title: String::new(),
             body: String::new(),
             artist: String::new(),
@@ -169,6 +171,11 @@ impl Args {
                         .map_err(|_| format!("--hold-ms: {value:?} is not a number"))?
                 }
                 "--category" => args.category = value.clone(),
+                "--seconds" => {
+                    args.seconds = value
+                        .parse()
+                        .map_err(|_| format!("--seconds: {value:?} is not a number"))?
+                }
                 "--title" => args.title = value.clone(),
                 "--body" => args.body = value.clone(),
                 "--artist" => args.artist = value.clone(),
@@ -217,10 +224,10 @@ impl Args {
             index += 2;
         }
         match args.command.as_str() {
-            "watch" | "notify" | "media" | "find" | "time" | "nav" | "weather" | "bridge" => {}
+            "watch" | "notify" | "timer" | "media" | "find" | "time" | "nav" | "weather" | "bridge" => {}
             other => {
                 return Err(format!(
-                    "unknown command {other:?}; expected watch, notify, media, find, time, nav, weather, or bridge"
+                    "unknown command {other:?}; expected watch, notify, timer, media, find, time, nav, weather, or bridge"
                 ))
             }
         }
@@ -274,8 +281,23 @@ impl Guest for Component {
     }
 }
 
+fn host_sleep(ms: u64) -> Result<(), String> {
+    let start = time::monotonic_ms().map_err(time_err)?;
+    loop {
+        let now = time::monotonic_ms().map_err(time_err)?;
+        if now >= start.saturating_add(ms) {
+            return Ok(());
+        }
+        let wait = (start + ms - now).min(1000) as u32;
+        let _ = time::tick(wait);
+    }
+}
+
 fn run_inner(raw: &[String]) -> Result<(), String> {
     let args = Args::parse(raw)?;
+    if args.command == "timer" {
+        host_sleep(args.seconds.saturating_mul(1000))?;
+    }
 
     let devices = ble::scan(args.scan_ms).map_err(ble_err)?;
     let target = find_target(&devices, &args)
@@ -364,6 +386,14 @@ fn run_connected(link: Link, args: &Args, advertised_name: &str) -> Result<(), S
                 &packet,
                 args.read_back,
             )?);
+            Counts::default()
+        }
+        "timer" => {
+            let title = if args.title.is_empty() { "Timer" } else { &args.title };
+            let body = if args.body.is_empty() { "Timer finished" } else { &args.body };
+            let packet = proto::notification_packet(proto::AlertCategory::Simple.as_u8(), title, body);
+            proto::ensure_notification_packet(&packet).map_err(|error| error.to_string())?;
+            writes.push(write_characteristic(link, proto::NEW_ALERT, &packet, args.read_back)?);
             Counts::default()
         }
         "media" => {
