@@ -508,7 +508,7 @@ function render(capture) {
     <div class="action">
       <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
       ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
-      <div class="who">${esc(displaySpeaker(capture, action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}</div>
+      <div class="who">${esc(displaySpeaker(capture, action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}${action.start_ms != null ? `<button class="source-btn action-source" data-start="${Number(action.start_ms)}">Source</button>` : ''}</div>
     </div>`).join('') : '<div class="empty">No action items extracted.</div>';
   const jumpToTranscript = (start = null) => {
     const turns = [...detail.querySelectorAll('.turn')];
@@ -522,6 +522,7 @@ function render(capture) {
   document.getElementById('summary-sources')?.addEventListener('click', () => jumpToTranscript());
   document.getElementById('action-sources')?.addEventListener('click', () => jumpToTranscript(actions[0]?.start_ms));
   document.getElementById('transcript-sources')?.addEventListener('click', () => jumpToTranscript());
+  detail.querySelectorAll('.action-source').forEach(button => button.addEventListener('click', () => jumpToTranscript(Number(button.dataset.start))));
 }
 
 function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
