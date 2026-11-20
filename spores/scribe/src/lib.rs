@@ -121,7 +121,7 @@ impl Args {
                 "--force" => args.force = true,
                 "--help" | "-h" => {
                     return Err(
-                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
+                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | names --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
                             .into(),
                     )
                 }
@@ -176,6 +176,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "receive" => receive(args),
         "enrich" => enrich_watch(args),
         "voiceprint" => voiceprint(args),
+        "names" => names(args),
         "learn" => learn_command(args),
         other => Err(format!("unknown command {other}")),
     }
@@ -595,6 +596,26 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
         if path.is_empty() || speaker.is_empty() || name.is_empty() {
             continue;
         }
+        let force = item.get("force").and_then(Value::as_bool).unwrap_or(false);
+        // A manual tag may be replayed after a worker restart. If that person
+        // is already enrolled, acknowledge the queue item without doing the
+        // audio round trip again unless this is an explicit dataset update.
+        if !force
+            && templates
+            .get("templates")
+            .and_then(Value::as_array)
+            .is_some_and(|list| {
+                list.iter().any(|template| {
+                    template.get("person_id").and_then(Value::as_str) == Some(person_id.as_str())
+                        && template
+                            .get("embedding")
+                            .and_then(Value::as_array)
+                            .is_some_and(|embedding| !embedding.is_empty())
+                })
+            })
+        {
+            continue;
+        }
         let transcript = match read_json(&format!("{path}/transcript.json")) {
             Ok(value) => value,
             Err(_) => {
@@ -602,7 +623,13 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
                 continue;
             }
         };
-        let Some((start, end)) = speaker_window(&transcript, speaker) else {
+        let requested_window = item
+            .get("start")
+            .and_then(Value::as_f64)
+            .zip(item.get("end").and_then(Value::as_f64))
+            .filter(|(start, end)| end > start && *start >= 0.0);
+        let Some((start, end)) = requested_window.or_else(|| speaker_window(&transcript, speaker))
+        else {
             pending.push(item.clone());
             continue;
         };
@@ -622,7 +649,8 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
         };
         let response = match inference::voice_embed(&request) {
             Ok(response) => response,
-            Err(_) => {
+            Err(error) => {
+                eprintln!("scribe: learn {path} {speaker}: {error:?}");
                 pending.push(item.clone());
                 continue;
             }
@@ -665,44 +693,87 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
     Ok(json!({"learned": learned, "pending": pending.len()}))
 }
 
-fn speaker_window(transcript: &Value, wanted: &str) -> Option<(f64, f64)> {
-    let mut best: Option<(f64, f64)> = None;
-    let mut consider = |item: &Value| {
-        let key = if item.get("is_user").and_then(Value::as_bool) == Some(true) {
-            "You".to_string()
-        } else {
+fn speaker_key(item: &Value) -> String {
+    if item.get("is_user").and_then(Value::as_bool) == Some(true) {
+        return "You".to_string();
+    }
+    item.get("speaker")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
             item.get("speaker")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| {
-                    item.get("speaker")
-                        .and_then(Value::as_i64)
-                        .map(|value| format!("SPEAKER_{value:02}"))
-                })
-                .unwrap_or_else(|| "Speaker".to_string())
-        };
-        if key != wanted {
-            return;
-        }
-        let start = item.get("start").and_then(Value::as_f64).unwrap_or(0.0);
-        let end = item.get("end").and_then(Value::as_f64).unwrap_or(start);
+                .and_then(Value::as_i64)
+                .map(|value| format!("SPEAKER_{value:02}"))
+        })
+        .unwrap_or_else(|| "Speaker".to_string())
+}
+
+/// Return the best embeddable window for every speaker.
+///
+/// Word-level transcripts have no utterance spans, so a single longest word is
+/// far too short for ECAPA. Group contiguous words from the same speaker into
+/// turns first, then cap the selected turn to a bounded ECAPA probe window.
+fn speaker_windows(transcript: &Value) -> std::collections::BTreeMap<String, (f64, f64)> {
+    let mut windows = std::collections::BTreeMap::new();
+    let mut add = |key: &str, start: f64, end: f64| {
         if end <= start {
             return;
         }
-        if best.is_none_or(|(old_start, old_end)| end - start > old_end - old_start) {
-            best = Some((start, end));
+        let capped_end = (start + (end - start).min(24.0)).max(start + 1.0);
+        let entry = windows.entry(key.to_string()).or_insert((start, capped_end));
+        if capped_end - start > entry.1 - entry.0 {
+            *entry = (start, capped_end);
         }
     };
     if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
-        for segment in segments {
-            consider(segment);
-        }
-    } else if let Some(words) = transcript.get("words").and_then(Value::as_array) {
-        for word in words {
-            consider(word);
+        if !segments.is_empty() {
+            for segment in segments {
+                let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+                add(&speaker_key(segment), start, end);
+            }
+            return windows;
         }
     }
-    best
+    let Some(words) = transcript.get("words").and_then(Value::as_array) else {
+        return windows;
+    };
+    let mut current: Option<(String, f64, f64)> = None;
+    let flush = |turn: Option<(String, f64, f64)>,
+                 windows: &mut std::collections::BTreeMap<String, (f64, f64)>| {
+        if let Some((key, start, end)) = turn {
+            let capped_end = (start + (end - start).min(24.0)).max(start + 1.0);
+            let entry = windows.entry(key).or_insert((start, capped_end));
+            if capped_end - start > entry.1 - entry.0 {
+                *entry = (start, capped_end);
+            }
+        }
+    };
+    for word in words {
+        let key = speaker_key(word);
+        let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+        let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
+        if end <= start {
+            continue;
+        }
+        match current.as_mut() {
+            Some((running_key, _, running_end))
+                if *running_key == key && start - *running_end <= 2.0 =>
+            {
+                *running_end = end;
+            }
+            _ => {
+                flush(current.take(), &mut windows);
+                current = Some((key, start, end));
+            }
+        }
+    }
+    flush(current.take(), &mut windows);
+    windows
+}
+
+fn speaker_window(transcript: &Value, wanted: &str) -> Option<(f64, f64)> {
+    speaker_windows(transcript).get(wanted).copied()
 }
 
 fn voiceprint(args: Args) -> Result<(), String> {
@@ -737,44 +808,7 @@ fn voiceprint_capture(args: &Args, path: &str) -> Result<Value, String> {
         return Ok(json!({"status": "no templates"}));
     }
     let transcript = read_json(&format!("{path}/transcript.json"))?;
-    let mut by_speaker: std::collections::BTreeMap<String, (f64, f64)> =
-        std::collections::BTreeMap::new();
-    let mut add = |item: &Value, start: f64, end: f64| {
-        if end <= start {
-            return;
-        }
-        let key = if item.get("is_user").and_then(Value::as_bool) == Some(true) {
-            "You".to_string()
-        } else {
-            item.get("speaker")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| {
-                    item.get("speaker")
-                        .and_then(Value::as_i64)
-                        .map(|value| format!("SPEAKER_{value:02}"))
-                })
-                .unwrap_or_else(|| "Speaker".to_string())
-        };
-        let entry = by_speaker.entry(key).or_insert((start, end));
-        // Prefer a complete utterance window, not a tiny word.
-        if end - start > entry.1 - entry.0 {
-            *entry = (start, end);
-        }
-    };
-    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
-        for segment in segments {
-            let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
-            let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
-            add(segment, start, end);
-        }
-    } else if let Some(words) = transcript.get("words").and_then(Value::as_array) {
-        for word in words {
-            let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
-            let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
-            add(word, start, end);
-        }
-    }
+    let by_speaker = speaker_windows(&transcript);
     if by_speaker.is_empty() {
         return Err("transcript has no speaker timestamps".into());
     }
@@ -894,7 +928,68 @@ fn voiceprint_capture(args: &Args, path: &str) -> Result<Value, String> {
         None,
     )
     .map_err(|error| format!("write speakers: {error:?}"))?;
+    let _ = apply_speaker_names(path, &speakers);
     Ok(json!({"recognized": recognized, "speakers": speakers, "errors": errors}))
+}
+
+fn names(args: Args) -> Result<(), String> {
+    let path = args.path.as_deref().ok_or("names needs --path")?;
+    let speakers = read_json(&format!("{path}/speakers.json"))?;
+    let changed = apply_speaker_names(path, &speakers)?;
+    finish(json!({"ok": true, "command": "names", "capture": path, "changed": changed}));
+    Ok(())
+}
+
+/// Replace raw diarization labels in action text once a speaker has a name.
+/// The labels are opaque UI ids, not content; leaving them in action titles or
+/// quotes makes the proposal harder to read than the transcript it came from.
+fn apply_speaker_names(path: &str, speakers: &Value) -> Result<bool, String> {
+    let Some(entries) = speakers.as_object() else {
+        return Ok(false);
+    };
+    let labels: Vec<(String, String)> = entries
+        .iter()
+        .filter_map(|(label, entry)| {
+            let name = entry.get("name").and_then(Value::as_str)?.trim();
+            (!name.is_empty()).then(|| (label.clone(), name.to_string()))
+        })
+        .collect();
+    if labels.is_empty() {
+        return Ok(false);
+    }
+    let actions_path = format!("{path}/actions.json");
+    let Ok(mut actions) = read_json(&actions_path) else {
+        return Ok(false);
+    };
+    let Some(items) = actions.as_array_mut() else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    for action in items {
+        let Some(fields) = action.as_object_mut() else {
+            continue;
+        };
+        for field in ["title", "quote", "owner", "speaker"] {
+            let Some(value) = fields.get(field).and_then(Value::as_str).map(str::to_string)
+            else {
+                continue;
+            };
+            let mut next = value;
+            for (label, name) in &labels {
+                next = next.replace(label, name);
+            }
+            if next != fields.get(field).and_then(Value::as_str).unwrap_or_default() {
+                fields.insert(field.to_string(), Value::String(next));
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        let bytes = serde_json::to_vec_pretty(&actions).map_err(|error| error.to_string())?;
+        vfs_mut::write(&actions_path, &bytes, "application/json", None, None)
+            .map_err(|error| format!("write actions: {error:?}"))?;
+    }
+    Ok(changed)
 }
 
 fn wav_pcm_segment(path: &str, start: f64, end: f64) -> Result<Vec<u8>, String> {
@@ -905,7 +1000,7 @@ fn wav_pcm_segment(path: &str, start: f64, end: f64) -> Result<Vec<u8>, String> 
         .map(|at| at + 8)
         .unwrap_or(44) as u64;
     let start_at = data_at + (start.max(0.0) * 32_000.0) as u64;
-    let wanted = ((end - start).clamp(1.0, 30.0) * 32_000.0) as u64;
+    let wanted = ((end - start).clamp(1.0, 24.0) * 32_000.0) as u64;
     read_vfs_bytes(path, start_at, wanted)
 }
 
@@ -1116,11 +1211,12 @@ fn process_event(
             .map_err(|error| format!("summary index JSON: {error}"))?,
         "application/json",
     )?;
-    let title = event
-        .title
-        .clone()
-        .or_else(|| summary_title(&event.summary))
-        .unwrap_or_else(|| "Untitled capture".to_string());
+    let title = short_title(
+        &summary_title(&event.summary)
+            .or_else(|| event.title.clone())
+            .unwrap_or_else(|| "Untitled capture".to_string()),
+        64,
+    );
     let capture_meta = serde_json::to_vec_pretty(&json!({
         "capture_id": event.capture_id,
         "source": event.source,
@@ -1354,7 +1450,7 @@ fn enrich_capture(
                 inference::Message {
                     role: inference::Role::System,
                     content: Some(
-                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks.                          If no action exists return an empty array. Keep summary_md concise with overview, decisions, and open questions."
+                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 3-8 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks. If no action exists return an empty array."
                             .into(),
                     ),
                     name: None,
@@ -1654,12 +1750,39 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
     })
 }
 
+fn short_title(value: &str, max_chars: usize) -> String {
+    let line = value
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .trim_start_matches('#')
+        .trim()
+        .trim_start_matches("Overview:")
+        .trim();
+    let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
+    let chars: Vec<char> = first.chars().collect();
+    if chars.len() <= max_chars {
+        return first.trim().to_string();
+    }
+    let cut = chars[..max_chars]
+        .iter()
+        .rposition(|ch| ch.is_whitespace())
+        .unwrap_or(max_chars);
+    let trimmed: String = chars[..cut]
+        .iter()
+        .collect::<String>()
+        .trim_end_matches(|ch: char| ch.is_whitespace() || ",;:.-—".contains(ch))
+        .to_string();
+    format!("{trimmed}…")
+}
+
 fn summary_title(summary: &str) -> Option<String> {
     summary
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
-        .map(|line| line.trim_start_matches('#').trim().to_string())
+        .map(|line| short_title(line, 64))
         .filter(|line| !line.is_empty())
 }
 
@@ -1823,6 +1946,31 @@ mod tests {
         assert!(text.contains("SPEAKER_01"));
         assert!(text.contains("SPEAKER_02"));
         assert!(text.contains("[0.0-0.9]"));
+    }
+
+    #[test]
+    fn speaker_windows_group_words_into_turns() {
+        let transcript = json!({
+            "words": [
+                {"word": "hello", "start": 0.0, "end": 0.5, "speaker": 1},
+                {"word": "there", "start": 0.5, "end": 1.0, "speaker": 1},
+                {"word": "hi", "start": 1.1, "end": 1.5, "speaker": 2}
+            ]
+        });
+        let windows = speaker_windows(&transcript);
+        let (start, end) = windows["SPEAKER_01"];
+        assert!(start == 0.0 && end == 1.0, "got {start}..{end}");
+        assert_eq!(windows["SPEAKER_02"], (1.1, 2.1));
+    }
+
+    #[test]
+    fn short_title_clamps_long_legacy_text() {
+        let title = short_title(
+            "SPEAKER_01 explains a very long manufacturing and software partnership story that should not be a card title",
+            40,
+        );
+        assert!(title.chars().count() <= 41, "{title}");
+        assert!(title.ends_with('…'));
     }
 
     #[test]
