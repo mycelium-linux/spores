@@ -62,7 +62,7 @@ impl Default for Args {
                 .to_string(),
             threshold: 0.80,
             margin: 0.08,
-            deep_model: "openai/gpt-5.6-sol".to_string(),
+            deep_model: "beam-free".to_string(),
             deep_after_chars: 80_000,
         }
     }
