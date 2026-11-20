@@ -1338,6 +1338,7 @@ fn enrich_capture(
     // one pass; the 9B keeps its existing bounded chunks.
     let chunk_chars = if use_deep { 120_000 } else { 24_000 };
     let chunks = split_chunks(&text, chunk_chars, 500);
+    let max_output_tokens = if use_deep { 16_384 } else { 2_048 };
     let mut summaries = Vec::new();
     let mut actions: Vec<Value> = Vec::new();
     let mut model_used = model.to_string();
@@ -1374,7 +1375,7 @@ fn enrich_capture(
                 },
             ],
             tools: vec![],
-            max_output_tokens: Some(2048),
+            max_output_tokens: Some(max_output_tokens),
             temperature: Some(0.2),
             prompt_cache_key: Some(format!("scribe:{}", event.capture_id)),
         };
@@ -1398,16 +1399,28 @@ fn enrich_capture(
         );
         if let Some(items) = value.get("actions").and_then(Value::as_array) {
             for item in items {
-                let title = item.get("title").and_then(Value::as_str).unwrap_or("");
+                let title = item
+                    .get("title")
+                    .or_else(|| item.get("task"))
+                    .or_else(|| item.get("description"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let quote = item.get("quote").and_then(Value::as_str).unwrap_or("");
                 if title.is_empty() && quote.is_empty() {
                     continue;
+                }
+                let mut item = item.clone();
+                item["title"] = json!(title);
+                if item.get("due_at").is_none() {
+                    if let Some(due) = item.get("due").cloned() {
+                        item["due_at"] = due;
+                    }
                 }
                 if !actions.iter().any(|existing| {
                     existing.get("title").and_then(Value::as_str) == Some(title)
                         && existing.get("quote").and_then(Value::as_str) == Some(quote)
                 }) {
-                    actions.push(item.clone());
+                    actions.push(item);
                 }
             }
         }
