@@ -56,8 +56,9 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
         }
 
         let shallow = matches!(path, "/board" | "/burndown");
-        let book = match load(shallow) {
-            Ok(book) => book,
+        let started = std::time::Instant::now();
+        let loaded = match load(shallow) {
+            Ok(loaded) => loaded,
             Err(error) => {
                 let page = render::error_page(&model::Book::default(), 503, &error);
                 answer(
@@ -69,6 +70,7 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 return;
             }
         };
+        let book = &loaded.book;
 
         let project = query_value(query, "project").filter(|value| !value.is_empty());
         let project = project.as_deref();
@@ -82,8 +84,9 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             .unwrap_or(7)
             .clamp(1, 365);
 
+        let render_started = std::time::Instant::now();
         let (status, body) = match path {
-            "/" => (200, render::dashboard(&book, project, &q, days, stale_days)),
+            "/" => (200, render::dashboard(book, project, &q, days, stale_days)),
             "/board" => {
                 let limit = query_value(query, "limit")
                     .and_then(|value| value.parse::<usize>().ok())
@@ -96,36 +99,58 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 let status = query_value(query, "status").filter(|value| !value.is_empty());
                 (
                     200,
-                    render::board_page(&book, project, &q, limit, status.as_deref(), page),
+                    render::board_page(book, project, &q, limit, status.as_deref(), page),
                 )
             }
-            "/burndown" => (200, render::burndown_page(&book, project, &q, days)),
-            "/projects" => (200, render::projects_page(&book, project, &q, stale_days)),
-            "/plans" => (200, render::plans_page(&book, project, &q)),
+            "/burndown" => (200, render::burndown_page(book, project, &q, days)),
+            "/projects" => (200, render::projects_page(book, project, &q, stale_days)),
+            "/plans" => (200, render::plans_page(book, project, &q)),
             "/plan" => match query_value(query, "name").filter(|name| !name.is_empty()) {
-                Some(name) => (200, render::plan_page(&book, &name, project, &q)),
-                None => (400, render::error_page(&book, 400, "missing plan name")),
+                Some(name) => (200, render::plan_page(book, &name, project, &q)),
+                None => (400, render::error_page(book, 400, "missing plan name")),
             },
             "/issue" => match query_value(query, "id").filter(|id| !id.is_empty()) {
-                Some(id) => (200, render::issue_page(&book, &id, project, &q)),
-                None => (400, render::error_page(&book, 400, "missing issue id")),
+                Some(id) => (200, render::issue_page(book, &id, project, &q)),
+                None => (400, render::error_page(book, 400, "missing issue id")),
             },
             _ => (
                 404,
-                render::error_page(&book, 404, &format!("no route for {path}")),
+                render::error_page(book, 404, &format!("no route for {path}")),
             ),
         };
-        answer(
+        let headers = [
+            ("x-marbles-entries", loaded.entries.to_string()),
+            ("x-marbles-scan-ms", loaded.scan_ms.to_string()),
+            ("x-marbles-model-ms", loaded.model_ms.to_string()),
+            (
+                "x-marbles-render-ms",
+                (render_started.elapsed().as_millis() as u64).to_string(),
+            ),
+            (
+                "x-marbles-total-ms",
+                (started.elapsed().as_millis() as u64).to_string(),
+            ),
+        ];
+        answer_with(
             response_out,
             status,
             "text/html; charset=utf-8",
             body.as_bytes(),
+            &headers,
         );
     }
 }
 
 /// Read every live record in the collection, following the cursor to the end.
-fn load(shallow: bool) -> Result<model::Book, String> {
+struct Loaded {
+    book: model::Book,
+    entries: usize,
+    scan_ms: u64,
+    model_ms: u64,
+}
+
+fn load(shallow: bool) -> Result<Loaded, String> {
+    let started = std::time::Instant::now();
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
@@ -140,25 +165,53 @@ fn load(shallow: bool) -> Result<model::Book, String> {
         match page.next {
             Some(next) if Some(next.as_str()) != cursor.as_deref() => cursor = Some(next),
             _ => {
-                return Ok(if shallow {
+                let scan_ms = started.elapsed().as_millis() as u64;
+                let model_started = std::time::Instant::now();
+                let book = if shallow {
                     model::issues_only(&entries)
                 } else {
                     model::book(&entries)
+                };
+                return Ok(Loaded {
+                    book,
+                    entries: entries.len(),
+                    scan_ms,
+                    model_ms: model_started.elapsed().as_millis() as u64,
                 });
             }
         }
     }
-    Ok(if shallow {
+    let scan_ms = started.elapsed().as_millis() as u64;
+    let model_started = std::time::Instant::now();
+    let book = if shallow {
         model::issues_only(&entries)
     } else {
         model::book(&entries)
+    };
+    Ok(Loaded {
+        book,
+        entries: entries.len(),
+        scan_ms,
+        model_ms: model_started.elapsed().as_millis() as u64,
     })
 }
 
 fn answer(response_out: ResponseOutparam, status: u16, content_type: &str, body: &[u8]) {
-    let fields =
-        Fields::from_list(&[("content-type".to_string(), content_type.as_bytes().to_vec())])
-            .unwrap_or_else(|_| Fields::new());
+    answer_with(response_out, status, content_type, body, &[]);
+}
+
+fn answer_with(
+    response_out: ResponseOutparam,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    headers: &[(&str, String)],
+) {
+    let mut list = vec![("content-type".to_string(), content_type.as_bytes().to_vec())];
+    for (name, value) in headers {
+        list.push((name.to_string(), value.as_bytes().to_vec()));
+    }
+    let fields = Fields::from_list(&list).unwrap_or_else(|_| Fields::new());
     let _ = fields.set("cache-control", &[b"no-store".to_vec()]);
     let response = OutgoingResponse::new(fields);
     if response.set_status_code(status).is_err() {

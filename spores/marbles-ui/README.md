@@ -50,6 +50,19 @@ soil spore run spores/marbles-ui --surface http --listen 0.0.0.0:8091 \
 The publisher grant is not verified yet, which is why the unsigned-development
 flag is required; once the grant path lands that flag disappears.
 
+## Host build and request lifetime
+
+The host instantiates the Spore per request (`Store::new` + `instantiate_async`
+in `soil`'s HTTP service), so guest memory and statics do not survive between
+requests; a cache inside the Spore cannot amortize the scan. The records host
+itself *is* long-lived: `WasiHostBuilder` keeps `Arc<Mutex<RecordsBookHost>>`,
+so the SQLite connection is reused.
+
+Build the **host** in release. The first measurement of ~690 ms was against a
+debug `soil`; the release `soil-wasi-http` brings the same 8,695-entry book to
+**50–130 ms** of scan and **70–180 ms** total per board request. Debug builds of
+the host, not the Spore, dominate this workload.
+
 ## Boundaries
 
 - **Read-only.** The grant is `soil:records`; there is no write path and no
