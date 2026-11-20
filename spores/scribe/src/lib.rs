@@ -178,6 +178,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "voiceprint" => voiceprint(args),
         "voicefix" => voicefix(args),
         "restyle" => restyle(args),
+        "clean" => clean(args),
         "names" => names(args),
         "learn" => learn_command(args),
         other => Err(format!("unknown command {other}")),
@@ -419,6 +420,9 @@ fn enrich_watch(args: Args) -> Result<(), String> {
         }
         if let Err(error) = restyle_queue(&args) {
             eprintln!("scribe: summary restyle: {error}");
+        }
+        if let Err(error) = clean_queue(&args) {
+            eprintln!("scribe: transcript cleanup: {error}");
         }
         let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
             .map_err(|error| format!("unibus poll: {error:?}"))?;
@@ -1233,6 +1237,207 @@ fn restyle_capture(args: &Args, path: &str) -> Result<Value, String> {
     let bytes = serde_json::to_vec_pretty(&index).map_err(|error| error.to_string())?;
     write_file(&index_path, &bytes, "application/json")?;
     Ok(json!({"summary": summary.path, "model": enriched.model}))
+}
+
+fn clean(args: Args) -> Result<(), String> {
+    let path = args.path.as_deref().ok_or("clean needs --path")?;
+    let result = clean_capture(&args, path)?;
+    finish(json!({"ok": true, "command": "clean", "capture": path, "result": result}));
+    Ok(())
+}
+
+fn clean_queue(args: &Args) -> Result<(), String> {
+    let queue_path = "scribe/clean.json";
+    let queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    let Some(items) = queue.as_array() else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut pending = Vec::new();
+    for item in items {
+        let Some(path) = item.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        match clean_capture(args, path) {
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("scribe: clean {path}: {error}");
+                pending.push(item.clone());
+            }
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&json!(pending)).map_err(|error| error.to_string())?;
+    vfs_mut::write(queue_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write clean queue: {error:?}"))?;
+    Ok(())
+}
+
+fn clean_capture(args: &Args, path: &str) -> Result<Value, String> {
+    let transcript = read_json(&format!("{path}/transcript.json"))?;
+    let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+    let vocabulary = read_text("scribe/vocabulary.txt").unwrap_or_default();
+    let mut turns = Vec::new();
+    let mut current: Option<(String, String, f64, f64, Vec<String>)> = None;
+    let mut push_turn = |turn: Option<(String, String, f64, f64, Vec<String>)>,
+                         turns: &mut Vec<Value>| {
+        if let Some((key, name, start, end, words)) = turn {
+            if !words.is_empty() {
+                turns.push(json!({
+                    "id": turns.len(),
+                    "start": start,
+                    "end": end,
+                    "speaker_key": key,
+                    "speaker": name,
+                    "text": words.join(" "),
+                }));
+            }
+        }
+    };
+    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+        if !segments.is_empty() {
+            for segment in segments {
+                let key = speaker_key(segment);
+                let name = speakers
+                    .get(&key)
+                    .and_then(|entry| entry.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(&key)
+                    .to_string();
+                let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+                let text = segment.get("text").and_then(Value::as_str).unwrap_or("").trim();
+                if !text.is_empty() {
+                    turns.push(json!({
+                        "id": turns.len(),
+                        "start": start,
+                        "end": end,
+                        "speaker_key": key,
+                        "speaker": name,
+                        "text": text,
+                    }));
+                }
+            }
+        }
+    }
+    if turns.is_empty() {
+        if let Some(words) = transcript.get("words").and_then(Value::as_array) {
+            for word in words {
+                let key = speaker_key(word);
+                let token = word.get("word").and_then(Value::as_str).unwrap_or("").trim();
+                let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
+                if token.is_empty() || end <= start {
+                    continue;
+                }
+                let name = speakers
+                    .get(&key)
+                    .and_then(|entry| entry.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(&key)
+                    .to_string();
+                match current.as_mut() {
+                    Some((running_key, _, _, running_end, text))
+                        if *running_key == key && start - *running_end <= 1.8 =>
+                    {
+                        text.push(token.to_string());
+                        *running_end = end;
+                    }
+                    _ => {
+                        push_turn(current.take(), &mut turns);
+                        current = Some((key, name, start, end, vec![token.to_string()]));
+                    }
+                }
+            }
+            push_turn(current.take(), &mut turns);
+        }
+    }
+    if turns.is_empty() {
+        return Err("transcript has no readable turns".into());
+    }
+    let vocab = vocabulary.trim();
+    let mut cleaned: Vec<Value> = Vec::new();
+    let mut offset = 0usize;
+    while offset < turns.len() {
+        let mut end = offset;
+        let mut chars = 0usize;
+        while end < turns.len() && (end == offset || chars < 120_000) {
+            chars += turns[end].get("text").and_then(Value::as_str).map(str::len).unwrap_or(0);
+            end += 1;
+        }
+        let batch = &turns[offset..end];
+        let input = serde_json::to_string_pretty(&batch).map_err(|error| error.to_string())?;
+        let system = format!(
+            "You are Scribe's transcript editor. Return ONLY JSON: {{\"turns\":[{{\"id\":number,\"text\":string}}]}}. Fix punctuation, capitalization, spacing, and obvious ASR errors. Remove filler only when it carries no meaning. Preserve every turn id, speaker attribution, numbers, names, technical terms, and meaning. Do not merge, split, or reorder turns. Known vocabulary (preserve exact spelling): {vocab}"
+        );
+        let request = inference::Request {
+            model: args.model.clone(),
+            messages: vec![
+                inference::Message {
+                    role: inference::Role::System,
+                    content: Some(system),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    attachments: vec![],
+                    reasoning: None,
+                },
+                inference::Message {
+                    role: inference::Role::User,
+                    content: Some(input),
+                    name: None,
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    attachments: vec![],
+                    reasoning: None,
+                },
+            ],
+            tools: vec![],
+            max_output_tokens: Some(32_768),
+            temperature: Some(0.1),
+            prompt_cache_key: Some(format!("scribe-clean:{}", path)),
+        };
+        let returned = match inference::complete(&request) {
+            Ok(response) => response
+                .message
+                .content
+                .as_deref()
+                .and_then(|content| parse_model_json(content).ok()),
+            Err(error) => {
+                eprintln!("scribe: clean batch inference: {error:?}");
+                None
+            }
+        };
+        let returned = returned
+            .as_ref()
+            .and_then(|value| value.get("turns"))
+            .and_then(Value::as_array);
+        for turn in batch {
+            let id = turn.get("id").and_then(Value::as_u64).unwrap_or(0);
+            let text = returned
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find(|item| item.get("id").and_then(Value::as_u64) == Some(id))
+                        .and_then(|item| item.get("text"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or_else(|| turn.get("text").and_then(Value::as_str).unwrap_or(""));
+            let mut out = turn.clone();
+            out["text"] = json!(text);
+            cleaned.push(out);
+        }
+        offset = end;
+    }
+    let body = json!({
+        "model": args.model,
+        "vocabulary": vocab,
+        "turns": cleaned,
+    });
+    let bytes = serde_json::to_vec_pretty(&body).map_err(|error| error.to_string())?;
+    write_file(&format!("{path}/transcript.clean.json"), &bytes, "application/json")?;
+    Ok(json!({"turns": cleaned.len(), "path": format!("{path}/transcript.clean.json")}))
 }
 
 fn names(args: Args) -> Result<(), String> {

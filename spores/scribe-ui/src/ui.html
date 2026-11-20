@@ -26,7 +26,7 @@ h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spa
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
 .summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}.summary-tools{display:flex;align-items:center;gap:8px;margin:0 0 12px}.pill-group{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--surface)}.pill-group button{border:0;border-radius:999px;padding:3px 10px;font-size:11px;background:transparent}.pill-group button.active{background:var(--accent-soft);color:var(--accent)}.menu{position:relative;display:inline-block}.menu>summary{list-style:none;cursor:pointer;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}.menu>summary::-webkit-details-marker{display:none}.menu[open]>summary{background:var(--accent-soft);color:var(--accent)}.menu-items{position:absolute;left:0;top:calc(100% + 4px);z-index:10;background:var(--surface);border:1px solid var(--line);border-radius:8px;min-width:170px;padding:4px;box-shadow:var(--shadow)}.menu-items button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 9px;font-size:12px;border-radius:5px}.menu-items button:hover{background:var(--panel)}
 .summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:var(--soft);border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
-h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}.section-head{display:flex;align-items:center;justify-content:space-between;margin:30px 0 8px}.section-head h2{margin:0}.source-btn{font-size:10px;padding:2px 7px;border-radius:5px}
+h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}.section-head{display:flex;align-items:center;justify-content:space-between;margin:30px 0 8px}.section-head h2{margin:0}.source-btn{font-size:10px;padding:2px 7px;border-radius:5px}.section-tools{display:flex;align-items:center;gap:6px}
 .turn{padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}.turn:hover{background:var(--hover)}
 .speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:980px;font-size:15px;line-height:1.7}.turn.flash{background:var(--highlight);box-shadow:inset 3px 0 0 var(--accent)}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
@@ -38,7 +38,7 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
 .action .who{font-size:11px;color:var(--muted);margin-top:6px}
 .pill{display:inline-block;font-size:10px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 6px;margin-left:4px}
 .empty{color:var(--muted);padding:40px 4px;font-size:13px}
-.error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:8px;padding:10px 12px}
+.error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:8px;padding:10px 12px}.modal{position:fixed;inset:0;background:rgba(20,18,15,.38);display:flex;align-items:center;justify-content:center;z-index:50}.modal[hidden]{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow)}.modal-card h2{margin:0 0 6px}.modal-note{color:var(--muted);font-size:12px;margin:0 0 10px}.modal-card textarea{width:100%;resize:vertical;font:inherit;font-size:13px;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}.modal-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}
 @media(max-width:900px){main{grid-template-columns:220px minmax(0,1fr)}}body.shared .chats{display:none}body.shared main{grid-template-columns:minmax(0,1fr)}body.shared .center{max-width:980px;margin:0 auto;width:100%}
 @media(max-width:640px){main{display:block;height:auto}.chats{border-right:0;border-bottom:1px solid var(--line);max-height:220px}.center{padding:22px 18px}.actions{display:block;border-left:0;border-top:1px solid var(--line)}}
 </style>
@@ -71,6 +71,14 @@ h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--mute
   </aside>
   <section class="center" id="detail"><div class="empty">Choose a capture.</div></section>
 </main>
+<div class="modal" id="settings-modal" hidden>
+  <div class="modal-card">
+    <h2>Known vocabulary</h2>
+    <p class="modal-note">Names, products, acronyms, and technical terms the transcript cleaner should preserve or repair to.</p>
+    <textarea id="vocabulary" rows="10" placeholder="Scribe&#10;Venchion&#10;ECAPA&#10;DFM&#10;freecad"></textarea>
+    <div class="modal-actions"><button id="vocabulary-cancel">Cancel</button><button id="vocabulary-save">Save</button></div>
+  </div>
+</div>
 <script>
 const list = document.getElementById('list');
 const detail = document.getElementById('detail');
@@ -365,12 +373,24 @@ function render(capture) {
     const correction = overrideFor(capture, turn.start, turn.end);
     if (correction?.name) turn.speaker = correction.name;
   }
-  const transcript = turns.length
-    ? turns.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
+  const cleanTurns = Array.isArray(capture.clean_transcript?.turns)
+    ? capture.clean_transcript.turns.map(turn => ({
+        speakerKey: canonicalSpeaker(turn.speaker_key || turn.speaker),
+        speaker: turn.speaker || displaySpeaker(capture, turn.speaker_key || turn.speaker),
+        text: turn.text || '',
+        start: Number(turn.start ?? 0),
+        end: Number(turn.end ?? turn.start ?? 0),
+      })).filter(turn => turn.text)
+    : [];
+  const hasClean = cleanTurns.length > 0;
+  let activeTurns = hasClean ? cleanTurns : turns;
+  const renderTranscript = (list) => list.length
+    ? list.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
   const named = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
   const toolItems = [
     named.length >= 1 ? `<button id="voicefix-lines">Auto-fix lines</button>` : '',
+    `<button id="clean-transcript">Clean transcript</button>`,
     named.length >= 2 ? `<button id="swap-speakers">Swap names</button><button id="relearn-speakers">Relearn voices</button>` : '',
   ].join('');
   const tools = shared || !toolItems ? '' : `<details class="menu"><summary>Actions</summary><div class="menu-items">${toolItems}</div></details>`;
@@ -393,8 +413,8 @@ function render(capture) {
     <div id="summary-body" class="summary"></div>
     <div class="section-head"><h2>Action items</h2><button class="source-btn" id="action-sources">Sources</button></div>
     <div id="actions"></div>
-    <div class="section-head"><h2 id="transcript-heading">Transcript</h2><button class="source-btn" id="transcript-sources">Sources</button></div>
-    ${transcript}`;
+    <div class="section-head"><h2 id="transcript-heading">Transcript</h2><div class="section-tools">${hasClean ? `<div class="pill-group"><button id="original-view">Original</button><button id="clean-view">Clean</button></div>` : ''}<button class="source-btn" id="transcript-sources">Sources</button></div></div>
+    <div id="transcript-body"></div>`;
   let summaryView = 'summary';
   const summaryText = () => summaryView === 'design' ? designSummary : (capture.summary || 'No summary yet.');
   const renderSummaryBody = () => {
@@ -419,7 +439,7 @@ function render(capture) {
   document.getElementById('copy-llm')?.addEventListener('click', async () => {
     const people = [...new Set(Object.values(capture.speakers || {}).map(value => value?.name).filter(Boolean))];
     const actionLines = actions.map(action => `- [${action.kind || 'action'}] ${action.title || action.quote || 'Untitled'}${action.owner ? ` — ${displaySpeaker(capture, action.owner)}` : ''}${action.due_at ? ` (${action.due_at})` : ''}`).join('\n');
-    const transcriptLines = turns.map(turn => `${turn.speaker}: ${turn.text}`).join('\n');
+    const transcriptLines = activeTurns.map(turn => `${turn.speaker}: ${turn.text}`).join('\n');
     const text = `# ${shortTitle(capture.title, 90)}\n\n${metaLine(capture)}${people.length ? `\nParticipants: ${people.join(', ')}` : ''}\n\n## ${summaryView === 'design' ? 'Design doc' : 'Summary'}\n${summaryText()}\n\n## Action items\n${actionLines || 'None captured.'}\n\n## Transcript\n${transcriptLines || capture.transcript?.text || ''}`;
     try {
       await navigator.clipboard.writeText(text);
@@ -430,19 +450,39 @@ function render(capture) {
       alert(`Copy failed: ${error.message}`);
     }
   });
-  detail.querySelectorAll('.turn[data-speaker]').forEach(turn => {
-    turn.addEventListener('click', async () => {
-      const key = turn.dataset.speaker;
-      const start = Number(turn.dataset.start);
-      const end = Number(turn.dataset.end);
-      const name = prompt(`Name for ${displaySpeaker(capture, key)}`, '');
-      if (!name || !name.trim()) return;
-      const bulk = confirm(`Apply “${name.trim()}” to every ${displaySpeaker(capture, key)} line in this capture?\n\nOK = all matching lines. Cancel = only this line.`);
-      let url = `/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`;
-      if (!bulk) url += `&scope=line&start=${start}&end=${end}`;
-      const response = await fetch(url, { method: 'POST' });
-      if (response.ok) loadCapture(capture.path);
+  const bindTurnClicks = () => {
+    detail.querySelectorAll('.turn[data-speaker]').forEach(turn => {
+      turn.addEventListener('click', async () => {
+        const key = turn.dataset.speaker;
+        const start = Number(turn.dataset.start);
+        const end = Number(turn.dataset.end);
+        const name = prompt(`Name for ${displaySpeaker(capture, key)}`, '');
+        if (!name || !name.trim()) return;
+        const bulk = confirm(`Apply “${name.trim()}” to every ${displaySpeaker(capture, key)} line in this capture?\n\nOK = all matching lines. Cancel = only this line.`);
+        let url = `/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`;
+        if (!bulk) url += `&scope=line&start=${start}&end=${end}`;
+        const response = await fetch(url, { method: 'POST' });
+        if (response.ok) loadCapture(capture.path);
+      });
     });
+  };
+  let transcriptView = hasClean ? 'clean' : 'original';
+  const renderTranscriptView = () => {
+    activeTurns = transcriptView === 'clean' && hasClean ? cleanTurns : turns;
+    document.getElementById('transcript-body').innerHTML = renderTranscript(activeTurns);
+    document.getElementById('original-view')?.classList.toggle('active', transcriptView === 'original');
+    document.getElementById('clean-view')?.classList.toggle('active', transcriptView === 'clean');
+    bindTurnClicks();
+  };
+  renderTranscriptView();
+  document.getElementById('original-view')?.addEventListener('click', () => { transcriptView = 'original'; renderTranscriptView(); });
+  document.getElementById('clean-view')?.addEventListener('click', () => { transcriptView = 'clean'; renderTranscriptView(); });
+  document.getElementById('clean-transcript')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/clean?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued an LLM transcript cleanup.');
+      setTimeout(() => loadCapture(capture.path), 8000);
+    }
   });
   document.getElementById('voicefix-lines')?.addEventListener('click', async () => {
     const response = await fetch(`/api/voicefix?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
@@ -531,7 +571,21 @@ document.addEventListener('click', event => {
   const menu = document.getElementById('profile-menu');
   if (menu && !event.target.closest('.profile-wrap')) menu.hidden = true;
 });
-document.getElementById('profile-settings')?.addEventListener('click', () => alert('Settings are coming soon.'));
+document.getElementById('profile-settings')?.addEventListener('click', async () => {
+  document.getElementById('profile-menu').hidden = true;
+  document.getElementById('settings-modal').hidden = false;
+  try {
+    const response = await fetch('/api/vocabulary');
+    const body = await response.json();
+    document.getElementById('vocabulary').value = body.text || '';
+  } catch (_) {}
+});
+document.getElementById('vocabulary-cancel')?.addEventListener('click', () => { document.getElementById('settings-modal').hidden = true; });
+document.getElementById('vocabulary-save')?.addEventListener('click', async () => {
+  const text = document.getElementById('vocabulary').value;
+  const response = await fetch(`/api/vocabulary/save?text=${encodeURIComponent(text)}`, { method: 'POST' });
+  if (response.ok) document.getElementById('settings-modal').hidden = true;
+});
 document.getElementById('header-copy-link')?.addEventListener('click', async () => {
   if (!selectedCapture?.id) return;
   const url = `${location.origin}/c/${encodeURIComponent(selectedCapture.id)}`;
