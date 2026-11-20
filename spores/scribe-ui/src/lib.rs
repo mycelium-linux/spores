@@ -140,6 +140,14 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 ),
                 Err(error) => api_error(400, &error),
             },
+            (Method::Post, "/api/merge") => match queue_merge(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
+            },
             (Method::Post, "/api/clean") => match queue_clean(query) {
                 Ok(value) => respond(200, "application/json; charset=utf-8", &serde_json::to_vec(&value).unwrap_or_default()),
                 Err(error) => api_error(400, &error),
@@ -226,6 +234,16 @@ fn query_value(query: &str, key: &str) -> Option<String> {
         let (name, value) = pair.split_once('=')?;
         (name == key).then(|| percent_decode(value))
     })
+}
+
+fn query_values(query: &str, key: &str) -> Vec<String> {
+    query
+        .split('&')
+        .filter_map(|pair| {
+            let (name, value) = pair.split_once('=')?;
+            (name == key).then(|| percent_decode(value))
+        })
+        .collect()
 }
 
 fn percent_decode(value: &str) -> String {
@@ -332,6 +350,41 @@ fn queue_learning(
         }
     }
     write_json(queue_path, &queue)
+}
+
+fn queue_merge(query: &str) -> Result<Value, String> {
+    let mut paths = query_values(query, "paths");
+    paths.retain(|path| !path.trim().is_empty());
+    paths.sort();
+    paths.dedup();
+    if paths.len() < 2 {
+        return Err("select at least two captures to merge".into());
+    }
+    if paths.iter().any(|path| !valid_capture(path)) {
+        return Err("invalid capture path in merge".into());
+    }
+    let queue_path = "scribe/merge.json";
+    let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    if !queue.is_array() {
+        queue = json!([]);
+    }
+    if let Some(items) = queue.as_array_mut() {
+        let already = items.iter().any(|item| {
+            item.get("paths")
+                .and_then(Value::as_array)
+                .is_some_and(|existing| {
+                    let mut existing: Vec<&str> =
+                        existing.iter().filter_map(Value::as_str).collect();
+                    existing.sort();
+                    existing == paths.iter().map(String::as_str).collect::<Vec<_>>()
+                })
+        });
+        if !already {
+            items.push(json!({"paths": paths}));
+        }
+    }
+    write_json(queue_path, &queue)?;
+    Ok(json!({"ok": true, "queued": true, "count": paths.len()}))
 }
 
 fn set_speaker(query: &str) -> Result<Value, String> {
@@ -685,6 +738,21 @@ fn capture_card(path: &str) -> Result<Value, String> {
         "date": date,
         "id": id,
         "title": title,
+        "emoji": meta
+            .as_ref()
+            .and_then(|value| value.get("emoji"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        "merged_from": meta
+            .as_ref()
+            .and_then(|value| value.get("merged_from"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "merged_into": meta
+            .as_ref()
+            .and_then(|value| value.get("merged_into"))
+            .cloned()
+            .unwrap_or(Value::Null),
         "summary": summary,
         "preview": text.chars().take(220).collect::<String>(),
         "actions": actions,
@@ -734,6 +802,9 @@ fn captures(
                 let Ok(card) = capture_card(&capture.path) else {
                     continue;
                 };
+                if card.get("merged_into").and_then(Value::as_str).is_some() {
+                    continue;
+                }
                 if card.get("processing").and_then(Value::as_bool).unwrap_or(false) {
                     if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false) {
                         hidden += 1;
@@ -811,7 +882,9 @@ fn search_captures(
     let mut cards = Vec::new();
     for root in roots {
         if let Ok(card) = capture_card(&root) {
-            cards.push(card);
+            if card.get("merged_into").and_then(Value::as_str).is_none() {
+                cards.push(card);
+            }
         }
     }
     sort_cards(&mut cards);
@@ -888,6 +961,9 @@ fn capture(path: &str) -> Result<Value, String> {
             .map(str::to_string)
             .or_else(|| title(&summary))
             .unwrap_or_else(|| base(path)),
+        "emoji": meta.get("emoji").and_then(Value::as_str).unwrap_or(""),
+        "merged_from": meta.get("merged_from").cloned().unwrap_or(Value::Null),
+        "merged_into": meta.get("merged_into").cloned().unwrap_or(Value::Null),
         "summary": summary,
         "design_summary": design_summary,
         "clean_transcript": clean_transcript,
@@ -956,7 +1032,7 @@ fn title(summary: &str) -> Option<String> {
                 .trim_start_matches("Overview:")
                 .trim();
             let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
-            first.chars().take(64).collect()
+            first.chars().take(40).collect()
         })
         .filter(|line: &String| !line.is_empty())
 }

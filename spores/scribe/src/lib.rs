@@ -424,6 +424,9 @@ fn enrich_watch(args: Args) -> Result<(), String> {
         if let Err(error) = clean_queue(&args) {
             eprintln!("scribe: transcript cleanup: {error}");
         }
+        if let Err(error) = merge_queue(&args) {
+            eprintln!("scribe: merge queue: {error}");
+        }
         let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
             .map_err(|error| format!("unibus poll: {error:?}"))?;
         for frame in page.frames {
@@ -509,6 +512,7 @@ fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
         "started_at_ms": stored.get("started_at_ms").cloned().or_else(|| meta.get("started_at_ms").cloned()).unwrap_or(Value::Null),
         "ended_at_ms": stored.get("ended_at_ms").cloned().or_else(|| meta.get("ended_at_ms").cloned()).unwrap_or(Value::Null),
         "title": meta.get("title").cloned().unwrap_or(Value::Null),
+        "emoji": meta.get("emoji").cloned().unwrap_or(Value::Null),
         "summary_md": summary,
         "actions": actions,
         "transcript": transcript,
@@ -1556,6 +1560,527 @@ fn cosine(left: &[f64], right: &[f64]) -> f64 {
     left.iter().zip(right).map(|(a, b)| a * b).sum()
 }
 
+
+#[derive(Clone)]
+struct MergeSource {
+    path: String,
+    meta: Value,
+    transcript: Value,
+    speakers: Value,
+    overrides: Value,
+    actions: Value,
+    summary: String,
+    audio: Option<WavAudio>,
+    started_at_ms: u64,
+    ended_at_ms: u64,
+}
+
+#[derive(Clone)]
+struct WavAudio {
+    sample_rate: u32,
+    channels: u16,
+    bits: u16,
+    pcm: Vec<u8>,
+}
+
+fn merge_queue(args: &Args) -> Result<(), String> {
+    let queue_path = "scribe/merge.json";
+    let queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    let Some(items) = queue.as_array().cloned() else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut pending = Vec::new();
+    let mut results = Vec::new();
+    for item in items {
+        let paths: Vec<String> = item
+            .get("paths")
+            .and_then(Value::as_array)
+            .map(|paths| {
+                paths
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        match merge_captures(&paths, args) {
+            Ok(value) => results.push(value),
+            Err(error) => {
+                eprintln!("scribe: merge: {error}");
+                results.push(json!({"ok": false, "paths": paths, "error": error}));
+                pending.push(item);
+            }
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&json!(pending)).map_err(|error| error.to_string())?;
+    vfs_mut::write(queue_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write merge queue: {error:?}"))?;
+    let result_bytes = serde_json::to_vec_pretty(&json!(results)).map_err(|error| error.to_string())?;
+    vfs_mut::write("scribe/merge-result.json", &result_bytes, "application/json", None, None)
+        .map_err(|error| format!("write merge result: {error:?}"))?;
+    Ok(())
+}
+
+fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let paths: Vec<String> = paths
+        .iter()
+        .cloned()
+        .filter(|path| valid_capture_path(path) && seen.insert(path.clone()))
+        .collect();
+    if paths.len() < 2 {
+        return Err("merge needs at least two distinct capture paths".into());
+    }
+    let mut sources = Vec::new();
+    for path in paths.iter() {
+        let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
+        if meta.get("merged_into").and_then(Value::as_str).is_some() {
+            return Err(format!("{path} is already merged into another capture"));
+        }
+        let transcript = read_json(&format!("{path}/transcript.json"))?;
+        let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+        let overrides = read_json(&format!("{path}/speaker_overrides.json")).unwrap_or_else(|_| json!([]));
+        let actions = read_json(&format!("{path}/actions.json")).unwrap_or_else(|_| json!([]));
+        let summary = read_text(&format!("{path}/summary.md")).unwrap_or_default();
+        let started_at_ms = meta
+            .get("started_at_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let ended_at_ms = meta
+            .get("ended_at_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(started_at_ms);
+        let audio = read_wav(&format!("{path}/audio.wav"));
+        sources.push(MergeSource {
+            path: path.clone(),
+            meta,
+            transcript,
+            speakers,
+            overrides,
+            actions,
+            summary,
+            audio,
+            started_at_ms,
+            ended_at_ms,
+        });
+    }
+    sources.sort_by_key(|source| source.started_at_ms);
+    let earliest = sources[0].started_at_ms;
+    let latest = sources.iter().map(|source| source.ended_at_ms).max().unwrap_or(earliest);
+    let source_name = sources[0]
+        .path
+        .split('/')
+        .nth(1)
+        .unwrap_or("omi")
+        .to_string();
+    let date = sources[0]
+        .path
+        .split('/')
+        .nth(2)
+        .unwrap_or("undated")
+        .to_string();
+    let target_id = unique_merge_id(&source_name, &date, &sources[0].path);
+    let root = format!("captures/{source_name}/{date}/{target_id}");
+
+    let (speaker_map, speakers) = merge_speakers(&sources);
+    let mut merged_segments = Vec::new();
+    let mut merged_words = Vec::new();
+    let mut text_parts = Vec::new();
+    let mut merged_actions = Vec::new();
+    let mut merged_overrides = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let offset_ms = source.started_at_ms.saturating_sub(earliest) as f64;
+        let mut transcript = source.transcript.clone();
+        remap_transcript_speakers(&mut transcript, &speaker_map[index]);
+        offset_transcript(&mut transcript, offset_ms / 1000.0);
+        if let Some(text) = transcript.get("text").and_then(Value::as_str) {
+            if !text.trim().is_empty() {
+                text_parts.push(text.trim().to_string());
+            }
+        }
+        if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+            merged_segments.extend(segments.iter().cloned());
+        }
+        if let Some(words) = transcript.get("words").and_then(Value::as_array) {
+            merged_words.extend(words.iter().cloned());
+        }
+        if let Some(items) = source.actions.as_array() {
+            for item in items {
+                let mut item = item.clone();
+                if let Some(fields) = item.as_object_mut() {
+                    for key in ["start_ms", "end_ms"] {
+                        if let Some(value) = fields.get(key).and_then(Value::as_f64) {
+                            fields[key] = json!(value + offset_ms);
+                        }
+                    }
+                    for key in ["speaker", "owner"] {
+                        if let Some(value) = fields.get(key).and_then(Value::as_str) {
+                            if let Some(mapped) = speaker_map[index].get(value) {
+                                fields[key] = json!(mapped);
+                            }
+                        }
+                    }
+                    fields["source_capture"] = json!(source.path);
+                }
+                let title = item.get("title").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
+                let quote = item.get("quote").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
+                let duplicate = merged_actions.iter().any(|existing: &Value| {
+                    existing.get("title").and_then(Value::as_str).unwrap_or("").trim().to_lowercase() == title
+                        && existing.get("quote").and_then(Value::as_str).unwrap_or("").trim().to_lowercase() == quote
+                });
+                if !duplicate {
+                    merged_actions.push(item);
+                }
+            }
+        }
+        if let Some(items) = source.overrides.as_array() {
+            for item in items {
+                let mut item = item.clone();
+                if let Some(fields) = item.as_object_mut() {
+                    for key in ["start", "end"] {
+                        if let Some(value) = fields.get(key).and_then(Value::as_f64) {
+                            fields[key] = json!(value + offset_ms / 1000.0);
+                        }
+                    }
+                    if let Some(speaker) = fields.get("speaker").and_then(Value::as_str) {
+                        if let Some(mapped) = speaker_map[index].get(speaker) {
+                            fields["speaker"] = json!(mapped);
+                        }
+                    }
+                }
+                merged_overrides.push(item);
+            }
+        }
+    }
+    merged_segments.sort_by(|left, right| {
+        left.get("start").and_then(Value::as_f64).unwrap_or(0.0)
+            .total_cmp(&right.get("start").and_then(Value::as_f64).unwrap_or(0.0))
+    });
+    merged_words.sort_by(|left, right| {
+        left.get("start").and_then(Value::as_f64).unwrap_or(0.0)
+            .total_cmp(&right.get("start").and_then(Value::as_f64).unwrap_or(0.0))
+    });
+    let summary = sources
+        .iter()
+        .map(|source| source.summary.trim())
+        .filter(|summary| !summary.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+    let title = sources[0]
+        .meta
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Merged capture");
+    let emoji = sources[0]
+        .meta
+        .get("emoji")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let event = json!({
+        "capture_id": target_id,
+        "source": source_name,
+        "date": date,
+        "started_at_ms": earliest,
+        "ended_at_ms": latest,
+        "title": title,
+        "emoji": emoji,
+        "summary_md": summary,
+        "actions": merged_actions,
+        "transcript": {
+            "text": text_parts.join(" "),
+            "segments": merged_segments,
+            "words": merged_words,
+        },
+        "merged_from": paths,
+        "checkpoint": false,
+    });
+    let merged = process_event(
+        &event,
+        &args.model,
+        true,
+        false,
+        &args.deep_model,
+        args.deep_after_chars,
+    )?;
+
+    if let Some(audio) = merge_audio(&sources, earliest) {
+        write_file(&format!("{root}/audio.wav"), &audio, "audio/wav")?;
+    }
+
+    let merged_paths: Vec<Value> = sources.iter().map(|source| json!(source.path)).collect();
+    let mut meta = read_json(&format!("{root}/capture.json")).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = meta.as_object_mut() {
+        fields["merged_from"] = json!(merged_paths);
+        fields["emoji"] = json!(if emoji.trim().is_empty() {
+            emoji_for(title, &summary)
+        } else {
+            emoji
+        });
+    }
+    let meta_bytes = serde_json::to_vec_pretty(&meta).map_err(|error| error.to_string())?;
+    write_file(&format!("{root}/capture.json"), &meta_bytes, "application/json")?;
+    if !merged_overrides.is_empty() {
+        let bytes = serde_json::to_vec_pretty(&json!(merged_overrides)).map_err(|error| error.to_string())?;
+        write_file(&format!("{root}/speaker_overrides.json"), &bytes, "application/json")?;
+    }
+    let speakers_bytes = serde_json::to_vec_pretty(&speakers).map_err(|error| error.to_string())?;
+    write_file(&format!("{root}/speakers.json"), &speakers_bytes, "application/json")?;
+
+    for source in &sources {
+        let mut meta = source.meta.clone();
+        if let Some(fields) = meta.as_object_mut() {
+            fields["merged_into"] = json!(root);
+        }
+        let bytes = serde_json::to_vec_pretty(&meta).map_err(|error| error.to_string())?;
+        let _ = write_file(&format!("{}/capture.json", source.path), &bytes, "application/json");
+    }
+    let _ = index::refresh();
+    Ok(json!({"ok": true, "bundle": root, "captures": merged, "sources": paths}))
+}
+
+fn valid_capture_path(path: &str) -> bool {
+    path.starts_with("captures/")
+        && !path.contains("..")
+        && path.split('/').count() >= 5
+        && !path.ends_with('/')
+}
+
+fn unique_merge_id(source: &str, date: &str, first: &str) -> String {
+    let first = first.rsplit('/').next().unwrap_or("capture");
+    let mut index = 0;
+    loop {
+        let suffix = if index == 0 { String::new() } else { format!("-{index}") };
+        let id = sanitize(&format!("merged-{first}{suffix}")).unwrap_or_else(|_| format!("merged-{index}"));
+        let path = format!("captures/{source}/{date}/{id}");
+        if vfs::stat(&path).is_err() {
+            return id;
+        }
+        index += 1;
+    }
+}
+
+fn merge_speaker_label(value: &Value) -> Option<String> {
+    if value.get("is_user").and_then(Value::as_bool) == Some(true) {
+        return Some("You".into());
+    }
+    value
+        .get("speaker")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("speaker")
+                .and_then(Value::as_i64)
+                .map(|index| format!("SPEAKER_{index:02}"))
+        })
+}
+
+fn transcript_labels(transcript: &Value, labels: &mut std::collections::BTreeSet<String>) {
+    for key in ["segments", "words"] {
+        if let Some(rows) = transcript.get(key).and_then(Value::as_array) {
+            for row in rows {
+                if let Some(label) = merge_speaker_label(row) {
+                    labels.insert(label);
+                }
+            }
+        }
+    }
+}
+
+fn merge_speakers(sources: &[MergeSource]) -> (Vec<std::collections::BTreeMap<String, String>>, Value) {
+    let mut maps = Vec::new();
+    let mut global = serde_json::Map::new();
+    let mut identities = std::collections::BTreeMap::new();
+    let mut next = 1usize;
+    for source in sources {
+        let mut labels = std::collections::BTreeSet::new();
+        if let Some(entries) = source.speakers.as_object() {
+            labels.extend(entries.keys().cloned());
+        }
+        transcript_labels(&source.transcript, &mut labels);
+        if let Some(items) = source.overrides.as_array() {
+            for item in items {
+                if let Some(label) = item.get("speaker").and_then(Value::as_str) {
+                    labels.insert(label.to_string());
+                }
+            }
+        }
+        let mut map = std::collections::BTreeMap::new();
+        for label in labels {
+            let entry = source.speakers.get(&label).cloned().unwrap_or_else(|| json!({}));
+            let identity = entry
+                .get("person_id")
+                .and_then(Value::as_str)
+                .or_else(|| entry.get("name").and_then(Value::as_str))
+                .map(|value| value.trim().to_lowercase())
+                .filter(|value| !value.is_empty());
+            let mapped = if let Some(identity) = &identity {
+                identities.get(identity).cloned()
+            } else {
+                None
+            };
+            let mapped = mapped.unwrap_or_else(|| {
+                let key = if label == "You" {
+                    "You".to_string()
+                } else {
+                    let key = format!("SPEAKER_{next:02}");
+                    next += 1;
+                    key
+                };
+                if !entry.as_object().is_some_and(|entry| entry.is_empty()) {
+                    global.insert(key.clone(), entry.clone());
+                }
+                if let Some(identity) = identity {
+                    identities.insert(identity, key.clone());
+                }
+                key
+            });
+            if !global.contains_key(&mapped) && !entry.as_object().is_some_and(|entry| entry.is_empty()) {
+                global.insert(mapped.clone(), entry);
+            }
+            map.insert(label, mapped);
+        }
+        maps.push(map);
+    }
+    (maps, Value::Object(global))
+}
+
+fn remap_transcript_speakers(transcript: &mut Value, map: &std::collections::BTreeMap<String, String>) {
+    if let Some(segments) = transcript.get_mut("segments").and_then(Value::as_array_mut) {
+        for segment in segments {
+            remap_speaker_value(segment, map);
+        }
+    }
+    if let Some(words) = transcript.get_mut("words").and_then(Value::as_array_mut) {
+        for word in words {
+            remap_speaker_value(word, map);
+            if let Some(fields) = word.as_object_mut() {
+                if let Some(nested) = fields.get_mut("words").and_then(Value::as_array_mut) {
+                    for token in nested {
+                        remap_speaker_value(token, map);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn remap_speaker_value(value: &mut Value, map: &std::collections::BTreeMap<String, String>) {
+    let Some(fields) = value.as_object_mut() else {
+        return;
+    };
+    if fields.get("is_user").and_then(Value::as_bool) == Some(true) {
+        fields["speaker"] = json!("You");
+        return;
+    }
+    if let Some(label) = fields.get("speaker").and_then(Value::as_str) {
+        if let Some(mapped) = map.get(label) {
+            fields["speaker"] = json!(mapped);
+        }
+    } else if let Some(index) = fields.get("speaker").and_then(Value::as_i64) {
+        let label = format!("SPEAKER_{index:02}");
+        if let Some(mapped) = map.get(&label) {
+            fields["speaker"] = json!(mapped);
+        }
+    }
+}
+
+fn offset_transcript(transcript: &mut Value, seconds: f64) {
+    if seconds.abs() < f64::EPSILON {
+        return;
+    }
+    for key in ["segments", "words"] {
+        if let Some(rows) = transcript.get_mut(key).and_then(Value::as_array_mut) {
+            for row in rows {
+                offset_time_fields(row, seconds);
+            }
+        }
+    }
+}
+
+fn offset_time_fields(value: &mut Value, seconds: f64) {
+    let Some(fields) = value.as_object_mut() else {
+        return;
+    };
+    for key in ["start", "end"] {
+        if let Some(value) = fields.get(key).and_then(Value::as_f64) {
+            fields[key] = json!(value + seconds);
+        }
+    }
+    if let Some(words) = fields.get_mut("words").and_then(Value::as_array_mut) {
+        for word in words {
+            offset_time_fields(word, seconds);
+        }
+    }
+}
+
+fn read_wav(path: &str) -> Option<WavAudio> {
+    let entry = vfs::stat(path).ok()?;
+    if entry.size < 44 {
+        return None;
+    }
+    let bytes = read_vfs_bytes(path, 0, entry.size).ok()?;
+    let data_at = bytes.windows(4).position(|window| window == b"data")? + 8;
+    let sample_rate = u32::from_le_bytes(bytes.get(24..28)?.try_into().ok()?);
+    let channels = u16::from_le_bytes(bytes.get(22..24)?.try_into().ok()?);
+    let bits = u16::from_le_bytes(bytes.get(34..36)?.try_into().ok()?);
+    if sample_rate == 0 || channels == 0 || bits != 16 {
+        return None;
+    }
+    Some(WavAudio {
+        sample_rate,
+        channels,
+        bits,
+        pcm: bytes.get(data_at..)?.to_vec(),
+    })
+}
+
+fn merge_audio(sources: &[MergeSource], earliest: u64) -> Option<Vec<u8>> {
+    let first = sources.iter().find_map(|source| source.audio.as_ref())?;
+    let sample_rate = first.sample_rate;
+    let channels = first.channels;
+    let bytes_per_ms = sample_rate as usize * channels as usize * 2 / 1000;
+    let mut pcm = Vec::new();
+    let mut cursor_ms = 0.0f64;
+    for source in sources {
+        let offset_ms = source.started_at_ms.saturating_sub(earliest) as f64;
+        let Some(audio) = &source.audio else {
+            continue;
+        };
+        if audio.sample_rate != sample_rate || audio.channels != channels || audio.bits != 16 {
+            continue;
+        }
+        if offset_ms > cursor_ms {
+            let gap = ((offset_ms - cursor_ms).min(300_000.0) * bytes_per_ms as f64) as usize;
+            pcm.resize(pcm.len() + gap, 0);
+        }
+        pcm.extend_from_slice(&audio.pcm);
+        cursor_ms = offset_ms + (audio.pcm.len() / bytes_per_ms.max(1)) as f64;
+    }
+    if pcm.is_empty() {
+        return None;
+    }
+    let data_len = pcm.len() as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&channels.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&(sample_rate * channels as u32 * 2).to_le_bytes());
+    wav.extend_from_slice(&(channels * 2).to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(&pcm);
+    Some(wav)
+}
+
 fn watch(args: Args) -> Result<(), String> {
     let started = now_ms()?;
     let mut cursor: Option<String> = None;
@@ -1736,13 +2261,18 @@ fn process_event(
         &summary_title(&event.summary)
             .or_else(|| event.title.clone())
             .unwrap_or_else(|| "Untitled capture".to_string()),
-        64,
+        40,
     );
+    let emoji = event
+        .emoji
+        .clone()
+        .unwrap_or_else(|| emoji_for(&title, &event.summary).to_string());
     let capture_meta = serde_json::to_vec_pretty(&json!({
         "capture_id": event.capture_id,
         "source": event.source,
         "date": date,
         "title": title,
+        "emoji": emoji,
         "summary_source": summary_source,
         "started_at_ms": event.started_at_ms,
         "ended_at_ms": event.ended_at_ms,
@@ -1972,9 +2502,9 @@ fn enrich_capture(
                 inference::Message {
                     role: inference::Role::System,
                     content: Some(if design {
-                        "You are Scribe in technical design-doc mode. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 3-8 words naming the concrete technical subject. Then use these sections with bullets where possible: ## Context, ## Current design, ## Decisions, ## Open questions, ## Next steps. Preserve exact APIs, schemas, model names, file paths, constraints, and numbers. Prefer architecture/decision language over a narrative recap. Do not invent facts.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\", \"title\": string, \"owner\": string, \"due_at\": string|null, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. If no action exists return an empty array."
+                        "You are Scribe in technical design-doc mode. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the concrete technical subject. Then use these sections with bullets where possible: ## Context, ## Current design, ## Decisions, ## Open questions, ## Next steps. Preserve exact APIs, schemas, model names, file paths, constraints, and numbers. Prefer architecture/decision language over a narrative recap. Do not invent facts.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\", \"title\": string, \"owner\": string, \"due_at\": string|null, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. If no action exists return an empty array."
                     } else {
-                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 3-8 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks. If no action exists return an empty array."
+                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks. If no action exists return an empty array."
                     }.into()),
                     name: None,
                     tool_call_id: None,
@@ -2198,6 +2728,7 @@ struct CaptureEvent {
     actions: Value,
     audio_content_id: Option<String>,
     title: Option<String>,
+    emoji: Option<String>,
     checkpoint: bool,
 }
 
@@ -2254,6 +2785,11 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
                 .and_then(Value::as_str)
         })
         .map(str::to_string);
+    let emoji = value
+        .get("emoji")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|emoji| !emoji.trim().is_empty());
     let checkpoint = value
         .get("checkpoint")
         .and_then(Value::as_bool)
@@ -2269,8 +2805,34 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         actions,
         audio_content_id,
         title,
+        emoji,
         checkpoint,
     })
+}
+
+fn emoji_for(title: &str, summary: &str) -> &'static str {
+    let haystack = format!("{title} {summary}").to_lowercase();
+    let rules: &[(&[&str], &str)] = &[
+        (&["partner", "partnership", "collab", "alliance"], "🤝"),
+        (&["launch", "release", "ship", "announce"], "🚀"),
+        (&["bug", "debug", "incident", "outage", "fix"], "🐛"),
+        (&["design", "ui", "ux", "visual", "style"], "🎨"),
+        (&["architecture", "system", "infra", "platform", "sdk"], "🧱"),
+        (&["finance", "revenue", "pricing", "cost", "budget"], "💰"),
+        (&["hire", "interview", "candidate", "team"], "🧑‍💼"),
+        (&["research", "experiment", "test", "benchmark"], "🧪"),
+        (&["plan", "roadmap", "strategy", "priority"], "🗺️"),
+        (&["meeting", "sync", "standup", "call"], "📞"),
+        (&["health", "workout", "sleep", "run"], "🫀"),
+        (&["travel", "trip", "flight", "drive"], "✈️"),
+        (&["food", "lunch", "dinner", "recipe"], "🍽️"),
+    ];
+    for (needles, emoji) in rules {
+        if needles.iter().any(|needle| haystack.contains(needle)) {
+            return emoji;
+        }
+    }
+    "💬"
 }
 
 fn short_title(value: &str, max_chars: usize) -> String {
@@ -2305,7 +2867,7 @@ fn summary_title(summary: &str) -> Option<String> {
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
-        .map(|line| short_title(line, 64))
+        .map(|line| short_title(line, 40))
         .filter(|line| !line.is_empty())
 }
 
@@ -2484,6 +3046,18 @@ mod tests {
         let (start, end) = windows["SPEAKER_01"];
         assert!(start == 0.0 && end == 1.0, "got {start}..{end}");
         assert_eq!(windows["SPEAKER_02"], (1.1, 2.1));
+    }
+
+    #[test]
+    fn emoji_is_stable_and_title_stays_short() {
+        assert_eq!(emoji_for("DFM SDK partnership", ""), "🤝");
+        assert_eq!(emoji_for("Incident review", "the outage was fixed"), "🐛");
+        let title = short_title(
+            "A very long manufacturing partnership title that should never reach the card",
+            40,
+        );
+        assert!(title.chars().count() <= 41, "{title}");
+        assert!(title.ends_with('…'));
     }
 
     #[test]

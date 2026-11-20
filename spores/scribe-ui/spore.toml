@@ -26,6 +26,7 @@ routes = [
   { methods = ["POST"], path = "/api/relearn" },
   { methods = ["POST"], path = "/api/voicefix" },
   { methods = ["POST"], path = "/api/restyle" },
+  { methods = ["POST"], path = "/api/merge" },
   { methods = ["POST"], path = "/api/clean" },
   { methods = ["POST"], path = "/api/vocabulary/save" },
   { methods = ["GET"], path = "/api/vocabulary" },
