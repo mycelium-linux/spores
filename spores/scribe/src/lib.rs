@@ -44,6 +44,7 @@ struct Args {
     margin: f64,
     deep_model: String,
     deep_after_chars: usize,
+    force: bool,
 }
 
 impl Default for Args {
@@ -64,6 +65,7 @@ impl Default for Args {
             margin: 0.08,
             deep_model: "beam-free".to_string(),
             deep_after_chars: 80_000,
+            force: false,
         }
     }
 }
@@ -116,6 +118,7 @@ impl Args {
                         .parse()
                         .map_err(|_| "--deep-after-chars must be a number".to_string())?
                 }
+                "--force" => args.force = true,
                 "--help" | "-h" => {
                     return Err(
                         "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
@@ -783,11 +786,12 @@ fn voiceprint_capture(args: &Args, path: &str) -> Result<Value, String> {
     let mut recognized = 0usize;
     let mut errors: Vec<String> = Vec::new();
     for (speaker, (start, end)) in by_speaker {
-        if speakers
-            .get(&speaker)
-            .and_then(|entry| entry.get("source"))
-            .and_then(Value::as_str)
-            == Some("manual")
+        if !args.force
+            && speakers
+                .get(&speaker)
+                .and_then(|entry| entry.get("source"))
+                .and_then(Value::as_str)
+                == Some("manual")
         {
             continue;
         }
