@@ -72,6 +72,30 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 ),
                 Err(error) => api_error(400, &error),
             },
+            (Method::Post, "/api/swap") => match swap_speakers(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
+            },
+            (Method::Post, "/api/relearn") => match relearn(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
+            },
+            (Method::Post, "/api/voicefix") => match queue_voicefix(query) {
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
+                Err(error) => api_error(400, &error),
+            },
             (Method::Get, "/api/capture") => match query_value(query, "path") {
                 Some(path) => match capture(&path) {
                     Ok(value) => respond(
@@ -178,40 +202,39 @@ fn slug(name: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-fn set_speaker(query: &str) -> Result<Value, String> {
-    let path = query_value(query, "path").ok_or("missing path")?;
-    let speaker = query_value(query, "speaker").ok_or("missing speaker")?;
-    let name = query_value(query, "name").ok_or("missing name")?;
-    if !path.starts_with("captures/") || path.contains("..") {
-        return Err("invalid capture path".into());
+fn canonical_speaker(raw: &str) -> String {
+    if !raw.is_empty() && raw.chars().all(|ch| ch.is_ascii_digit()) {
+        if let Ok(value) = raw.parse::<u32>() {
+            return format!("SPEAKER_{value:02}");
+        }
     }
-    let name = name.trim();
-    if name.is_empty() || name.len() > 80 || speaker.is_empty() {
-        return Err("invalid speaker name".into());
-    }
-    let speakers_path = format!("{path}/speakers.json");
-    let mut speakers = read_json(&speakers_path).unwrap_or_else(|_| json!({}));
-    if !speakers.is_object() {
-        speakers = json!({});
-    }
-    let person_id = slug(name);
-    speakers[&speaker] = json!({
-        "name": name,
-        "person_id": person_id,
-        "source": "manual"
-    });
-    let bytes = serde_json::to_vec_pretty(&speakers).map_err(|error| error.to_string())?;
-    vfs_mut::write(
-        &speakers_path,
-        &bytes,
-        "application/json",
-        None,
-        None,
-    )
-    .map_err(|error| format!("write speakers: {error:?}"))?;
+    raw.to_string()
+}
 
-    // Manual naming is also an enrollment request. The Scribe enrichment
-    // worker owns the audio/model call and turns this into a durable template.
+fn valid_capture(path: &str) -> bool {
+    path.starts_with("captures/") && !path.contains("..")
+}
+
+fn write_json(path: &str, value: &Value) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
+    vfs_mut::write(path, &bytes, "application/json", None, None)
+        .map(|_| ())
+        .map_err(|error| format!("write {path}: {error:?}"))
+}
+
+fn read_overrides(path: &str) -> Value {
+    let value = read_json(&format!("{path}/speaker_overrides.json")).unwrap_or_else(|_| json!([]));
+    if value.is_array() { value } else { json!([]) }
+}
+
+fn queue_learning(
+    path: &str,
+    speaker: &str,
+    name: &str,
+    person_id: &str,
+    start: Option<f64>,
+    end: Option<f64>,
+) -> Result<(), String> {
     let queue_path = "voiceprints/learn.json";
     let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
     if !queue.is_array() {
@@ -219,23 +242,240 @@ fn set_speaker(query: &str) -> Result<Value, String> {
     }
     if let Some(items) = queue.as_array_mut() {
         let already = items.iter().any(|item| {
-            item.get("path").and_then(Value::as_str) == Some(path.as_str())
-                && item.get("speaker").and_then(Value::as_str) == Some(speaker.as_str())
+            item.get("path").and_then(Value::as_str) == Some(path)
+                && item.get("speaker").and_then(Value::as_str) == Some(speaker)
+                && item.get("start").and_then(Value::as_f64) == start
         });
         if !already {
-            items.push(json!({
+            let mut item = json!({
                 "path": path,
                 "speaker": speaker,
                 "name": name,
                 "person_id": person_id,
-            }));
+                "force": true,
+            });
+            if let (Some(start), Some(end)) = (start, end) {
+                item["start"] = json!(start);
+                item["end"] = json!(end);
+            }
+            items.push(item);
         }
     }
-    let queue_bytes = serde_json::to_vec_pretty(&queue).map_err(|error| error.to_string())?;
-    vfs_mut::write(queue_path, &queue_bytes, "application/json", None, None)
-        .map_err(|error| format!("write voiceprint queue: {error:?}"))?;
+    write_json(queue_path, &queue)
+}
 
-    Ok(json!({ "ok": true, "speakers": speakers }))
+fn set_speaker(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    let speaker = query_value(query, "speaker")
+        .map(|value| canonical_speaker(&value))
+        .ok_or("missing speaker")?;
+    let name = query_value(query, "name").ok_or("missing name")?;
+    if !valid_capture(&path) {
+        return Err("invalid capture path".into());
+    }
+    let name = name.trim();
+    if name.is_empty() || name.len() > 80 || speaker.is_empty() {
+        return Err("invalid speaker name".into());
+    }
+    let person_id = slug(name);
+    let scope = query_value(query, "scope").unwrap_or_else(|| "all".to_string());
+    if scope == "line" {
+        let start = query_value(query, "start")
+            .and_then(|value| value.parse::<f64>().ok())
+            .ok_or("line scope needs start")?;
+        let end = query_value(query, "end")
+            .and_then(|value| value.parse::<f64>().ok())
+            .ok_or("line scope needs end")?;
+        if !(end > start) || !start.is_finite() || !end.is_finite() {
+            return Err("invalid line window".into());
+        }
+        let overrides_path = format!("{path}/speaker_overrides.json");
+        let mut overrides = read_overrides(&path);
+        if let Some(items) = overrides.as_array_mut() {
+            items.retain(|item| {
+                let old_start = item.get("start").and_then(Value::as_f64).unwrap_or(-1.0);
+                let old_end = item.get("end").and_then(Value::as_f64).unwrap_or(-1.0);
+                (old_start - start).abs() > 0.01 || (old_end - end).abs() > 0.01
+            });
+            items.push(json!({
+                "start": start,
+                "end": end,
+                "speaker": speaker,
+                "name": name,
+                "person_id": person_id,
+                "source": "manual",
+            }));
+        }
+        write_json(&overrides_path, &overrides)?;
+        queue_learning(&path, &speaker, name, &person_id, Some(start), Some(end))?;
+        let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+        return Ok(json!({"ok": true, "scope": "line", "speakers": speakers, "overrides": overrides}));
+    }
+
+    let speakers_path = format!("{path}/speakers.json");
+    let mut speakers = read_json(&speakers_path).unwrap_or_else(|_| json!({}));
+    if !speakers.is_object() {
+        speakers = json!({});
+    }
+    speakers[&speaker] = json!({
+        "name": name,
+        "person_id": person_id,
+        "source": "manual"
+    });
+    write_json(&speakers_path, &speakers)?;
+    // A bulk rename supersedes earlier one-line corrections for this speaker.
+    let mut overrides = read_overrides(&path);
+    if let Some(items) = overrides.as_array_mut() {
+        items.retain(|item| item.get("speaker").and_then(Value::as_str) != Some(speaker.as_str()));
+    }
+    write_json(&format!("{path}/speaker_overrides.json"), &overrides)?;
+    queue_learning(&path, &speaker, name, &person_id, None, None)?;
+    apply_speaker_names(&path, &speakers)?;
+    Ok(json!({"ok": true, "scope": "all", "speakers": speakers}))
+}
+
+fn swap_text(text: &str, a_name: &str, b_name: &str) -> String {
+    const A: &str = "\u{0}scribe-a\u{0}";
+    const B: &str = "\u{0}scribe-b\u{0}";
+    let text = text.replace(a_name, A).replace(b_name, B);
+    text.replace(A, b_name).replace(B, a_name)
+}
+
+fn swap_speakers(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    let a = query_value(query, "a")
+        .map(|value| canonical_speaker(&value))
+        .ok_or("missing a")?;
+    let b = query_value(query, "b")
+        .map(|value| canonical_speaker(&value))
+        .ok_or("missing b")?;
+    if !valid_capture(&path) || a == b {
+        return Err("invalid swap".into());
+    }
+    let speakers_path = format!("{path}/speakers.json");
+    let mut speakers = read_json(&speakers_path).unwrap_or_else(|_| json!({}));
+    let Some(map) = speakers.as_object_mut() else {
+        return Err("speakers is not an object".into());
+    };
+    let a_value = map.get(&a).cloned().ok_or("missing speaker a")?;
+    let b_value = map.get(&b).cloned().ok_or("missing speaker b")?;
+    if a_value.get("name").is_none() || b_value.get("name").is_none() {
+        return Err("both speakers need names before swapping".into());
+    }
+    map.insert(a.clone(), b_value);
+    map.insert(b.clone(), a_value);
+    write_json(&speakers_path, &speakers)?;
+
+    if let Ok(mut actions) = read_json(&format!("{path}/actions.json")) {
+        if let Some(items) = actions.as_array_mut() {
+            let a_name = speakers[&a].get("name").and_then(Value::as_str).unwrap_or("");
+            let b_name = speakers[&b].get("name").and_then(Value::as_str).unwrap_or("");
+            for action in items {
+                if let Some(fields) = action.as_object_mut() {
+                    for field in ["title", "quote", "owner", "speaker"] {
+                        if let Some(text) = fields.get(field).and_then(Value::as_str) {
+                            fields.insert(field.to_string(), json!(swap_text(text, a_name, b_name)));
+                        }
+                    }
+                }
+            }
+            write_json(&format!("{path}/actions.json"), &actions)?;
+        }
+    }
+    apply_speaker_names(&path, &speakers)?;
+    Ok(json!({"ok": true, "speakers": speakers}))
+}
+
+fn queue_voicefix(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    if !valid_capture(&path) {
+        return Err("invalid capture path".into());
+    }
+    let queue_path = "voiceprints/voicefix.json";
+    let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    if !queue.is_array() {
+        queue = json!([]);
+    }
+    if let Some(items) = queue.as_array_mut() {
+        let already = items
+            .iter()
+            .any(|item| item.get("path").and_then(Value::as_str) == Some(path.as_str()));
+        if !already {
+            items.push(json!({"path": path, "source": "scribe-ui"}));
+        }
+    }
+    write_json(queue_path, &queue)?;
+    Ok(json!({"ok": true, "queued": path}))
+}
+
+fn relearn(query: &str) -> Result<Value, String> {
+    let path = query_value(query, "path").ok_or("missing path")?;
+    if !valid_capture(&path) {
+        return Err("invalid capture path".into());
+    }
+    let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+    let mut queued = 0usize;
+    if let Some(entries) = speakers.as_object() {
+        for (speaker, entry) in entries {
+            let Some(name) = entry.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let person_id = entry
+                .get("person_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| slug(name));
+            queue_learning(&path, speaker, name, &person_id, None, None)?;
+            queued += 1;
+        }
+    }
+    Ok(json!({"ok": true, "queued": queued}))
+}
+
+fn apply_speaker_names(path: &str, speakers: &Value) -> Result<(), String> {
+    let Some(entries) = speakers.as_object() else {
+        return Ok(());
+    };
+    let labels: Vec<(String, String)> = entries
+        .iter()
+        .filter_map(|(label, entry)| {
+            let name = entry.get("name").and_then(Value::as_str)?.trim();
+            (!name.is_empty()).then(|| (label.clone(), name.to_string()))
+        })
+        .collect();
+    if labels.is_empty() {
+        return Ok(());
+    }
+    let actions_path = format!("{path}/actions.json");
+    let Ok(mut actions) = read_json(&actions_path) else {
+        return Ok(());
+    };
+    let Some(items) = actions.as_array_mut() else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for action in items {
+        let Some(fields) = action.as_object_mut() else {
+            continue;
+        };
+        for field in ["title", "quote", "owner", "speaker"] {
+            let Some(text) = fields.get(field).and_then(Value::as_str).map(str::to_string) else {
+                continue;
+            };
+            let mut next = text;
+            for (label, name) in &labels {
+                next = next.replace(label, name);
+            }
+            if fields.get(field).and_then(Value::as_str) != Some(next.as_str()) {
+                fields.insert(field.to_string(), json!(next));
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        write_json(&actions_path, &actions)?;
+    }
+    Ok(())
 }
 
 /// Hide empty fragments, single-word recordings, and known one-off captures.
@@ -391,6 +631,7 @@ fn capture(path: &str) -> Result<Value, String> {
     let transcript = read_json(&format!("{path}/transcript.json"))?;
     let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
     let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
+    let overrides = read_overrides(path);
     let text = transcript
         .get("text")
         .and_then(Value::as_str)
@@ -410,6 +651,7 @@ fn capture(path: &str) -> Result<Value, String> {
         "actions": actions,
         "transcript": transcript,
         "speakers": speakers,
+        "overrides": overrides,
         "words": text.split_whitespace().count(),
         "speaker_count": speaker_count(&transcript),
         "duration_ms": ended.saturating_sub(started),
@@ -471,7 +713,7 @@ fn title(summary: &str) -> Option<String> {
                 .trim_start_matches("Overview:")
                 .trim();
             let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
-            first.chars().take(90).collect()
+            first.chars().take(64).collect()
         })
         .filter(|line: &String| !line.is_empty())
 }

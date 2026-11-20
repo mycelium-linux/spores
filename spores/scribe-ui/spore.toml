@@ -22,6 +22,9 @@ path = "module.wasm"
 hosts = ["scribe.local", "scribe.localhost"]
 routes = [
   { methods = ["POST"], path = "/api/speaker" },
+  { methods = ["POST"], path = "/api/swap" },
+  { methods = ["POST"], path = "/api/relearn" },
+  { methods = ["POST"], path = "/api/voicefix" },
   { methods = ["GET"], path = "/api/captures" },
   { methods = ["GET"], path = "/api/capture" },
   { methods = ["GET"], path = "/" },

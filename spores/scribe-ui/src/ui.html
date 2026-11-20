@@ -21,11 +21,11 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 .date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
 .center{padding:30px 38px 60px;overflow:auto}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
-.meta{color:var(--muted);font-size:12px;margin-bottom:28px}
+.meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
 .summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}
 .summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
-.turn{padding:10px 0;border-bottom:1px solid #eee8de}
+.turn{padding:10px 0;border-bottom:1px solid #eee8de;cursor:pointer}.turn:hover{background:#f7f3ec}
 .speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:820px}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
 .actions h2{margin:4px 0 12px}
@@ -64,6 +64,21 @@ const actionsEl = document.getElementById('actions');
 let selected = null;
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortTitle = (value, max = 64) => {
+  let text = String(value ?? '').replace(/^#+\s*/, '').replace(/^Overview:\s*/i, '').trim();
+  text = text.split('. ')[0].replace(/\.$/, '');
+  if (text.length <= max) return text;
+  let cut = text.lastIndexOf(' ', max);
+  if (cut < max * 0.6) cut = max;
+  return text.slice(0, cut).replace(/[\s,;:.\-—]+$/, '') + '…';
+};
+const canonicalSpeaker = (raw) => {
+  if (raw == null) return 'Speaker';
+  const text = String(raw);
+  if (text === 'You') return 'You';
+  if (/^\d+$/.test(text)) return `SPEAKER_${text.padStart(2, '0')}`;
+  return text;
+};
 const speakerName = (speaker) => {
   if (speaker == null) return 'Speaker';
   if (typeof speaker === 'number') return `Speaker ${speaker}`;
@@ -72,9 +87,21 @@ const speakerName = (speaker) => {
 };
 const speakerLabel = (segment) => segment?.is_user ? 'You' : speakerName(segment?.speaker);
 const displaySpeaker = (capture, raw) => {
-  const key = raw == null ? 'Speaker' : String(raw);
+  const key = canonicalSpeaker(raw);
   const mapped = capture?.speakers?.[key]?.name;
   return mapped || (key === 'You' ? 'You' : speakerName(key));
+};
+const overrideFor = (capture, start, end) => {
+  let best = null;
+  let bestOverlap = 0;
+  for (const item of capture?.overrides || []) {
+    const overlap = Math.min(end, Number(item.end)) - Math.max(start, Number(item.start));
+    if (overlap > bestOverlap) {
+      best = item;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
 };
 const speakerColor = (label) => {
   let hash = 0;
@@ -94,7 +121,7 @@ async function loadList() {
     const header = day !== lastDay ? `<div class="date-header">${esc(day)}</div>` : '';
     lastDay = day;
     return `${header}<button class="chat ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
-      <div class="name">${esc(item.title)}</div>
+      <div class="name">${esc(shortTitle(item.title))}</div>
       <div class="when">${esc(clock(item.started_at_ms))}</div>
     </button>`;
   }).join('') || '<div class="empty">No captures yet.</div>';
@@ -190,7 +217,7 @@ function render(capture) {
   const turns = [];
   if (segments.length) {
     for (const segment of segments) {
-      const speakerKey = segment.is_user ? 'You' : (segment.speaker ?? 'Speaker');
+      const speakerKey = segment.is_user ? 'You' : canonicalSpeaker(segment.speaker);
       const speaker = displaySpeaker(capture, speakerKey);
       const text = (segment.text || '').trim();
       if (!text) continue;
@@ -211,7 +238,7 @@ function render(capture) {
     }
   } else {
     for (const word of words) {
-      const speakerKey = word.is_user ? 'You' : (word.speaker ?? 'Speaker');
+      const speakerKey = word.is_user ? 'You' : canonicalSpeaker(word.speaker);
       const speaker = displaySpeaker(capture, speakerKey);
       const token = word.word ?? '';
       if (!token) continue;
@@ -227,29 +254,63 @@ function render(capture) {
       }
     }
   }
+  for (const turn of turns) {
+    const correction = overrideFor(capture, turn.start, turn.end);
+    if (correction?.name) turn.speaker = correction.name;
+  }
   const transcript = turns.length
-    ? turns.map(turn => `<div class="turn"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name" data-speaker="${esc(turn.speakerKey)}">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
+    ? turns.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
+  const named = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
+  const tools = [
+    named.length >= 1 ? `<button class="mini" id="voicefix-lines">Auto-fix lines</button>` : '',
+    named.length >= 2 ? `<button class="mini" id="swap-speakers">Swap names</button><button class="mini" id="relearn-speakers">Relearn voices</button>` : '',
+  ].join('');
   detail.innerHTML = `
-    <h1>${esc(capture.title)}</h1>
-    <div class="meta">${esc(metaLine(capture))}</div>
+    <h1>${esc(shortTitle(capture.title, 90))}</h1>
+    <div class="meta">${esc(metaLine(capture))}${tools}</div>
     <div class="summary">${markdown((capture.summary || 'No summary yet.').replace(/^#\s+.*\n+/, ''))}</div>
     <h2>Transcript</h2>
     ${transcript}`;
-  detail.querySelectorAll('.speaker-name').forEach(button => {
-    button.addEventListener('click', async () => {
-      const key = button.dataset.speaker;
+  detail.querySelectorAll('.turn[data-speaker]').forEach(turn => {
+    turn.addEventListener('click', async () => {
+      const key = turn.dataset.speaker;
+      const start = Number(turn.dataset.start);
+      const end = Number(turn.dataset.end);
       const name = prompt(`Name for ${displaySpeaker(capture, key)}`, '');
       if (!name || !name.trim()) return;
-      const response = await fetch(`/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`, { method: 'POST' });
+      const bulk = confirm(`Apply “${name.trim()}” to every ${displaySpeaker(capture, key)} line in this capture?\n\nOK = all matching lines. Cancel = only this line.`);
+      let url = `/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`;
+      if (!bulk) url += `&scope=line&start=${start}&end=${end}`;
+      const response = await fetch(url, { method: 'POST' });
       if (response.ok) loadCapture(capture.path);
     });
+  });
+  document.getElementById('voicefix-lines')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/voicefix?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued line-by-line voice ID. Reload in a few seconds.');
+      setTimeout(() => loadCapture(capture.path), 6000);
+    }
+  });
+  document.getElementById('swap-speakers')?.addEventListener('click', async () => {
+    const entries = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
+    if (entries.length < 2) return;
+    const [a, av] = entries[0];
+    const [b, bv] = entries[1];
+    if (!confirm(`Swap ${av.name} and ${bv.name} everywhere in this capture?`)) return;
+    const response = await fetch(`/api/swap?path=${encodeURIComponent(capture.path)}&a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`, { method: 'POST' });
+    if (response.ok) loadCapture(capture.path);
+  });
+  document.getElementById('relearn-speakers')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/relearn?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) alert('Queued both named voices for enrollment. The enrich worker will update templates.');
   });
   actionsEl.innerHTML = actions.length ? actions.map(action => `
     <div class="action">
       <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
       ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
-      <div class="who">${esc(speakerName(action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}</div>
+      <div class="who">${esc(displaySpeaker(capture, action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}</div>
     </div>`).join('') : '<div class="empty">No action items extracted.</div>';
 }
 

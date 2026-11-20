@@ -121,7 +121,7 @@ impl Args {
                 "--force" => args.force = true,
                 "--help" | "-h" => {
                     return Err(
-                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | names --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
+                        "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | voicefix --path PATH | names --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
                             .into(),
                     )
                 }
@@ -176,6 +176,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "receive" => receive(args),
         "enrich" => enrich_watch(args),
         "voiceprint" => voiceprint(args),
+        "voicefix" => voicefix(args),
         "names" => names(args),
         "learn" => learn_command(args),
         other => Err(format!("unknown command {other}")),
@@ -411,6 +412,9 @@ fn enrich_watch(args: Args) -> Result<(), String> {
     loop {
         if let Err(error) = learn_manual(&args) {
             eprintln!("scribe: manual voice learning: {error}");
+        }
+        if let Err(error) = voicefix_queue(&args) {
+            eprintln!("scribe: line voice fixes: {error}");
         }
         let page = bus::poll(&["scribe.capture.stored.v1".into()], cursor.as_deref(), 32)
             .map_err(|error| format!("unibus poll: {error:?}"))?;
@@ -930,6 +934,200 @@ fn voiceprint_capture(args: &Args, path: &str) -> Result<Value, String> {
     .map_err(|error| format!("write speakers: {error:?}"))?;
     let _ = apply_speaker_names(path, &speakers);
     Ok(json!({"recognized": recognized, "speakers": speakers, "errors": errors}))
+}
+
+fn turn_windows(transcript: &Value) -> Vec<(String, f64, f64)> {
+    let mut turns = Vec::new();
+    if let Some(segments) = transcript.get("segments").and_then(Value::as_array) {
+        if !segments.is_empty() {
+            for segment in segments {
+                let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+                if end > start {
+                    turns.push((speaker_key(segment), start, end));
+                }
+            }
+            return turns;
+        }
+    }
+    let Some(words) = transcript.get("words").and_then(Value::as_array) else {
+        return turns;
+    };
+    let mut current: Option<(String, f64, f64)> = None;
+    for word in words {
+        let key = speaker_key(word);
+        let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+        let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
+        if end <= start {
+            continue;
+        }
+        match current.as_mut() {
+            Some((running_key, _, running_end)) if *running_key == key && start - *running_end <= 1.8 => {
+                *running_end = end;
+            }
+            _ => {
+                if let Some(turn) = current.take() {
+                    turns.push(turn);
+                }
+                current = Some((key, start, end));
+            }
+        }
+    }
+    if let Some(turn) = current {
+        turns.push(turn);
+    }
+    turns
+}
+
+fn voicefix(args: Args) -> Result<(), String> {
+    let path = args.path.as_deref().ok_or("voicefix needs --path")?;
+    let result = voicefix_capture(&args, path)?;
+    finish(json!({"ok": true, "command": "voicefix", "capture": path, "result": result}));
+    Ok(())
+}
+
+fn voicefix_queue(args: &Args) -> Result<(), String> {
+    let queue_path = "voiceprints/voicefix.json";
+    let queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
+    let Some(items) = queue.as_array() else {
+        return Ok(());
+    };
+    if items.is_empty() {
+        return Ok(());
+    }
+    let mut pending = Vec::new();
+    for item in items {
+        let Some(path) = item.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        match voicefix_capture(args, path) {
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("scribe: voicefix {path}: {error}");
+                pending.push(item.clone());
+            }
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&json!(pending)).map_err(|error| error.to_string())?;
+    vfs_mut::write(queue_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write voicefix queue: {error:?}"))?;
+    Ok(())
+}
+
+fn voicefix_capture(args: &Args, path: &str) -> Result<Value, String> {
+    let templates = read_json(&args.templates).map_err(|error| format!("templates: {error}"))?;
+    let items = templates
+        .get("templates")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or("no voice templates")?;
+    let transcript = read_json(&format!("{path}/transcript.json"))?;
+    let turns = turn_windows(&transcript);
+    let overrides_path = format!("{path}/speaker_overrides.json");
+    let existing = read_json(&overrides_path).unwrap_or_else(|_| json!([]));
+    let mut manual: Vec<(f64, f64)> = Vec::new();
+    let mut next: Vec<Value> = Vec::new();
+    if let Some(entries) = existing.as_array() {
+        for entry in entries {
+            if entry.get("source").and_then(Value::as_str) == Some("manual") {
+                let start = entry.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+                let end = entry.get("end").and_then(Value::as_f64).unwrap_or(start);
+                manual.push((start, end));
+                next.push(entry.clone());
+            }
+        }
+    }
+    let audio = format!("{path}/audio.wav");
+    let mut matched = 0usize;
+    let mut skipped = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for (speaker, turn_start, turn_end) in turns {
+        if turn_end - turn_start < 0.4 {
+            skipped += 1;
+            continue;
+        }
+        if manual.iter().any(|(start, end)| {
+            turn_start < *end && turn_end > *start
+        }) {
+            skipped += 1;
+            continue;
+        }
+        let start = turn_start.max(0.0);
+        let end = (turn_start + (turn_end - turn_start).min(24.0)).max(start + 1.0);
+        let pcm = match wav_pcm_segment(&audio, start, end) {
+            Ok(pcm) if pcm.len() >= 32_000 => pcm,
+            _ => {
+                skipped += 1;
+                continue;
+            }
+        };
+        let request = inference::VoiceEmbeddingRequest {
+            model: "fpl/spkrec-ecapa-voxceleb".to_string(),
+            checkpoint: args.checkpoint.clone(),
+            sample_rate: 16_000,
+            dimensions: Some(192),
+            pcm16: pcm,
+        };
+        let response = match inference::voice_embed(&request) {
+            Ok(response) => response,
+            Err(error) => {
+                errors.push(format!("{start:.1}-{end:.1}: {error:?}"));
+                continue;
+            }
+        };
+        let probe: Vec<f64> = response.embedding.iter().map(|value| *value as f64).collect();
+        let Ok(probe) = normalize_embedding(&probe) else {
+            skipped += 1;
+            continue;
+        };
+        let mut ranked: Vec<(f64, &Value)> = items
+            .iter()
+            .filter_map(|template| {
+                let embedding = template.get("embedding")?.as_array()?;
+                let values = embedding.iter().map(Value::as_f64).collect::<Option<Vec<f64>>>()?;
+                Some((cosine(&probe, &normalize_embedding(&values).ok()?), template))
+            })
+            .collect();
+        ranked.sort_by(|left, right| right.0.total_cmp(&left.0));
+        let Some((best, template)) = ranked.first() else {
+            continue;
+        };
+        let runner_up = ranked.get(1).map(|entry| entry.0).unwrap_or(-1.0);
+        if *best < args.threshold || *best - runner_up < args.margin {
+            skipped += 1;
+            continue;
+        }
+        let person_id = template
+            .get("person_id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let name = template
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or(person_id);
+        next.push(json!({
+            "start": start,
+            "end": end,
+            "speaker": speaker,
+            "name": name,
+            "person_id": person_id,
+            "score": best,
+            "model": response.model,
+            "pipeline": "ecapa-mono16k-v1",
+            "source": "voice",
+        }));
+        matched += 1;
+    }
+    next.sort_by(|left, right| {
+        left.get("start")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            .total_cmp(&right.get("start").and_then(Value::as_f64).unwrap_or(0.0))
+    });
+    let bytes = serde_json::to_vec_pretty(&json!(next)).map_err(|error| error.to_string())?;
+    vfs_mut::write(&overrides_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write overrides: {error:?}"))?;
+    Ok(json!({"turns": matched, "skipped": skipped, "errors": errors}))
 }
 
 fn names(args: Args) -> Result<(), String> {
