@@ -1,0 +1,43 @@
+// Host-owned audio codec sessions.
+//
+// A Spore names a session and bounded packet/PCM bytes. The host owns libopus,
+// sample rates, channel layouts, codec state and resource limits; no guest sees
+// a decoder handle, native pointer, or codec configuration.
+package soil:codec@0.1.0;
+
+interface codec {
+  enum error {
+    denied,
+    invalid,
+    unsupported,
+    over-budget,
+    io,
+  }
+
+  /// Decode one encoded packet for a session into interleaved PCM16.
+  decode: func(
+    session: string,
+    packet: list<u8>,
+    sample-rate: u32,
+    channels: u16,
+  ) -> result<list<u8>, error>;
+
+  /// Encode one interleaved PCM16 frame for a session.
+  encode: func(
+    session: string,
+    pcm: list<u8>,
+    sample-rate: u32,
+    channels: u16,
+  ) -> result<list<u8>, error>;
+
+  /// Drop all codec state for a session.
+  reset: func(session: string) -> result<_, error>;
+}
+
+world host {
+  import codec;
+}
+
+world guest {
+  import codec;
+}

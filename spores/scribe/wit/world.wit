@@ -1,0 +1,22 @@
+// Scribe: durable capture ingestion from Unibus into VFS + records.
+//
+// The Spore owns the bundle layout, the capture schema, and the action manifest.
+// The host owns VFS bytes, records durability, indexing, and Unibus transport.
+package fungos:scribe@0.1.0;
+
+world scribe {
+  import soil:vfs/vfs@1.0.0;
+  import soil:streams/duplex@0.1.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
+  import soil:index/index@1.1.0;
+  import soil:records/records@0.1.0;
+  import soil:inference/inference@0.3.0;
+  import soil:unibus/bus@0.1.0;
+  import soil:time/time@1.0.0;
+
+  /// `watch` or `ingest`; see README.md.
+  export run: func(args: list<string>) -> result<_, string>;
+
+  /// Counts from the last run.
+  export snapshot: func() -> result<list<u8>, string>;
+}

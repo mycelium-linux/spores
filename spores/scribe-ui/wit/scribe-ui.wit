@@ -1,0 +1,10 @@
+// Scribe UI: a small HTML surface over the capture bundles in the VFS.
+package fungos:scribe-ui@0.1.0;
+
+world scribe-ui {
+  import soil:vfs/vfs@1.0.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
+  import soil:index/index@1.1.0;
+
+  export wasi:http/incoming-handler@0.2.12;
+}

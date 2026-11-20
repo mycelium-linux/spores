@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scribe</title>
+<style>
+:root{--bg:#faf8f4;--panel:#f3efe7;--surface:#fff;--hover:#f0ebe2;--active:#ece6dc;--soft:#eee8de;--highlight:#fbf0d9;--ink:#1d1b18;--muted:#7b7266;--line:#e4ddd2;--accent:#2f6f56;--accent-soft:#e3eee7;--shadow:0 8px 24px rgba(30,25,20,.12);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151412;--panel:#201e1a;--surface:#24211d;--hover:#2a2621;--active:#332e27;--soft:#302b25;--highlight:#3b311d;--ink:#f3eee5;--muted:#a79d8f;--line:#3a352e;--accent:#8fd0aa;--accent-soft:#263a2f;--shadow:0 8px 24px rgba(0,0,0,.35);color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151412;--panel:#201e1a;--surface:#24211d;--hover:#2a2621;--active:#332e27;--soft:#302b25;--highlight:#3b311d;--ink:#f3eee5;--muted:#a79d8f;--line:#3a352e;--accent:#8fd0aa;--accent-soft:#263a2f;--shadow:0 8px 24px rgba(0,0,0,.35);color-scheme:dark}:root[data-theme="light"]{color-scheme:light}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:12px;height:58px;padding:0 22px;border-bottom:1px solid var(--line)}
+.brand{font-family:ui-serif,Georgia,serif;font-size:23px;letter-spacing:-.03em}.brand b{color:var(--accent)}
+.tag{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 7px}
+header .spacer{flex:1}.sidebar-open{display:none}body.sidebar-collapsed .sidebar-open{display:inline-block}.list-actions{display:inline-flex;align-items:center;gap:3px}.avatar{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--accent-soft);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;padding:0}.profile-wrap{position:relative}.profile-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:20;min-width:180px;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);padding:5px}.profile-menu[hidden]{display:none}.profile-name{padding:7px 9px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}.profile-menu a,.profile-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 9px;font-size:12px;border-radius:5px;color:var(--ink);text-decoration:none}.profile-menu a:hover,.profile-menu button:hover{background:var(--hover)}.icon-btn{border:0;background:transparent;font-size:16px;padding:4px 8px;border-radius:5px}.icon-btn:hover{background:var(--panel)}body.shared #sidebar-toggle{display:none}button{font:inherit;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:7px;padding:6px 10px}button:hover{background:var(--hover)}
+main{display:grid;grid-template-columns:238px minmax(0,1fr);height:calc(100vh - 58px)}
+aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
+.list-title{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.14em;padding:0 7px 7px}.list-title button{font-size:9px;padding:2px 6px;border-radius:5px}
+.chat{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:6px;width:100%;text-align:left;border:0;border-radius:6px;padding:5px 7px;margin:0;background:transparent}
+.chat:hover{background:var(--hover)}.chat.active{background:var(--active)}
+.chat .pick{grid-row:1 / span 2;align-self:center;color:var(--muted);font-size:11px;line-height:1;text-align:center;border-radius:4px;padding:2px 0;user-select:none}
+.chat .pick:hover{background:var(--surface);color:var(--ink)}
+.chat .pick.on{color:var(--accent);font-weight:700}
+.chat .name{font-weight:560;font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat .name .emoji{margin-right:5px}
+.chat .when{font-size:10px;color:var(--muted);margin-top:1px;grid-column:2}
+.mergebar{display:flex;align-items:center;gap:6px;margin:2px 7px 8px;padding:6px 7px;border:1px solid var(--accent);border-radius:7px;background:var(--accent-soft);font-size:10px;color:var(--accent)}
+.mergebar span{flex:1}.mergebar button{font-size:10px;padding:3px 7px;border-radius:5px;border-color:var(--accent);color:var(--accent)}
+.title-emoji{margin-right:8px}
+.searchbar{padding:0 7px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}.searchbar[hidden]{display:none}.searchbar input{width:100%;font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}.searchbar .dates{display:flex;align-items:center;gap:4px;margin-top:6px}.searchbar .dates input{font-size:10px;padding:4px}.searchbar .dates button{font-size:10px;padding:4px 6px;flex:none}.group-header{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:transparent;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg);cursor:pointer}.group-header:hover{color:var(--ink)}.group-header span{font-size:9px;letter-spacing:0}.load-more{display:block;width:calc(100% - 14px);margin:10px 7px;font-size:11px;padding:7px;border-radius:6px}.processing{display:flex;align-items:center;gap:7px;margin:2px 7px 8px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);font-size:10px}.processing .spinner{width:11px;height:11px;border-width:2px}.hidden-note{font-size:9px;color:var(--muted);padding:0 7px 8px}.loading{display:flex;justify-content:center;padding:14px}.loading.hidden{display:none}.spinner{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
+.center{padding:30px 42px 60px;overflow:auto}body.sidebar-collapsed main{grid-template-columns:0 minmax(0,1fr)}body.sidebar-collapsed .chats{display:none}
+h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
+.meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
+.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}.summary-tools{display:flex;align-items:center;gap:8px;margin:0 0 12px}.pill-group{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--surface)}.pill-group button{border:0;border-radius:999px;padding:3px 10px;font-size:11px;background:transparent}.pill-group button.active{background:var(--accent-soft);color:var(--accent)}.menu{position:relative;display:inline-block}.menu>summary{list-style:none;cursor:pointer;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}.menu>summary::-webkit-details-marker{display:none}.menu[open]>summary{background:var(--accent-soft);color:var(--accent)}.menu-items{position:absolute;left:0;top:calc(100% + 4px);z-index:10;background:var(--surface);border:1px solid var(--line);border-radius:8px;min-width:170px;padding:4px;box-shadow:var(--shadow)}.menu-items button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 9px;font-size:12px;border-radius:5px}.menu-items button:hover{background:var(--panel)}
+.summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:var(--soft);border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
+h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}.section-head{display:flex;align-items:center;justify-content:space-between;margin:30px 0 8px}.section-head h2{margin:0}.source-btn{font-size:10px;padding:2px 7px;border-radius:5px}.section-tools{display:flex;align-items:center;gap:6px}
+.turn{padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}.turn:hover{background:var(--hover)}
+.speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:980px;font-size:15px;line-height:1.7}.turn.flash{background:var(--highlight);box-shadow:inset 3px 0 0 var(--accent)}
+.actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
+.actions h2{margin:4px 0 12px}
+.action{padding:11px 0;border-bottom:1px solid var(--line)}.action-click{cursor:pointer}.action-click:hover{background:var(--hover)}
+.action:last-child{border-bottom:0}
+.action .title{font-weight:560;line-height:1.35}
+.action .quote{color:var(--muted);font-size:12px;margin-top:5px;padding-left:9px;border-left:2px solid var(--accent)}
+.action .who{font-size:11px;color:var(--muted);margin-top:6px}
+.pill{display:inline-block;font-size:10px;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 6px;margin-left:4px}
+.empty{color:var(--muted);padding:40px 4px;font-size:13px}
+.error{color:#8c2f2f;background:#f9e9e6;border:1px solid #efd2cc;border-radius:8px;padding:10px 12px}.modal{position:fixed;inset:0;background:rgba(20,18,15,.38);display:flex;align-items:center;justify-content:center;z-index:50}.modal[hidden]{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow)}.modal-card h2{margin:0 0 6px}.modal-note{color:var(--muted);font-size:12px;margin:0 0 10px}.modal-card textarea{width:100%;resize:vertical;font:inherit;font-size:13px;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}.modal-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}
+@media(max-width:900px){main{grid-template-columns:220px minmax(0,1fr)}}body.shared .chats{display:none}body.shared main{grid-template-columns:minmax(0,1fr)}body.shared .center{max-width:980px;margin:0 auto;width:100%}
+@media(max-width:640px){main{display:block;height:auto}.chats{border-right:0;border-bottom:1px solid var(--line);max-height:220px}.center{padding:22px 18px}.actions{display:block;border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <button class="icon-btn sidebar-open" id="sidebar-open" title="Open captures">›</button>
+  <div class="brand">Scribe<b>.</b></div>
+  <div class="spacer"></div>
+  <button class="icon-btn" id="header-copy-link" title="Copy capture link" hidden>🔗</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: device">◐</button>
+  <div class="profile-wrap">
+    <button class="avatar" id="profile-btn" title="Profile"><span id="profile-initial">?</span></button>
+    <div class="profile-menu" id="profile-menu" hidden>
+      <div class="profile-name" id="profile-name">Anonymous</div>
+      <a href="https://github.com/mycelium-linux" target="_blank" rel="noreferrer">Mycelium</a>
+      <button id="profile-settings">Settings</button>
+    </div>
+  </div>
+</header>
+<main>
+  <aside class="chats">
+    <div class="list-title"><span>Chats</span><span class="list-actions"><button id="search-toggle">Search</button><button id="sidebar-toggle" title="Collapse captures">‹</button></span></div>
+    <div class="searchbar" id="searchbar" hidden>
+      <input id="search" placeholder="Search captures…" autocomplete="off">
+      <div class="dates"><input id="from" type="date" title="From date"><span>–</span><input id="to" type="date" title="To date"><button id="search-btn">Search</button></div>
+    </div>
+    <div id="loading" class="loading hidden"><span class="spinner"></span></div>
+    <div id="list"></div>
+  </aside>
+  <section class="center" id="detail"><div class="empty">Choose a capture.</div></section>
+</main>
+<div class="modal" id="settings-modal" hidden>
+  <div class="modal-card">
+    <h2>Known vocabulary</h2>
+    <p class="modal-note">Names, products, acronyms, and technical terms the transcript cleaner should preserve or repair to.</p>
+    <textarea id="vocabulary" rows="10" placeholder="Scribe&#10;Venchion&#10;ECAPA&#10;DFM&#10;freecad"></textarea>
+    <div class="modal-actions"><button id="vocabulary-cancel">Cancel</button><button id="vocabulary-save">Save</button></div>
+  </div>
+</div>
+<script>
+const list = document.getElementById('list');
+const detail = document.getElementById('detail');
+let selected = null;
+let selectedCapture = null;
+const shared = location.pathname === '/c' || location.pathname.startsWith('/c/');
+
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortTitle = (value, max = 40) => {
+  let text = String(value ?? '').replace(/^#+\s*/, '').replace(/^Overview:\s*/i, '').trim();
+  text = text.split('. ')[0].replace(/\.$/, '');
+  if (text.length <= max) return text;
+  let cut = text.lastIndexOf(' ', max);
+  if (cut < max * 0.6) cut = max;
+  return text.slice(0, cut).replace(/[\s,;:.\-—]+$/, '') + '…';
+};
+const emojiFor = (title) => {
+  const text = String(title || '').toLowerCase();
+  const rules = [
+    [['partner', 'partnership', 'collab', 'alliance'], '🤝'],
+    [['launch', 'release', 'ship', 'announce'], '🚀'],
+    [['bug', 'debug', 'incident', 'outage', 'fix'], '🐛'],
+    [['design', 'ui', 'ux', 'visual', 'style'], '🎨'],
+    [['architecture', 'system', 'infra', 'platform', 'sdk'], '🧱'],
+    [['finance', 'revenue', 'pricing', 'cost', 'budget'], '💰'],
+    [['hire', 'interview', 'candidate', 'team'], '🧑‍💼'],
+    [['research', 'experiment', 'test', 'benchmark'], '🧪'],
+    [['plan', 'roadmap', 'strategy', 'priority'], '🗺️'],
+    [['meeting', 'sync', 'standup', 'call'], '📞'],
+    [['health', 'workout', 'sleep', 'run'], '🫀'],
+    [['travel', 'trip', 'flight', 'drive'], '✈️'],
+    [['food', 'lunch', 'dinner', 'recipe'], '🍽️'],
+  ];
+  for (const [words, emoji] of rules) if (words.some(word => text.includes(word))) return emoji;
+  return '💬';
+};
+const canonicalSpeaker = (raw) => {
+  if (raw == null) return 'Speaker';
+  const text = String(raw);
+  if (text === 'You') return 'You';
+  if (/^\d+$/.test(text)) return `SPEAKER_${text.padStart(2, '0')}`;
+  return text;
+};
+const speakerName = (speaker) => {
+  if (speaker == null) return 'Speaker';
+  if (typeof speaker === 'number') return `Speaker ${speaker}`;
+  const match = String(speaker).match(/(\d+)/);
+  return match ? `Speaker ${Number(match[1])}` : String(speaker);
+};
+const speakerLabel = (segment) => segment?.is_user ? 'You' : speakerName(segment?.speaker);
+const displaySpeaker = (capture, raw) => {
+  const key = canonicalSpeaker(raw);
+  const mapped = capture?.speakers?.[key]?.name;
+  return mapped || (key === 'You' ? 'You' : speakerName(key));
+};
+const overrideFor = (capture, start, end) => {
+  let best = null;
+  let bestOverlap = 0;
+  for (const item of capture?.overrides || []) {
+    const overlap = Math.min(end, Number(item.end)) - Math.max(start, Number(item.start));
+    if (overlap > bestOverlap) {
+      best = item;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+};
+const speakerColor = (label) => {
+  let hash = 0;
+  for (const ch of String(label)) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  return `hsl(${Math.abs(hash) % 360} 35% 42%)`;
+};
+
+let cards = [];
+let offset = 0;
+let total = 0;
+let hasMore = true;
+let processingCount = 0;
+let processingLatest = 0;
+let hiddenCount = 0;
+let loading = false;
+let searchQuery = '';
+const collapsedGroups = new Set();
+const picked = new Set();
+
+const relativeGroup = (ms) => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = 86400000;
+  if (!ms || ms >= today) return 'Today';
+  if (ms >= today - day) return 'Yesterday';
+  if (ms >= today - 7 * day) return 'Last 7 days';
+  if (ms >= today - 30 * day) return 'Last 30 days';
+  return 'Older';
+};
+
+function setLoading(on) {
+  document.getElementById('loading')?.classList.toggle('hidden', !on);
+}
+
+function renderList() {
+  const clock = (ms) => ms ? new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+  const groups = new Map();
+  for (const item of cards) {
+    const group = relativeGroup(item.started_at_ms);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(item);
+  }
+  let html = '';
+  for (const [group, items] of groups) {
+    const open = !collapsedGroups.has(group);
+    html += `<button class="group-header" data-group="${esc(group)}">${esc(group)}<span>${items.length}</span></button>`;
+    if (open) {
+      html += items.map(item => `<button class="chat ${item.path === selected ? 'active' : ''}" data-path="${esc(item.path)}">
+        <span class="pick ${picked.has(item.path) ? 'on' : ''}" data-pick="${esc(item.path)}" title="Select for merge">${picked.has(item.path) ? '✓' : '○'}</span>
+        <div class="name"><span class="emoji">${esc(item.emoji || emojiFor(item.title))}</span>${esc(shortTitle(item.title))}</div>
+        <div class="when">${esc(clock(item.started_at_ms))}</div>
+      </button>`).join('');
+    }
+  }
+  if (hasMore) html += '<button class="load-more" id="load-more">Load more</button>';
+  const recent = processingLatest && Date.now() - processingLatest < 15 * 60 * 1000;
+  const status = [
+    processingCount ? `<div class="processing">${recent ? '<span class="spinner"></span>' : ''}<span>${recent ? `Processing ${processingCount} capture${processingCount === 1 ? '' : 's'}…` : `${processingCount} waiting for enrichment`}</span></div>` : '',
+    hiddenCount ? `<div class="hidden-note">${hiddenCount} low-signal hidden</div>` : '',
+  ].join('');
+  const mergebar = picked.size ? `<div class="mergebar"><span>${picked.size} selected</span><button id="merge-selected">Merge</button><button id="clear-selected">Clear</button></div>` : '';
+  list.innerHTML = status + mergebar + (html || (processingCount ? '' : '<div class="empty">No captures found.</div>'));
+  list.querySelectorAll('.chat').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
+  list.querySelectorAll('.chat .pick').forEach(pick => pick.addEventListener('click', event => {
+    event.stopPropagation();
+    const path = pick.dataset.pick;
+    if (picked.has(path)) picked.delete(path); else picked.add(path);
+    renderList();
+  }));
+  document.getElementById('clear-selected')?.addEventListener('click', () => { picked.clear(); renderList(); });
+  document.getElementById('merge-selected')?.addEventListener('click', mergeSelected);
+  list.querySelectorAll('.group-header').forEach(button => button.addEventListener('click', () => {
+    const group = button.dataset.group;
+    if (collapsedGroups.has(group)) collapsedGroups.delete(group);
+    else collapsedGroups.add(group);
+    renderList();
+  }));
+  document.getElementById('load-more')?.addEventListener('click', () => loadList(false));
+}
+
+async function loadList(reset = false) {
+  if (loading) return;
+  if (reset) {
+    cards = [];
+    offset = 0;
+    hasMore = true;
+  }
+  loading = true;
+  setLoading(true);
+  try {
+    const from = document.getElementById('from')?.value || '';
+    const to = document.getElementById('to')?.value || '';
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    let url;
+    if (searchQuery) {
+      params.set('q', searchQuery);
+      url = `/api/search?${params}`;
+    } else {
+      params.set('offset', String(offset));
+      params.set('limit', '40');
+      url = `/api/captures?${params}`;
+    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    const body = await response.json();
+    cards = cards.concat(body.captures || []);
+    offset = cards.length;
+    total = Number(body.total || cards.length);
+    processingCount = Number(body.processing || 0);
+    processingLatest = Number(body.processing_latest_ms || 0);
+    hiddenCount = Number(body.hidden || 0);
+    hasMore = Boolean(body.next);
+    renderList();
+    if (reset && !selected && cards.length) loadCapture(cards[0].path);
+  } finally {
+    loading = false;
+    setLoading(false);
+  }
+}
+
+async function mergeSelected() {
+  if (picked.size < 2) return;
+  if (!confirm(`Merge ${picked.size} captures into one card? The originals will be hidden but kept.`)) return;
+  const params = new URLSearchParams();
+  for (const path of picked) params.append('paths', path);
+  const response = await fetch(`/api/merge?${params}`, { method: 'POST' });
+  if (!response.ok) {
+    alert(await response.text());
+    return;
+  }
+  picked.clear();
+  selected = null;
+  alert('Merge queued. Scribe will rebuild the card in a few seconds.');
+  setTimeout(() => loadList(true).catch(showError), 6000);
+}
+
+const runSearch = () => {
+  searchQuery = document.getElementById('search')?.value.trim() || '';
+  selected = null;
+  loadList(true).catch(showError);
+};
+
+async function loadCapture(path) {
+  selected = path;
+  list.querySelectorAll('.chat').forEach(button => button.classList.toggle('active', button.dataset.path === path));
+  detail.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const response = await fetch(`/api/capture?path=${encodeURIComponent(path)}`);
+    if (!response.ok) throw new Error(await response.text());
+    render(await response.json());
+  } catch (error) {
+    detail.innerHTML = `<div class="error">${esc(error.message)}</div>`;
+  }
+}
+
+function metaLine(capture) {
+  const start = capture.started_at_ms ? new Date(capture.started_at_ms) : null;
+  const end = capture.ended_at_ms ? new Date(capture.ended_at_ms) : null;
+  if (!start) return '';
+  const date = start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+  const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const mins = end ? Math.max(0, Math.round((end - start) / 60000)) : 0;
+  return `${date} · ${time}${mins ? ` · ${mins} min` : ''}`;
+}
+
+function inlineMarkdown(text) {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function markdown(source) {
+  const lines = String(source || '').split(/\r?\n/);
+  const out = [];
+  let list = null;
+  let paragraph = [];
+  const flushParagraph = () => {
+    if (paragraph.length) { out.push(`<p>${inlineMarkdown(esc(paragraph.join(' ')))}</p>`); paragraph = []; }
+  };
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushParagraph(); closeList(); continue; }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) { flushParagraph(); closeList(); const n = heading[1].length; out.push(`<h${n}>${inlineMarkdown(esc(heading[2]))}</h${n}>`); continue; }
+    const bullet = line.match(/^[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
+      out.push(`<li>${inlineMarkdown(esc(bullet[1]))}</li>`);
+      continue;
+    }
+    const numbered = line.match(/^\d+\.\s+(.*)$/);
+    if (numbered) {
+      flushParagraph();
+      if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; }
+      out.push(`<li>${inlineMarkdown(esc(numbered[1]))}</li>`);
+      continue;
+    }
+    closeList();
+    paragraph.push(line);
+  }
+  flushParagraph(); closeList();
+  return out.join('');
+}
+
+function paragraphs(text) {
+  if (text.length <= 460) return [text];
+  const chunks = [];
+  let rest = text.trim();
+  while (rest.length > 460) {
+    let cut = rest.lastIndexOf('. ', 460);
+    if (cut < 160) cut = rest.lastIndexOf(' ', 460);
+    if (cut < 160) cut = 460;
+    chunks.push(rest.slice(0, cut + (rest[cut] === '.' ? 1 : 0)).trim());
+    rest = rest.slice(cut + (rest[cut] === '.' ? 1 : 0)).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+
+function render(capture) {
+  selectedCapture = capture;
+  const headerCopy = document.getElementById('header-copy-link');
+  if (headerCopy) headerCopy.hidden = !capture.id;
+  const actions = Array.isArray(capture.actions) ? capture.actions : [];
+  const segments = capture.transcript?.segments || [];
+  const words = capture.transcript?.words || [];
+  const turns = [];
+  if (segments.length) {
+    for (const segment of segments) {
+      const speakerKey = segment.is_user ? 'You' : canonicalSpeaker(segment.speaker);
+      const speaker = displaySpeaker(capture, speakerKey);
+      const text = (segment.text || '').trim();
+      if (!text) continue;
+      const start = Number(segment.start ?? 0);
+      const end = Number(segment.end ?? start);
+      const pieces = paragraphs(text);
+      for (let index = 0; index < pieces.length; index++) {
+        const piece = pieces[index];
+        const last = turns[turns.length - 1];
+        const pause = last ? start - last.end : Infinity;
+        if (index > 0 || !last || last.speaker !== speaker || pause > 1.4) {
+          turns.push({speaker, speakerKey, text: piece, start, end});
+        } else {
+          last.text += ' ' + piece;
+          last.end = Math.max(last.end, end);
+        }
+      }
+    }
+  } else {
+    for (const word of words) {
+      const speakerKey = word.is_user ? 'You' : canonicalSpeaker(word.speaker);
+      const speaker = displaySpeaker(capture, speakerKey);
+      const token = word.word ?? '';
+      if (!token) continue;
+      const start = Number(word.start ?? 0);
+      const end = Number(word.end ?? start);
+      const last = turns[turns.length - 1];
+      const pause = last ? start - last.end : Infinity;
+      if (!last || last.speaker !== speaker || pause > 1.8) turns.push({speaker, speakerKey, text: token, start, end});
+      else {
+        if (/^[,.;:!?%\)\]]/.test(token)) last.text += token;
+        else last.text += ' ' + token;
+        last.end = Math.max(last.end, end);
+      }
+    }
+  }
+  for (const turn of turns) {
+    const correction = overrideFor(capture, turn.start, turn.end);
+    if (correction?.name) turn.speaker = correction.name;
+  }
+  const cleanTurns = Array.isArray(capture.clean_transcript?.turns)
+    ? capture.clean_transcript.turns.map(turn => ({
+        speakerKey: canonicalSpeaker(turn.speaker_key || turn.speaker),
+        speaker: turn.speaker || displaySpeaker(capture, turn.speaker_key || turn.speaker),
+        text: turn.text || '',
+        start: Number(turn.start ?? 0),
+        end: Number(turn.end ?? turn.start ?? 0),
+      })).filter(turn => turn.text)
+    : [];
+  const hasClean = cleanTurns.length > 0;
+  let activeTurns = hasClean ? cleanTurns : turns;
+  const renderTranscript = (list) => list.length
+    ? list.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
+    : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
+  const named = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
+  const toolItems = [
+    named.length >= 1 ? `<button id="voicefix-lines">Auto-fix lines</button>` : '',
+    `<button id="clean-transcript">Clean transcript</button>`,
+    named.length >= 2 ? `<button id="swap-speakers">Swap names</button><button id="relearn-speakers">Relearn voices</button>` : '',
+  ].join('');
+  const tools = shared || !toolItems ? '' : `<details class="menu"><summary>Actions</summary><div class="menu-items">${toolItems}</div></details>`;
+  const designSummary = capture.design_summary || '';
+  const summaryTools = `<div class="summary-tools">
+    <div class="pill-group">
+      <button id="summary-view">Summary</button>
+      <button id="design-view">Design doc</button>
+    </div>
+    <details class="menu"><summary>Copy</summary><div class="menu-items">
+      <button id="copy-llm">For LLM</button>
+      <button id="copy-link">Link</button>
+    </div></details>
+    <button class="source-btn" id="summary-sources">Sources</button>
+  </div>`;
+  detail.innerHTML = `
+    <h1><span class="title-emoji">${esc(capture.emoji || emojiFor(capture.title))}</span>${esc(shortTitle(capture.title))}</h1>
+    <div class="meta">${esc(metaLine(capture))}${Array.isArray(capture.merged_from) && capture.merged_from.length ? ` · Merged from ${capture.merged_from.length} captures` : ''}${tools}</div>
+    ${summaryTools}
+    <div id="summary-body" class="summary"></div>
+    <div class="section-head"><h2>Action items</h2><button class="source-btn" id="action-sources">Sources</button></div>
+    <div id="actions"></div>
+    <div class="section-head"><h2 id="transcript-heading">Transcript</h2><div class="section-tools">${hasClean ? `<div class="pill-group"><button id="original-view">Original</button><button id="clean-view">Clean</button></div>` : ''}<button class="source-btn" id="transcript-sources">Sources</button></div></div>
+    <div id="transcript-body"></div>`;
+  let summaryView = 'summary';
+  const summaryText = () => summaryView === 'design' ? designSummary : (capture.summary || 'No summary yet.');
+  const renderSummaryBody = () => {
+    document.getElementById('summary-body').innerHTML = markdown(summaryText().replace(/^#\s+.*\n+/, ''));
+    document.getElementById('summary-view')?.classList.toggle('active', summaryView === 'summary');
+    document.getElementById('design-view')?.classList.toggle('active', summaryView === 'design');
+  };
+  renderSummaryBody();
+  document.getElementById('summary-view')?.addEventListener('click', () => { summaryView = 'summary'; renderSummaryBody(); });
+  document.getElementById('design-view')?.addEventListener('click', async () => {
+    if (designSummary) { summaryView = 'design'; renderSummaryBody(); return; }
+    const response = await fetch(`/api/restyle?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued a technical design-doc rewrite.');
+      setTimeout(() => loadCapture(capture.path), 8000);
+    }
+  });
+  document.getElementById('copy-link')?.addEventListener('click', async () => {
+    const url = `${location.origin}/c/${encodeURIComponent(capture.id)}`;
+    try { await navigator.clipboard.writeText(url); alert(url); } catch (error) { alert(url); }
+  });
+  document.getElementById('copy-llm')?.addEventListener('click', async () => {
+    const people = [...new Set(Object.values(capture.speakers || {}).map(value => value?.name).filter(Boolean))];
+    const actionLines = actions.map(action => `- [${action.kind || 'action'}] ${action.title || action.quote || 'Untitled'}${action.owner ? ` — ${displaySpeaker(capture, action.owner)}` : ''}${action.due_at ? ` (${action.due_at})` : ''}`).join('\n');
+    const transcriptLines = activeTurns.map(turn => `${turn.speaker}: ${turn.text}`).join('\n');
+    const text = `# ${shortTitle(capture.title)}\n\n${metaLine(capture)}${people.length ? `\nParticipants: ${people.join(', ')}` : ''}\n\n## ${summaryView === 'design' ? 'Design doc' : 'Summary'}\n${summaryText()}\n\n## Action items\n${actionLines || 'None captured.'}\n\n## Transcript\n${transcriptLines || capture.transcript?.text || ''}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      const button = document.getElementById('copy-llm');
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = 'Copy for LLM'; }, 1500);
+    } catch (error) {
+      alert(`Copy failed: ${error.message}`);
+    }
+  });
+  const bindTurnClicks = () => {
+    detail.querySelectorAll('.turn[data-speaker]').forEach(turn => {
+      turn.addEventListener('click', async () => {
+        const key = turn.dataset.speaker;
+        const start = Number(turn.dataset.start);
+        const end = Number(turn.dataset.end);
+        const name = prompt(`Name for ${displaySpeaker(capture, key)}`, '');
+        if (!name || !name.trim()) return;
+        const bulk = confirm(`Apply “${name.trim()}” to every ${displaySpeaker(capture, key)} line in this capture?\n\nOK = all matching lines. Cancel = only this line.`);
+        let url = `/api/speaker?path=${encodeURIComponent(capture.path)}&speaker=${encodeURIComponent(key)}&name=${encodeURIComponent(name.trim())}`;
+        if (!bulk) url += `&scope=line&start=${start}&end=${end}`;
+        const response = await fetch(url, { method: 'POST' });
+        if (response.ok) loadCapture(capture.path);
+      });
+    });
+  };
+  let transcriptView = hasClean ? 'clean' : 'original';
+  const renderTranscriptView = () => {
+    activeTurns = transcriptView === 'clean' && hasClean ? cleanTurns : turns;
+    document.getElementById('transcript-body').innerHTML = renderTranscript(activeTurns);
+    document.getElementById('original-view')?.classList.toggle('active', transcriptView === 'original');
+    document.getElementById('clean-view')?.classList.toggle('active', transcriptView === 'clean');
+    bindTurnClicks();
+  };
+  renderTranscriptView();
+  document.getElementById('original-view')?.addEventListener('click', () => { transcriptView = 'original'; renderTranscriptView(); });
+  document.getElementById('clean-view')?.addEventListener('click', () => { transcriptView = 'clean'; renderTranscriptView(); });
+  document.getElementById('clean-transcript')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/clean?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued an LLM transcript cleanup.');
+      setTimeout(() => loadCapture(capture.path), 8000);
+    }
+  });
+  document.getElementById('voicefix-lines')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/voicefix?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) {
+      alert('Queued line-by-line voice ID. Reload in a few seconds.');
+      setTimeout(() => loadCapture(capture.path), 6000);
+    }
+  });
+  document.getElementById('swap-speakers')?.addEventListener('click', async () => {
+    const entries = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
+    if (entries.length < 2) return;
+    const [a, av] = entries[0];
+    const [b, bv] = entries[1];
+    if (!confirm(`Swap ${av.name} and ${bv.name} everywhere in this capture?`)) return;
+    const response = await fetch(`/api/swap?path=${encodeURIComponent(capture.path)}&a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`, { method: 'POST' });
+    if (response.ok) loadCapture(capture.path);
+  });
+  document.getElementById('relearn-speakers')?.addEventListener('click', async () => {
+    const response = await fetch(`/api/relearn?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
+    if (response.ok) alert('Queued both named voices for enrollment. The enrich worker will update templates.');
+  });
+  detail.querySelector('#actions').innerHTML = actions.length ? actions.map(action => `
+    <div class="action action-click" data-start="${action.start_ms != null ? Number(action.start_ms) : ''}" title="${action.start_ms != null ? 'Open source in transcript' : 'Action item'}">
+      <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
+      ${action.quote ? `<div class="quote">“${esc(action.quote)}”</div>` : ''}
+      <div class="who">${esc(displaySpeaker(capture, action.owner))}${action.due_at ? ` · ${esc(action.due_at)}` : ''}${action.start_ms != null ? `<button class="source-btn action-source" data-start="${Number(action.start_ms)}">Source</button>` : ''}</div>
+    </div>`).join('') : '<div class="empty">No action items extracted.</div>';
+  const jumpToTranscript = (start = null) => {
+    const turns = [...detail.querySelectorAll('.turn')];
+    const target = start == null ? null : turns.find(turn => Number(turn.dataset.start) >= Number(start)) || null;
+    (target || document.getElementById('transcript-heading'))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (target) {
+      target.classList.add('flash');
+      setTimeout(() => target.classList.remove('flash'), 1800);
+    }
+  };
+  document.getElementById('summary-sources')?.addEventListener('click', () => jumpToTranscript());
+  document.getElementById('action-sources')?.addEventListener('click', () => jumpToTranscript(actions[0]?.start_ms));
+  document.getElementById('transcript-sources')?.addEventListener('click', () => jumpToTranscript());
+  detail.querySelectorAll('.action-source').forEach(button => button.addEventListener('click', (event) => { event.stopPropagation(); jumpToTranscript(Number(button.dataset.start)); }));
+  detail.querySelectorAll('.action-click').forEach(action => action.addEventListener('click', () => {
+    const start = action.dataset.start;
+    jumpToTranscript(start === '' ? null : Number(start));
+  }));
+}
+
+function showError(error) { detail.innerHTML = `<div class="error">${esc(error.message)}</div>`; }
+document.getElementById('sidebar-toggle')?.addEventListener('click', () => document.body.classList.add('sidebar-collapsed'));
+document.getElementById('sidebar-open')?.addEventListener('click', () => document.body.classList.remove('sidebar-collapsed'));
+const themeModes = ['auto', 'dark', 'light'];
+let themeMode = localStorage.getItem('scribe-theme') || 'auto';
+const applyTheme = () => {
+  if (themeMode === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.dataset.theme = themeMode;
+  const button = document.getElementById('theme-toggle');
+  if (button) {
+    button.textContent = themeMode === 'dark' ? '☾' : themeMode === 'light' ? '☀' : '◐';
+    button.title = `Theme: ${themeMode}`;
+  }
+};
+applyTheme();
+document.getElementById('theme-toggle')?.addEventListener('click', () => {
+  themeMode = themeModes[(themeModes.indexOf(themeMode) + 1) % themeModes.length];
+  localStorage.setItem('scribe-theme', themeMode);
+  applyTheme();
+});
+async function loadProfile() {
+  try {
+    const response = await fetch('/api/profile');
+    const body = await response.json();
+    const profile = body.profile || {};
+    const name = profile.name || profile.email || 'Anonymous';
+    const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
+    document.getElementById('profile-initial').textContent = initial;
+    document.getElementById('profile-name').textContent = name;
+    if (profile.avatar_url) {
+      const button = document.getElementById('profile-btn');
+      button.style.backgroundImage = `url(${JSON.stringify(profile.avatar_url)})`;
+      button.style.backgroundSize = 'cover';
+      document.getElementById('profile-initial').textContent = '';
+    }
+  } catch (_) {}
+}
+loadProfile();
+document.getElementById('profile-btn')?.addEventListener('click', event => {
+  event.stopPropagation();
+  const menu = document.getElementById('profile-menu');
+  if (menu) menu.hidden = !menu.hidden;
+});
+document.addEventListener('click', event => {
+  const menu = document.getElementById('profile-menu');
+  if (menu && !event.target.closest('.profile-wrap')) menu.hidden = true;
+});
+document.getElementById('profile-settings')?.addEventListener('click', async () => {
+  document.getElementById('profile-menu').hidden = true;
+  document.getElementById('settings-modal').hidden = false;
+  try {
+    const response = await fetch('/api/vocabulary');
+    const body = await response.json();
+    document.getElementById('vocabulary').value = body.text || '';
+  } catch (_) {}
+});
+document.getElementById('vocabulary-cancel')?.addEventListener('click', () => { document.getElementById('settings-modal').hidden = true; });
+document.getElementById('vocabulary-save')?.addEventListener('click', async () => {
+  const text = document.getElementById('vocabulary').value;
+  const response = await fetch(`/api/vocabulary/save?text=${encodeURIComponent(text)}`, { method: 'POST' });
+  if (response.ok) document.getElementById('settings-modal').hidden = true;
+});
+document.getElementById('header-copy-link')?.addEventListener('click', async () => {
+  if (!selectedCapture?.id) return;
+  const url = `${location.origin}/c/${encodeURIComponent(selectedCapture.id)}`;
+  try { await navigator.clipboard.writeText(url); } catch (_) { prompt('Copy link', url); }
+});
+document.getElementById('search-toggle')?.addEventListener('click', () => {
+  const bar = document.getElementById('searchbar');
+  if (!bar) return;
+  bar.hidden = !bar.hidden;
+  if (!bar.hidden) document.getElementById('search')?.focus();
+});
+if (shared) {
+  document.body.classList.add('shared');
+  const id = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  fetch(`/api/capture?id=${encodeURIComponent(id)}`)
+    .then(response => response.ok ? response.json() : Promise.reject(new Error(response.statusText)))
+    .then(capture => { selected = capture.path; render(capture); })
+    .catch(showError);
+} else {
+  document.getElementById('search-btn')?.addEventListener('click', runSearch);
+  document.getElementById('search')?.addEventListener('keydown', event => { if (event.key === 'Enter') runSearch(); });
+  loadList(true).catch(showError);
+}
+</script>
+</body>
+</html>

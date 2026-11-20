@@ -710,7 +710,7 @@ fn wait_for(link: Link, command: u8, context: &str) -> Result<Vec<u8>, String> {
         }
         let wait = (deadline - now).min(u64::from(REPLY_WAIT_MS)) as u32;
         if let Some(packet) = next_packet(link, wait)? {
-            if packet[0] == command {
+            if packet.first() == Some(&command) {
                 return Ok(packet);
             }
         }
