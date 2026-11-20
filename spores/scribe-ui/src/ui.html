@@ -22,7 +22,7 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 .center{padding:30px 38px 60px;overflow:auto}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
-.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}.summary-tools{display:flex;gap:6px;margin:0 0 12px}.summary-tools .mini{font-size:11px;padding:3px 8px;border-radius:5px}.summary-tools .mini.active{background:var(--accent-soft);color:var(--accent);border-color:#c7dbcf}
+.summary{font-size:15px;line-height:1.68;max-width:860px;padding-bottom:24px;border-bottom:1px solid var(--line)}.summary-tools{display:flex;align-items:center;gap:8px;margin:0 0 12px}.pill-group{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:#fff}.pill-group button{border:0;border-radius:999px;padding:3px 10px;font-size:11px;background:transparent}.pill-group button.active{background:var(--accent-soft);color:var(--accent)}.menu{position:relative;display:inline-block}.menu>summary{list-style:none;cursor:pointer;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:#fff}.menu>summary::-webkit-details-marker{display:none}.menu[open]>summary{background:var(--accent-soft);color:var(--accent)}.menu-items{position:absolute;left:0;top:calc(100% + 4px);z-index:10;background:#fff;border:1px solid var(--line);border-radius:8px;min-width:170px;padding:4px;box-shadow:0 8px 24px rgba(30,25,20,.12)}.menu-items button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 9px;font-size:12px;border-radius:5px}.menu-items button:hover{background:var(--panel)}
 .summary h1,.summary h2,.summary h3{font-family:ui-serif,Georgia,serif;letter-spacing:-.02em;margin:18px 0 7px;line-height:1.25}.summary h1{font-size:23px}.summary h2{font-size:18px;text-transform:none}.summary h3{font-size:16px;text-transform:none}.summary p{margin:0 0 11px}.summary ul,.summary ol{margin:0 0 12px;padding-left:22px}.summary li{margin:3px 0}.summary code{background:#eee8de;border-radius:4px;padding:1px 4px;font-size:.92em}.summary a{color:var(--accent)}
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}
 .turn{padding:10px 0;border-bottom:1px solid #eee8de;cursor:pointer}.turn:hover{background:#f7f3ec}
@@ -347,15 +347,21 @@ function render(capture) {
     ? turns.map(turn => `<div class="turn" data-speaker="${esc(turn.speakerKey)}" data-start="${turn.start}" data-end="${turn.end}" title="Click to correct this line's speaker"><div class="speaker"><i class="dot" style="background:${speakerColor(turn.speaker)}"></i><button class="speaker-name">${esc(turn.speaker)}</button></div><div class="text">${esc(turn.text)}</div></div>`).join('')
     : `<div class="empty">${esc(capture.transcript?.text || 'No word timestamps in this transcript.')}</div>`;
   const named = Object.entries(capture.speakers || {}).filter(([, value]) => value?.name);
-  const tools = shared ? '' : [
-    named.length >= 1 ? `<button class="mini" id="voicefix-lines">Auto-fix lines</button>` : '',
-    named.length >= 2 ? `<button class="mini" id="swap-speakers">Swap names</button><button class="mini" id="relearn-speakers">Relearn voices</button>` : '',
+  const toolItems = [
+    named.length >= 1 ? `<button id="voicefix-lines">Auto-fix lines</button>` : '',
+    named.length >= 2 ? `<button id="swap-speakers">Swap names</button><button id="relearn-speakers">Relearn voices</button>` : '',
   ].join('');
+  const tools = shared || !toolItems ? '' : `<details class="menu"><summary>Actions</summary><div class="menu-items">${toolItems}</div></details>`;
   const designSummary = capture.design_summary || '';
   const summaryTools = `<div class="summary-tools">
-    <button class="mini" id="copy-llm">Copy for LLM</button>
-    ${shared ? '' : `<button class="mini" id="copy-link">Copy link</button>`}
-    ${designSummary ? `<button class="mini" id="summary-view">Summary</button><button class="mini" id="design-view">Design doc</button>` : `<button class="mini" id="design-view">Design doc</button>`}
+    <div class="pill-group">
+      <button id="summary-view">Summary</button>
+      <button id="design-view">Design doc</button>
+    </div>
+    <details class="menu"><summary>Copy</summary><div class="menu-items">
+      <button id="copy-llm">For LLM</button>
+      <button id="copy-link">Link</button>
+    </div></details>
   </div>`;
   detail.innerHTML = `
     <h1>${esc(shortTitle(capture.title, 90))}</h1>
