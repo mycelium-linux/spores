@@ -1,0 +1,45 @@
+# The resident Omi decoder: Opus batches in, Scribe capture events out.
+schema = 1
+
+[spore]
+id = "dev.fungos.omi-decoder"
+name = "omi-decoder"
+version = "0.1.0"
+license = "MIT"
+summary = "Decode Omi Opus batches, transcribe windows, and publish Scribe captures"
+description = "Consumes omi.audio.batch.v1, decodes each packet through soil:codec, transcribes bounded PCM windows through soil:inference, writes one audio.wav under the capture bundle, and publishes omi.capture.v1. libopus, the STT route, VFS bytes and Unibus transport stay in the host."
+homepage = "https://github.com/mycelium-linux/spores"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { codec = "0.1.0", inference = "0.3.0", time = "1.0.0", unibus = "0.1.0", vfs_mut = "0.1.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"soil:codec" = "decode Omi Opus packets into PCM16; the host owns libopus sessions"
+"soil:inference" = "transcribe bounded PCM windows through the host STT route"
+"soil:vfs-mut" = "write audio.wav into the capture bundle; the host owns bytes and durability"
+"soil:unibus" = "observe omi.audio.batch.v1 and publish omi.capture.v1"
+"soil:time" = "measure idle gaps between batches; no wall clock"
+"wasi:cli" = "Rust std stdio for the host's log stream"
+"wasi:clocks" = "Rust std runtime dependency; session timing uses soil:time"
+"wasi:io" = "Rust std runtime I/O primitives"
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "wall-clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["omi", "pendant", "ble", "audio", "opus", "decoder", "stt", "scribe"]
+
+[presentation]
+badge = "OD"
+color = "#8b5cf6"

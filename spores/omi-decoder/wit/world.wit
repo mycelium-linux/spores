@@ -1,0 +1,20 @@
+// The resident Omi decoder: Opus batches in, Scribe capture events out.
+//
+// The Spore owns the batch/session state machine and the transcript shape. The
+// host owns libopus, the STT route, VFS bytes, and Unibus transport. It never
+// sees a codec handle, a socket, or a path outside the workspace.
+package fungos:omi-decoder@0.1.0;
+
+world omi-decoder {
+  import soil:codec/codec@0.1.0;
+  import soil:inference/inference@0.3.0;
+  import soil:unibus/bus@0.1.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
+  import soil:time/time@1.0.0;
+
+  /// `watch` or `decode`; see README.md.
+  export run: func(args: list<string>) -> result<_, string>;
+
+  /// Counters from the last run.
+  export snapshot: func() -> result<list<u8>, string>;
+}

@@ -1,0 +1,243 @@
+// Host-mediated language-model inference.
+//
+// The host owns provider selection, endpoint discovery, authentication, model
+// aliases, budgets, and transport. A Spore names a model, messages, and tools.
+// Credentials and provider routes never cross this boundary.
+package soil:inference@0.3.0;
+
+interface inference {
+  enum role {
+    system,
+    user,
+    assistant,
+    tool,
+  }
+
+  /// What a model can do. A host fills these from its provider catalog; a
+  /// guest uses them to pick a tier without hardcoding provider names.
+  enum capability {
+    chat,
+    tools,
+    vision,
+    embeddings,
+    rerank,
+    transcription,
+    speech,
+  }
+
+  record tool-call {
+    id: string,
+    name: string,
+    /// JSON object encoded as a string, exactly as the model emitted it.
+    arguments: string,
+  }
+
+  record tool {
+    name: string,
+    description: string,
+    /// JSON Schema object encoded as a string.
+    parameters: string,
+  }
+
+  record attachment {
+    name: string,
+    mime-type: string,
+    data: list<u8>,
+    /// Host-extracted text for documents that the provider cannot read directly.
+    extracted-text: option<string>,
+  }
+
+  record message {
+    role: role,
+    content: option<string>,
+    name: option<string>,
+    tool-call-id: option<string>,
+    /// Assistant tool calls. Empty for non-assistant messages.
+    tool-calls: list<tool-call>,
+    /// Image/document attachments. Hosts encode these as provider content parts.
+    attachments: list<attachment>,
+    /// Optional provider reasoning trace. Hosts may omit it on request.
+    reasoning: option<string>,
+  }
+
+  record model {
+    id: string,
+    provider: string,
+    context-window: option<u32>,
+    /// Host policy tier, e.g. `fast`, `balanced`, `deep`, `embed`.
+    tier: option<string>,
+    capabilities: list<capability>,
+    /// Present for embedding models.
+    embedding-dimensions: option<u32>,
+  }
+
+  record usage {
+    prompt-tokens: u32,
+    completion-tokens: u32,
+    total-tokens: u32,
+  }
+
+  record request {
+    model: string,
+    messages: list<message>,
+    tools: list<tool>,
+    max-output-tokens: option<u32>,
+    temperature: option<f32>,
+    /// Opaque provider cache-affinity hint. Hosts may ignore it.
+    prompt-cache-key: option<string>,
+  }
+
+  record response {
+    model: string,
+    message: message,
+    finish-reason: option<string>,
+    usage: option<usage>,
+  }
+
+  record embed-request {
+    model: string,
+    inputs: list<string>,
+    /// Optional output width. Unsupported by some providers; the host may
+    /// reject rather than silently ignore it.
+    dimensions: option<u32>,
+    prompt-cache-key: option<string>,
+  }
+
+  record embed-usage {
+    prompt-tokens: u32,
+    total-tokens: u32,
+  }
+
+  record embed-response {
+    model: string,
+    /// One vector per input, in input order.
+    vectors: list<list<f32>>,
+    usage: option<embed-usage>,
+  }
+
+  /// One PCM16LE mono utterance for speaker/voice embedding. The model and
+  /// checkpoint are named explicitly: voice templates are only comparable to
+  /// embeddings from the same pipeline.
+  record voice-embedding-request {
+    model: string,
+    checkpoint: string,
+    sample-rate: u32,
+    /// Expected embedding width, when the caller wants the host to verify it.
+    dimensions: option<u32>,
+    /// Raw PCM16 little-endian mono samples, not a container format.
+    pcm16: list<u8>,
+  }
+
+  record voice-embedding-response {
+    model: string,
+    embedding: list<f32>,
+    usage: option<embed-usage>,
+  }
+
+  /// One PCM16LE mono utterance or window for transcription. The host owns the
+  /// STT route and model; the guest only names the audio and optional language.
+  record transcribe-request {
+    model: string,
+    sample-rate: u32,
+    /// Raw PCM16 little-endian mono samples, not a container format.
+    pcm16: list<u8>,
+    language: option<string>,
+    /// Optional vocabulary hint, passed to the provider as a prompt.
+    prompt: option<string>,
+    /// Ask for word timings when the provider supports them.
+    timestamps: bool,
+    /// Ask the provider to label speakers when it supports diarization.
+    diarize: bool,
+  }
+
+  record word {
+    text: string,
+    start-ms: u32,
+    end-ms: u32,
+    /// Provider speaker label, when diarization was requested.
+    speaker: option<string>,
+    confidence: option<f32>,
+  }
+
+  record segment {
+    text: string,
+    start-ms: u32,
+    end-ms: u32,
+    speaker: option<string>,
+    /// Word timings. Empty when the provider returned segment timings only.
+    words: list<word>,
+    confidence: option<f32>,
+  }
+
+  record transcribe-response {
+    model: string,
+    text: string,
+    language: option<string>,
+    duration-ms: option<u32>,
+    /// Ordered segments. The host never reorders them.
+    segments: list<segment>,
+  }
+
+  record chunk {
+    /// Raw provider chunk. For OpenAI-compatible SSE this is the event payload.
+    data: list<u8>,
+    /// True on the final chunk; subsequent `next` calls return `done`.
+    done: bool,
+  }
+
+  enum error {
+    denied,
+    not-ready,
+    over-budget,
+    invalid,
+    unavailable,
+    auth,
+    io,
+    unsupported,
+  }
+
+  record inference-state {
+    ready: bool,
+    provider: string,
+    model: string,
+  }
+
+  /// Streaming response handle. The guest polls it at its own cadence.
+  resource completion-stream {
+    /// Read the next chunk. `none` means the timeout elapsed without data.
+    next: func(timeout-ms: u32) -> result<option<chunk>, error>;
+    cancel: func() -> result<_, error>;
+  }
+
+  /// List models visible to this host/profile.
+  models: func() -> result<list<model>, error>;
+
+  /// Non-streaming completion.
+  complete: func(request: request) -> result<response, error>;
+
+  /// Non-streaming text embeddings. The host scrubs every input before it
+  /// leaves the process and returns vectors in input order.
+  embed: func(request: embed-request) -> result<embed-response, error>;
+
+  /// Non-streaming speaker embedding. This is an audio path, deliberately
+  /// separate from text `embed`: it sends PCM16, not scrubbed text.
+  voice-embed: func(request: voice-embedding-request) -> result<voice-embedding-response, error>;
+
+  /// Non-streaming speech-to-text. PCM16 goes to the host's STT route, never to
+  /// the chat route. Segments and words stay in provider order.
+  transcribe: func(request: transcribe-request) -> result<transcribe-response, error>;
+
+  /// Open a streaming completion. The returned resource is bounded by the host
+  /// session and must be cancelled or dropped when the guest is done.
+  open-stream: func(request: request) -> result<completion-stream, error>;
+
+  state: func() -> result<inference-state, error>;
+}
+
+world inference-host {
+  import inference;
+}
+
+world guest {
+  import inference;
+}
