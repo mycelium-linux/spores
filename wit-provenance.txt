@@ -175,3 +175,11 @@ spores/mush/wit/deps/soil-vfs-mut/package.wit 68d1446e5cd69770845ca89c62322057bd
 
 spores/metrics-sdk/wit/deps/metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
 spores/health-smoke/wit/deps/metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
+
+# Omi decoder and Scribe bundles added during the wearable capture slice.
+spores/omi-decoder/wit/deps/soil-unibus.wit 1abdcc36d443ab522189ddf7218c4f732ca1e13a
+spores/omi-decoder/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/scribe-ui/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/scribe/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
+spores/scribe/wit/deps/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
+spores/scribe/wit/deps/soil-vfs-mut/package.wit c0e729a1e792db06cb603bba24aafb778935230f
