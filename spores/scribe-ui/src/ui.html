@@ -18,7 +18,7 @@ aside{overflow:auto}.chats{border-right:1px solid var(--line);padding:10px 8px}
 .chat:hover{background:#f0ebe2}.chat.active{background:#ece6dc}
 .chat .name{font-weight:560;font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat .when{font-size:10px;color:var(--muted);margin-top:1px}
-.searchbar{padding:0 7px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}.searchbar[hidden]{display:none}.searchbar input{width:100%;font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}.searchbar .dates{display:flex;align-items:center;gap:4px;margin-top:6px}.searchbar .dates input{font-size:10px;padding:4px}.searchbar .dates button{font-size:10px;padding:4px 6px;flex:none}.group-header{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:transparent;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg);cursor:pointer}.group-header:hover{color:var(--ink)}.group-header span{font-size:9px;letter-spacing:0}.load-more{display:block;width:calc(100% - 14px);margin:10px 7px;font-size:11px;padding:7px;border-radius:6px}.loading{display:flex;justify-content:center;padding:14px}.loading.hidden{display:none}.spinner{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
+.searchbar{padding:0 7px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}.searchbar[hidden]{display:none}.searchbar input{width:100%;font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}.searchbar .dates{display:flex;align-items:center;gap:4px;margin-top:6px}.searchbar .dates input{font-size:10px;padding:4px}.searchbar .dates button{font-size:10px;padding:4px 6px;flex:none}.group-header{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:transparent;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg);cursor:pointer}.group-header:hover{color:var(--ink)}.group-header span{font-size:9px;letter-spacing:0}.load-more{display:block;width:calc(100% - 14px);margin:10px 7px;font-size:11px;padding:7px;border-radius:6px}.processing{display:flex;align-items:center;gap:7px;margin:2px 7px 8px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--muted);font-size:10px}.processing .spinner{width:11px;height:11px;border-width:2px}.hidden-note{font-size:9px;color:var(--muted);padding:0 7px 8px}.loading{display:flex;justify-content:center;padding:14px}.loading.hidden{display:none}.spinner{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-header{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;padding:12px 7px 5px;position:sticky;top:0;background:var(--bg)}
 .center{padding:30px 42px 60px;overflow:auto}body.sidebar-collapsed main{grid-template-columns:0 minmax(0,1fr)}body.sidebar-collapsed .chats{display:none}
 h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spacing:-.035em;margin:0 0 7px;max-width:900px}
 .meta{color:var(--muted);font-size:12px;margin-bottom:28px}.meta .mini{font-size:11px;padding:2px 7px;margin-left:8px;border-radius:5px}
@@ -115,6 +115,9 @@ let cards = [];
 let offset = 0;
 let total = 0;
 let hasMore = true;
+let processingCount = 0;
+let processingLatest = 0;
+let hiddenCount = 0;
 let loading = false;
 let searchQuery = '';
 const collapsedGroups = new Set();
@@ -154,7 +157,12 @@ function renderList() {
     }
   }
   if (hasMore) html += '<button class="load-more" id="load-more">Load more</button>';
-  list.innerHTML = html || '<div class="empty">No captures found.</div>';
+  const recent = processingLatest && Date.now() - processingLatest < 15 * 60 * 1000;
+  const status = [
+    processingCount ? `<div class="processing">${recent ? '<span class="spinner"></span>' : ''}<span>${recent ? `Processing ${processingCount} capture${processingCount === 1 ? '' : 's'}…` : `${processingCount} waiting for enrichment`}</span></div>` : '',
+    hiddenCount ? `<div class="hidden-note">${hiddenCount} low-signal hidden</div>` : '',
+  ].join('');
+  list.innerHTML = status + (html || (processingCount ? '' : '<div class="empty">No captures found.</div>'));
   list.querySelectorAll('.chat').forEach(button => button.addEventListener('click', () => loadCapture(button.dataset.path)));
   list.querySelectorAll('.group-header').forEach(button => button.addEventListener('click', () => {
     const group = button.dataset.group;
@@ -195,6 +203,9 @@ async function loadList(reset = false) {
     cards = cards.concat(body.captures || []);
     offset = cards.length;
     total = Number(body.total || cards.length);
+    processingCount = Number(body.processing || 0);
+    processingLatest = Number(body.processing_latest_ms || 0);
+    hiddenCount = Number(body.hidden || 0);
     hasMore = Boolean(body.next);
     renderList();
     if (reset && !selected && cards.length) loadCapture(cards[0].path);

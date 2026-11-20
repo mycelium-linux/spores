@@ -618,6 +618,7 @@ fn capture_card(path: &str) -> Result<Value, String> {
         .or_else(|| title(&summary))
         .unwrap_or_else(|| base(path));
     let low_signal = is_low_signal(&title, &summary, &text);
+    let processing = summary.trim().is_empty();
     let date = path.split('/').nth(2).unwrap_or("undated").to_string();
     let source = path.split('/').nth(1).unwrap_or("unknown").to_string();
     let id = path.rsplit('/').next().unwrap_or(path).to_string();
@@ -638,6 +639,7 @@ fn capture_card(path: &str) -> Result<Value, String> {
         "words": words,
         "duration_ms": duration_ms,
         "suppressed": low_signal,
+        "processing": processing,
         "suppressed_until_ms": suppressed_until_ms,
         "started_at_ms": started_at_ms,
         "ended_at_ms": ended_at_ms,
@@ -666,6 +668,9 @@ fn captures(
     to: Option<&str>,
 ) -> Result<Value, String> {
     let mut cards = Vec::new();
+    let mut processing = 0usize;
+    let mut processing_latest = 0u64;
+    let mut hidden = 0usize;
     for source in dirs("captures")? {
         for date in dirs(&source.path)? {
             let day = base(&date.path);
@@ -676,9 +681,21 @@ fn captures(
                 let Ok(card) = capture_card(&capture.path) else {
                     continue;
                 };
+                if card.get("processing").and_then(Value::as_bool).unwrap_or(false) {
+                    if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false) {
+                        hidden += 1;
+                    } else {
+                        processing += 1;
+                        processing_latest = processing_latest.max(
+                            card.get("started_at_ms").and_then(Value::as_u64).unwrap_or(0),
+                        );
+                    }
+                    continue;
+                }
                 if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false)
                     != show_suppressed
                 {
+                    hidden += 1;
                     continue;
                 }
                 cards.push(card);
@@ -692,6 +709,9 @@ fn captures(
     Ok(json!({
         "captures": page,
         "total": total,
+        "processing": processing,
+        "processing_latest_ms": processing_latest,
+        "hidden": hidden,
         "next": next.then_some((offset + page.len()).to_string()),
     }))
 }
