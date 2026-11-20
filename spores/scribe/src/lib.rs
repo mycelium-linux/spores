@@ -42,6 +42,8 @@ struct Args {
     checkpoint: String,
     threshold: f64,
     margin: f64,
+    deep_model: String,
+    deep_after_chars: usize,
 }
 
 impl Default for Args {
@@ -60,6 +62,8 @@ impl Default for Args {
                 .to_string(),
             threshold: 0.80,
             margin: 0.08,
+            deep_model: "openai/gpt-5.6-sol".to_string(),
+            deep_after_chars: 80_000,
         }
     }
 }
@@ -106,6 +110,12 @@ impl Args {
                         .parse()
                         .map_err(|_| "--margin must be a number".to_string())?
                 }
+                "--deep-model" => args.deep_model = value()?,
+                "--deep-after-chars" => {
+                    args.deep_after_chars = value()?
+                        .parse()
+                        .map_err(|_| "--deep-after-chars must be a number".to_string())?
+                }
                 "--help" | "-h" => {
                     return Err(
                         "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
@@ -148,7 +158,14 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
                 .ok_or_else(|| "ingest needs --event JSON".to_string())?;
             let body: Value =
                 serde_json::from_str(raw_event).map_err(|error| format!("event JSON: {error}"))?;
-            let stored = process_event(&body, &args.model, args.enrich, true)?;
+            let stored = process_event(
+                &body,
+                &args.model,
+                args.enrich,
+                true,
+                &args.deep_model,
+                args.deep_after_chars,
+            )?;
             finish(json!({"ok": true, "command": "ingest", "capture": stored}));
             Ok(())
         }
@@ -265,7 +282,14 @@ fn receive_one(mut session: duplex::Session, args: &Args) -> Result<Value, Strin
         .get("checkpoint")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let stored = process_event(&body, &args.model, false, !checkpoint)?;
+    let stored = process_event(
+        &body,
+        &args.model,
+        false,
+        !checkpoint,
+        &args.deep_model,
+        args.deep_after_chars,
+    )?;
     session
         .write(b"OK\n")
         .map_err(|error| format!("ack: {error:?}"))?;
@@ -410,7 +434,14 @@ fn enrich_watch(args: Args) -> Result<(), String> {
                     // The stored event is already durable; don't republish it
                     // and create a second enrichment turn.
                     event["checkpoint"] = Value::Bool(false);
-                    match process_event(&event, &args.model, true, false) {
+                    match process_event(
+                        &event,
+                        &args.model,
+                        true,
+                        false,
+                        &args.deep_model,
+                        args.deep_after_chars,
+                    ) {
                         Ok(_) => {
                             enriched += 1;
                             if let Err(error) = voiceprint_capture(&args, bundle) {
@@ -924,7 +955,14 @@ fn watch(args: Args) -> Result<(), String> {
                     continue;
                 }
             };
-            match process_event(&body, &args.model, false, true) {
+            match process_event(
+                &body,
+                &args.model,
+                false,
+                true,
+                &args.deep_model,
+                args.deep_after_chars,
+            ) {
                 Ok(_) => stored += 1,
                 Err(error) => {
                     failed += 1;
@@ -954,6 +992,8 @@ fn process_event(
     model: &str,
     enrich: bool,
     publish_stored: bool,
+    deep_model: &str,
+    deep_after_chars: usize,
 ) -> Result<Value, String> {
     let mut event = parse_event(body)?;
     let source = sanitize(&event.source)?;
@@ -973,7 +1013,7 @@ fn process_event(
         "provided"
     };
     if enrich {
-        match enrich_capture(&event, model) {
+        match enrich_capture(&event, model, deep_model, deep_after_chars) {
             Ok(enriched) => {
                 generated_summary = Some(enriched.summary);
                 generated_actions = Some(enriched.actions);
@@ -1275,19 +1315,36 @@ struct Enriched {
     model: String,
 }
 
-fn enrich_capture(event: &CaptureEvent, model: &str) -> Result<Enriched, String> {
+fn enrich_capture(
+    event: &CaptureEvent,
+    model: &str,
+    deep_model: &str,
+    deep_after_chars: usize,
+) -> Result<Enriched, String> {
     let text = transcript_text(&event.transcript);
     if text.trim().is_empty() {
         return Err("transcript has no text".into());
     }
-    let chunks = split_chunks(&text, 24_000, 500);
+    let use_deep = text.chars().count() > deep_after_chars;
+    let selected = if use_deep && !deep_model.trim().is_empty() {
+        deep_model
+    } else {
+        model
+    };
+    if use_deep && deep_model.trim().is_empty() {
+        return Err("transcript too large; deep summary deferred".into());
+    }
+    // A larger-context model can absorb substantially more of the meeting in
+    // one pass; the 9B keeps its existing bounded chunks.
+    let chunk_chars = if use_deep { 120_000 } else { 24_000 };
+    let chunks = split_chunks(&text, chunk_chars, 500);
     let mut summaries = Vec::new();
     let mut actions: Vec<Value> = Vec::new();
     let mut model_used = model.to_string();
 
     for (index, chunk) in chunks.iter().enumerate() {
         let request = inference::Request {
-            model: model.to_string(),
+            model: selected.to_string(),
             messages: vec![
                 inference::Message {
                     role: inference::Role::System,
