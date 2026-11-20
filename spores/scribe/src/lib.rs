@@ -1719,9 +1719,17 @@ fn mkdir_recursive(path: &str) -> Result<(), String> {
         match vfs::stat(&prefix) {
             Ok(entry) if entry.kind == soil::vfs::vfs::Kind::Directory => {}
             Ok(_) => return Err(format!("{prefix} is not a directory")),
-            Err(_) => {
-                vfs_mut::mkdir(&prefix).map_err(|error| format!("mkdir {prefix}: {error:?}"))?;
-            }
+            Err(_) => match vfs_mut::mkdir(&prefix) {
+                Ok(()) => {}
+                Err(vfs_mut::Error::AlreadyExists) => {
+                    let entry =
+                        vfs::stat(&prefix).map_err(|error| format!("stat {prefix}: {error:?}"))?;
+                    if entry.kind != soil::vfs::vfs::Kind::Directory {
+                        return Err(format!("{prefix} is not a directory"));
+                    }
+                }
+                Err(error) => return Err(format!("mkdir {prefix}: {error:?}")),
+            },
         }
     }
     Ok(())
