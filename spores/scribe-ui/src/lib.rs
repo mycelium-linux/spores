@@ -140,6 +140,18 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 ),
                 Err(error) => api_error(400, &error),
             },
+            (Method::Get, "/api/profile") => match read_json("profile.json") {
+                Ok(profile) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&json!({"ok": true, "profile": profile})).unwrap_or_default(),
+                ),
+                Err(_) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&json!({"ok": false})).unwrap_or_default(),
+                ),
+            },
             (Method::Get, "/api/capture") => match query_value(query, "path").or_else(|| {
                 query_value(query, "id").and_then(|id| find_capture(&id).ok())
             }) {
