@@ -43,9 +43,13 @@ kind = "scribe"
 alpns = ["soil/http/1"]
 ttl_secs = 240
 
+[[surfaces]]
+name = "scribe"
+kind = "web"
+
 [launch]
-default = "native"
-surfaces = ["native", "web"]
+default = "scribe"
+surfaces = ["web"]
 
 [grants]
 "soil:vfs" = "list capture bundles and read transcript, summary and actions"
