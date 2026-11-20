@@ -40,6 +40,16 @@ interface records {
     next: option<string>,
   }
 
+  /// A page of live records packed into one buffer.
+  ///
+  /// The frame is, repeated until the buffer ends, all integers little-endian:
+  ///   u32 id-length, id bytes, u64 revision, u32 body-length, body bytes
+  record packed-page {
+    entries: list<u8>,
+    /// Opaque cursor for the next page, or none at the end.
+    next: option<string>,
+  }
+
   record apply-result {
     applied: u32,
     /// Older or equal revisions that lost the last-writer-wins comparison.
@@ -82,6 +92,14 @@ interface records {
   /// Scan one collection in revision order. A cursor from a previous page is
   /// valid until the host reports `stale`.
   scan: func(collection: string, cursor: option<string>, limit: u32) -> result<page, error>;
+
+  /// Scan live records packed into one buffer. Same cursor and limit rules as
+  /// `scan`, but the entries are framed bytes rather than a list of records.
+  scan-packed: func(
+    collection: string,
+    cursor: option<string>,
+    limit: u32,
+  ) -> result<packed-page, error>;
 
   /// Create or replace a local record. The host assigns `revision` and
   /// `origin`; the returned entry is authoritative.

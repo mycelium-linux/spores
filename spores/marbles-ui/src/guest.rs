@@ -10,6 +10,8 @@ wit_bindgen::generate!({
     generate_all,
 });
 
+use std::sync::Mutex;
+
 use wasi::http::types::{
     Fields, IncomingRequest, Method, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
@@ -55,9 +57,20 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             return;
         }
 
-        let shallow = matches!(path, "/board" | "/burndown");
         let started = std::time::Instant::now();
-        let loaded = match load(shallow) {
+        let mut cache = match CACHE.lock() {
+            Ok(cache) => cache,
+            Err(_) => {
+                answer(
+                    response_out,
+                    503,
+                    "text/plain; charset=utf-8",
+                    b"cache poisoned\n",
+                );
+                return;
+            }
+        };
+        let loaded = match refresh(&mut cache) {
             Ok(loaded) => loaded,
             Err(error) => {
                 let page = render::error_page(&model::Book::default(), 503, &error);
@@ -70,7 +83,7 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 return;
             }
         };
-        let book = &loaded.book;
+        let book = &cache.as_ref().expect("refresh installs a cache entry").book;
 
         let project = query_value(query, "project").filter(|value| !value.is_empty());
         let project = project.as_deref();
@@ -120,6 +133,11 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
         };
         let headers = [
             ("x-marbles-entries", loaded.entries.to_string()),
+            (
+                "x-marbles-cache",
+                if loaded.hit { "hit" } else { "miss" }.to_string(),
+            ),
+            ("x-marbles-probe-ms", loaded.probe_ms.to_string()),
             ("x-marbles-scan-ms", loaded.scan_ms.to_string()),
             ("x-marbles-model-ms", loaded.model_ms.to_string()),
             (
@@ -141,59 +159,184 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
     }
 }
 
-/// Read every live record in the collection, following the cursor to the end.
-struct Loaded {
+/// `(entity id, JSON body)` pairs from a scan.
+type Entries = Vec<(String, Vec<u8>)>;
+
+/// One parsed book, plus the change cursor it reflects.
+struct Cache {
     book: model::Book,
     entries: usize,
+    /// `(revision, entity_id)` of the newest change the cache has seen.
+    /// `None` only for a book that had no changes when it was loaded.
+    head: Option<String>,
+}
+
+/// Guest memory survives only when the host reuses the instance. The pool in
+/// `soil` makes that opt-in; without it this is rebuilt for every request.
+static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+
+/// How much of the request was a cache hit instead of a read.
+struct Loaded {
+    entries: usize,
+    hit: bool,
+    probe_ms: u64,
     scan_ms: u64,
     model_ms: u64,
 }
 
-fn load(shallow: bool) -> Result<Loaded, String> {
+/// Reuse the cached book when the records change feed has not moved.
+fn refresh(cache: &mut Option<Cache>) -> Result<Loaded, String> {
+    if let Some(current) = cache.as_ref() {
+        let probe_started = std::time::Instant::now();
+        if !changed(current.head.as_deref())? {
+            return Ok(Loaded {
+                entries: current.entries,
+                hit: true,
+                probe_ms: probe_started.elapsed().as_millis() as u64,
+                scan_ms: 0,
+                model_ms: 0,
+            });
+        }
+    }
+
     let started = std::time::Instant::now();
+    let (entries, head) = read_stable()?;
+    let scan_ms = started.elapsed().as_millis() as u64;
+    let model_started = std::time::Instant::now();
+    let book = model::book(&entries);
+    let model_ms = model_started.elapsed().as_millis() as u64;
+    *cache = Some(Cache {
+        book,
+        entries: entries.len(),
+        head,
+    });
+    Ok(Loaded {
+        entries: entries.len(),
+        hit: false,
+        probe_ms: 0,
+        scan_ms,
+        model_ms,
+    })
+}
+
+/// Read every live record through the packed ABI, and remember the newest
+/// `(revision, id)` cursor. One `list<u8>` crosses the boundary per page.
+fn read_all() -> Result<(Entries, Option<String>), String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut newest: Option<(u64, String)> = None;
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
-        let page = records::scan(COLLECTION, cursor.as_deref(), PAGE)
+        let page = records::scan_packed(COLLECTION, cursor.as_deref(), PAGE)
             .map_err(|error| format!("reading the marbles book: {error:?}"))?;
-        for entry in page.entries {
-            if entry.deleted {
-                continue;
+        let mut rest: &[u8] = &page.entries;
+        while !rest.is_empty() {
+            let id = take_bytes(&mut rest)?;
+            let id = std::str::from_utf8(id)
+                .map_err(|_| "packed record id is not UTF-8".to_string())?
+                .to_string();
+            let revision = take_u64(&mut rest)?;
+            let body = take_bytes(&mut rest)?.to_vec();
+            let candidate = (revision, id.clone());
+            if newest.as_ref().is_none_or(|current| candidate > *current) {
+                newest = Some(candidate);
             }
-            entries.push((entry.key.id, entry.body));
+            entries.push((id, body));
         }
         match page.next {
             Some(next) if Some(next.as_str()) != cursor.as_deref() => cursor = Some(next),
-            _ => {
-                let scan_ms = started.elapsed().as_millis() as u64;
-                let model_started = std::time::Instant::now();
-                let book = if shallow {
-                    model::issues_only(&entries)
-                } else {
-                    model::book(&entries)
-                };
-                return Ok(Loaded {
-                    book,
-                    entries: entries.len(),
-                    scan_ms,
-                    model_ms: model_started.elapsed().as_millis() as u64,
-                });
-            }
+            _ => break,
         }
     }
-    let scan_ms = started.elapsed().as_millis() as u64;
-    let model_started = std::time::Instant::now();
-    let book = if shallow {
-        model::issues_only(&entries)
-    } else {
-        model::book(&entries)
-    };
-    Ok(Loaded {
-        book,
-        entries: entries.len(),
-        scan_ms,
-        model_ms: model_started.elapsed().as_millis() as u64,
-    })
+    Ok((
+        entries,
+        newest.map(|(revision, id)| format!("{revision}:{id}")),
+    ))
+}
+
+fn take_bytes<'a>(rest: &mut &'a [u8]) -> Result<&'a [u8], String> {
+    let length = take_u32(rest)? as usize;
+    if rest.len() < length {
+        return Err("packed record is truncated".to_string());
+    }
+    let (bytes, tail) = rest.split_at(length);
+    *rest = tail;
+    Ok(bytes)
+}
+
+fn take_u32(rest: &mut &[u8]) -> Result<u32, String> {
+    if rest.len() < 4 {
+        return Err("packed record is truncated".to_string());
+    }
+    let (head, tail) = rest.split_at(4);
+    *rest = tail;
+    Ok(u32::from_le_bytes(
+        head.try_into().map_err(|_| "packed u32")?,
+    ))
+}
+
+fn take_u64(rest: &mut &[u8]) -> Result<u64, String> {
+    if rest.len() < 8 {
+        return Err("packed record is truncated".to_string());
+    }
+    let (head, tail) = rest.split_at(8);
+    *rest = tail;
+    Ok(u64::from_le_bytes(
+        head.try_into().map_err(|_| "packed u64")?,
+    ))
+}
+
+/// Read a book and advance the change cursor past everything the scan may have
+/// missed. A live change after the newest scanned record means a write raced the
+/// scan; scan again. Tombstones only move the cursor, because `scan` never shows
+/// them and they would otherwise invalidate the cache forever.
+fn read_stable() -> Result<(Entries, Option<String>), String> {
+    for _ in 0..4 {
+        let (entries, mut head) = read_all()?;
+        let mut raced = false;
+        for _ in 0..MAX_PAGES {
+            let page = records::changes(head.as_deref(), PAGE)
+                .map_err(|error| format!("reading the marbles change feed: {error:?}"))?;
+            let Some(last) = page.entries.last() else {
+                break;
+            };
+            if page.entries.iter().any(|entry| !entry.deleted) {
+                raced = true;
+            }
+            let next = page
+                .next
+                .clone()
+                .or_else(|| Some(format!("{}:{}", last.revision, last.key.id)));
+            if next == head {
+                break;
+            }
+            head = next;
+            if page.next.is_none() {
+                break;
+            }
+        }
+        if !raced {
+            return Ok((entries, head));
+        }
+    }
+    Err("the marbles book kept changing while it was being read".to_string())
+}
+
+/// A single cheap call that answers whether anything changed after `head`.
+fn changed(head: Option<&str>) -> Result<bool, String> {
+    match head {
+        Some(cursor) => {
+            let page = records::changes(Some(cursor), 1)
+                .map_err(|error| format!("reading the marbles change feed: {error:?}"))?;
+            Ok(!page.entries.is_empty())
+        }
+        // A book that was empty has no cursor. One bounded scan is enough to
+        // notice the first record; after that `head` is set.
+        None => {
+            let page = records::scan(COLLECTION, None, 1)
+                .map_err(|error| format!("reading the marbles book: {error:?}"))?;
+            Ok(!page.entries.is_empty())
+        }
+    }
 }
 
 fn answer(response_out: ResponseOutparam, status: u16, content_type: &str, body: &[u8]) {

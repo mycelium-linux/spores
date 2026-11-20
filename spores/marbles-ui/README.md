@@ -50,18 +50,44 @@ soil spore run spores/marbles-ui --surface http --listen 0.0.0.0:8091 \
 The publisher grant is not verified yet, which is why the unsigned-development
 flag is required; once the grant path lands that flag disappears.
 
-## Host build and request lifetime
+## Host build, warm instances and the cache
 
-The host instantiates the Spore per request (`Store::new` + `instantiate_async`
-in `soil`'s HTTP service), so guest memory and statics do not survive between
-requests; a cache inside the Spore cannot amortize the scan. The records host
-itself *is* long-lived: `WasiHostBuilder` keeps `Arc<Mutex<RecordsBookHost>>`,
-so the SQLite connection is reused.
+By default the host instantiates the Spore per request (`Store::new` +
+`instantiate_async` in `soil`'s HTTP service), so guest memory and statics do
+not survive between requests. `soil` #130 adds `--reuse-instances N`: a bounded
+pool of instantiated stores, one request in flight per instance. With it, the
+Spore keeps the parsed book in a `static` and every request after the first is a
+cache hit.
+
+- The cache is keyed on the newest `(revision, entity_id)` cursor in the book.
+- Each request probes `records.changes(head, 1)`; an empty answer is a hit.
+- On a change it re-reads, advances past tombstones, and retries if a live write
+  raced the scan. A slow change feed shows up as `x-marbles-probe-ms`.
+- The read itself uses `scan-packed`: one `list<u8>` per page instead of
+  thousands of `entry` values. That ABI is also in #130.
+
+Measured on the 8,807-record / 10.8 MB book, release host:
+
+| | |
+|---|---:|
+| cold board request | ~50 ms packed scan + ~15 ms model |
+| warm board request | **~8 ms** total |
+| first request after a write | one full read, then hits |
+| RSS, 1 instance | ~88 MB |
+| RSS, 4 instances | ~204 MB, stable over 200 requests |
+
+`marbles.myc` runs **one** reused instance. The records host shares one SQLite
+`Store` behind a mutex, and `scan_records` parses JSON while holding it; with
+several instances a cold scan can make another instance's cache probe wait tens
+of milliseconds. One instance serializes requests behind an ~8 ms render instead.
+`--reuse-instances N` is available when both isolation and concurrency matter
+more than that tail.
 
 Build the **host** in release. The first measurement of ~690 ms was against a
-debug `soil`; the release `soil-wasi-http` brings the same 8,695-entry book to
-**50–130 ms** of scan and **70–180 ms** total per board request. Debug builds of
-the host, not the Spore, dominate this workload.
+debug `soil`; the same book is 50–130 ms of packed scan in release. Debug builds
+of the host, not the Spore, dominate this workload. Without `--reuse-instances`
+the Spore is correct but every request is a miss (it re-reads the book); without
+#130 it will not instantiate at all, because `scan-packed` is a new import.
 
 ## Boundaries
 
