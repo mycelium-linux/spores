@@ -129,6 +129,21 @@ fn id_from_key(id: &str) -> String {
 /// rows it understands.
 #[must_use]
 pub fn book(entries: &[(String, Vec<u8>)]) -> Book {
+    build(entries, true)
+}
+
+/// The same book without the dependency edges.
+///
+/// A board or a burndown draws status, title and time; neither needs the edge
+/// list, and parsing 1,600 edge bodies per request is work the page cannot show.
+/// The index is empty rather than wrong: callers that ask for readiness use
+/// [`book`].
+#[must_use]
+pub fn issues_only(entries: &[(String, Vec<u8>)]) -> Book {
+    build(entries, false)
+}
+
+fn build(entries: &[(String, Vec<u8>)], with_edges: bool) -> Book {
     let mut issues = Vec::new();
     let mut edges = Vec::new();
     for (id, body) in entries {
@@ -140,7 +155,7 @@ pub fn book(entries: &[(String, Vec<u8>)]) -> Book {
                 issue.id = id_from_key(id);
             }
             issues.push(issue);
-        } else if id.starts_with(DEPENDENCY_PREFIX) {
+        } else if with_edges && id.starts_with(DEPENDENCY_PREFIX) {
             if let Ok(edge) = serde_json::from_slice::<Edge>(body) {
                 if !edge.child.is_empty() && !edge.parent.is_empty() {
                     edges.push(edge);

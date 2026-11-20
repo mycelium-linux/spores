@@ -24,7 +24,9 @@ use crate::render;
 const COLLECTION: &str = "marbles";
 /// Records per `scan`. A page a few thousand issues wide costs a handful of
 /// calls at this size.
-const PAGE: u32 = 512;
+/// The host's maximum page. Reading a whole book in two or three calls
+/// instead of a dozen is most of the boundary-crossing cost.
+const PAGE: u32 = 4096;
 /// Enough pages to read a fleet book and not enough to loop forever on a cursor
 /// the host keeps handing back.
 const MAX_PAGES: usize = 4096;
@@ -53,7 +55,8 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             return;
         }
 
-        let book = match load() {
+        let shallow = matches!(path, "/board" | "/burndown");
+        let book = match load(shallow) {
             Ok(book) => book,
             Err(error) => {
                 let page = render::error_page(&model::Book::default(), 503, &error);
@@ -84,9 +87,17 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
             "/board" => {
                 let limit = query_value(query, "limit")
                     .and_then(|value| value.parse::<usize>().ok())
-                    .unwrap_or(60)
-                    .clamp(1, 500);
-                (200, render::board_page(&book, project, &q, limit))
+                    .unwrap_or(50)
+                    .clamp(1, 200);
+                let page = query_value(query, "page")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(1)
+                    .max(1);
+                let status = query_value(query, "status").filter(|value| !value.is_empty());
+                (
+                    200,
+                    render::board_page(&book, project, &q, limit, status.as_deref(), page),
+                )
             }
             "/burndown" => (200, render::burndown_page(&book, project, &q, days)),
             "/projects" => (200, render::projects_page(&book, project, &q, stale_days)),
@@ -114,7 +125,7 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
 }
 
 /// Read every live record in the collection, following the cursor to the end.
-fn load() -> Result<model::Book, String> {
+fn load(shallow: bool) -> Result<model::Book, String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_PAGES {
@@ -128,10 +139,20 @@ fn load() -> Result<model::Book, String> {
         }
         match page.next {
             Some(next) if Some(next.as_str()) != cursor.as_deref() => cursor = Some(next),
-            _ => return Ok(model::book(&entries)),
+            _ => {
+                return Ok(if shallow {
+                    model::issues_only(&entries)
+                } else {
+                    model::book(&entries)
+                });
+            }
         }
     }
-    Ok(model::book(&entries))
+    Ok(if shallow {
+        model::issues_only(&entries)
+    } else {
+        model::book(&entries)
+    })
 }
 
 fn answer(response_out: ResponseOutparam, status: u16, content_type: &str, body: &[u8]) {

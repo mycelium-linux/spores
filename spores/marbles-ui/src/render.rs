@@ -5,16 +5,19 @@
 //! computes the projections in [`crate::model`], and writes the page. What the
 //! browser receives is what the book said at that moment.
 //!
-//! Every interpolation that can contain operator text goes through
-//! [`escape`]. Issue titles and descriptions are written by people and agents,
-//! and a view that pastes them into markup unescaped is an injection as soon as
-//! one of them contains a `<`.
+//! Markup is built with [`maud`], the same macro `spore-mail` uses. That is not
+//! only a style choice: `html!` escapes every interpolated string by default, so
+//! an issue title or label containing `<` cannot become an injection by being
+//! pasted into the page. The one deliberate exception is the burndown SVG, which
+//! is generated from numbers here and wrapped in [`PreEscaped`].
 
-use std::fmt::Write as _;
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 
 use crate::model::{
     self, date_label, plan_name, Book, Burndown, Column, Issue, PlanStat, ProjectStat, Summary,
 };
+
+const CSS: &str = include_str!("style.css");
 
 /// The pages the header links to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,21 +51,6 @@ impl Page {
     }
 }
 
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 /// Encode one query value. Alpha-numeric and a handful of safe characters pass
 /// through; everything else is percent-encoded byte by byte.
 fn url_encode(value: &str) -> String {
@@ -73,9 +61,7 @@ fn url_encode(value: &str) -> String {
                 out.push(byte as char)
             }
             b' ' => out.push('+'),
-            _ => {
-                let _ = write!(out, "%{byte:02X}");
-            }
+            _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
     out
@@ -125,189 +111,90 @@ pub struct Chrome<'a> {
 }
 
 impl Chrome<'_> {
-    fn options(&self) -> String {
-        let mut out = String::from("<option value=\"\">All projects</option>");
-        for slug in model::project_slugs(self.book) {
-            let selected = if self.project == Some(slug.as_str()) {
-                " selected"
-            } else {
-                ""
-            };
-            let _ = write!(
-                out,
-                "<option value=\"{}\"{selected}>{}</option>",
-                escape(&slug),
-                escape(&slug)
-            );
+    fn options(&self) -> Markup {
+        html! {
+            option value="" { "All projects" }
+            @for slug in model::project_slugs(self.book) {
+                @if self.project == Some(slug.as_str()) {
+                    option value=(slug) selected { (slug) }
+                } @else {
+                    option value=(slug) { (slug) }
+                }
+            }
         }
-        out
     }
 
-    fn nav(&self) -> String {
-        let mut out = String::new();
-        for page in [
-            Page::Dashboard,
-            Page::Board,
-            Page::Burndown,
-            Page::Projects,
-            Page::Plans,
-        ] {
-            let class = if page == self.page {
-                " class=\"on\""
-            } else {
-                ""
-            };
-            let _ = write!(
-                out,
-                "<a href=\"{}\"{class}>{}</a>",
-                link(page.path(), self.project, &[]),
-                page.title()
-            );
+    fn nav(&self) -> Markup {
+        html! {
+            @for page in [Page::Dashboard, Page::Board, Page::Burndown, Page::Projects, Page::Plans] {
+                a href=(link(page.path(), self.project, &[]))
+                  class=(if page == self.page { "on" } else { "" }) {
+                    (page.title())
+                }
+            }
         }
-        out
     }
 
     /// Render `body` inside the document.
-    pub fn wrap(&self, heading: &str, sub: &str, body: &str) -> String {
+    pub fn wrap(&self, heading: &str, sub: &str, body: Markup) -> Markup {
         let title = if heading.is_empty() || heading == "Marbles" {
             "Marbles".to_string()
         } else {
-            format!("{} — Marbles", escape(heading))
+            format!("{heading} — Marbles")
         };
-        format!(
-            r#"<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
-<style>{CSS}</style>
-</head>
-<body>
-<header class="top">
-  <a class="brand" href="{home}"><span class="mark">M</span> Marbles</a>
-  <nav>{nav}</nav>
-  <form class="find" method="get" action="{board}">
-    <input type="search" name="q" value="{query}" placeholder="search id, title, label, holder" aria-label="Search issues">
-    <select name="project" aria-label="Project">{options}</select>
-    <button type="submit">Search</button>
-  </form>
-</header>
-<main>
-  <div class="head">
-    <h1>{heading}</h1>
-    <p class="sub">{sub}</p>
-  </div>
-  {body}
-</main>
-<footer>
-  <span>read-only view of <code>soil:records</code></span>
-  <span>now = newest record in the book · {now}</span>
-</footer>
-</body>
-</html>
-"#,
-            CSS = CSS,
-            home = link("/", self.project, &[]),
-            nav = self.nav(),
-            board = link("/board", None, &[]),
-            query = escape(self.query),
-            options = self.options(),
-            heading = escape(heading),
-            sub = sub,
-            body = body,
-            now = escape(&date_label(self.book.now)),
-        )
+        html! {
+            (DOCTYPE)
+            html lang="en" {
+                head {
+                    meta charset="utf-8";
+                    meta name="viewport" content="width=device-width, initial-scale=1";
+                    title { (title) }
+                    style { (PreEscaped(CSS)) }
+                }
+                body {
+                    header class="top" {
+                        a class="brand" href=(link("/", self.project, &[])) {
+                            span class="mark" { "M" }
+                            " Marbles"
+                        }
+                        nav { (self.nav()) }
+                        form class="find" method="get" action=(link("/board", None, &[])) {
+                            input type="search" name="q" value=(self.query)
+                                placeholder="search id, title, label, holder"
+                                aria-label="Search issues";
+                            select name="project" aria-label="Project" { (self.options()) }
+                            button type="submit" { "Search" }
+                        }
+                    }
+                    main {
+                        div class="head" {
+                            h1 { (heading) }
+                            p class="sub" { (sub) }
+                        }
+                        (body)
+                    }
+                    footer {
+                        span { "read-only view of " code { "soil:records" } }
+                        span { "now = newest record in the book · " (date_label(self.book.now)) }
+                    }
+                }
+            }
+        }
     }
 }
 
-const CSS: &str = r#"
-:root{--bg:#0b0f14;--panel:#121922;--panel2:#0f151d;--edge:#222e3a;--ink:#e6edf5;--muted:#8b98a6;--dim:#5d6b7a;--accent:#6ea8fe;--good:#7ad0a3;--warn:#ffd166;--bad:#ff7b72;--violet:#c4a7ff}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted)}
-header.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 22px;background:rgba(11,15,20,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--edge)}
-.brand{display:flex;align-items:center;gap:9px;color:var(--ink);font-weight:650;letter-spacing:.2px}
-.brand:hover{text-decoration:none}
-.mark{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#6ea8fe,#c4a7ff);color:#0b0f14;font-weight:800}
-header nav{display:flex;gap:4px;flex-wrap:wrap}
-header nav a{padding:5px 11px;border-radius:8px;color:var(--muted);font-weight:550}
-header nav a:hover{background:var(--panel);text-decoration:none;color:var(--ink)}
-header nav a.on{background:var(--panel);color:var(--ink);box-shadow:inset 0 0 0 1px var(--edge)}
-.find{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.find input,.find select,.find button{background:var(--panel2);color:var(--ink);border:1px solid var(--edge);border-radius:8px;padding:6px 9px;font:inherit}
-.find input{min-width:230px}
-.find button{cursor:pointer;background:var(--panel);color:var(--muted)}
-.find button:hover{color:var(--ink)}
-main{max-width:1280px;margin:0 auto;padding:22px}
-.head h1{margin:6px 0 2px;font-size:24px;letter-spacing:-.2px}
-.sub{margin:0 0 18px;color:var(--muted)}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
-.tile{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:12px 14px}
-.tile .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px}
-.tile .v{font-size:24px;font-weight:650;margin-top:2px}
-.tile .v.good{color:var(--good)} .tile .v.warn{color:var(--warn)} .tile .v.bad{color:var(--bad)} .tile .v.accent{color:var(--accent)}
-.panel{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:16px;margin-bottom:18px}
-.panel h2{margin:0 0 4px;font-size:15px;letter-spacing:.2px}
-.panel .hint{margin:0 0 12px;color:var(--muted);font-size:12px}
-.board{display:grid;grid-template-columns:repeat(6,minmax(170px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px}
-.col{background:var(--panel2);border:1px solid var(--edge);border-radius:12px;padding:10px;min-height:120px}
-.col h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);display:flex;justify-content:space-between}
-.col h3 .n{color:var(--dim)}
-.card{background:var(--panel);border:1px solid var(--edge);border-radius:9px;padding:9px 10px;margin-bottom:8px}
-.card:hover{border-color:#31445a}
-.card .id{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim)}
-.card .title{color:var(--ink);display:block;margin:1px 0 5px;line-height:1.35}
-.chips{display:flex;flex-wrap:wrap;gap:4px}
-.chip{font-size:10px;padding:1px 6px;border-radius:999px;background:#1a2431;color:var(--muted);border:1px solid var(--edge)}
-.chip.p1{color:#ffb4a9;border-color:#4a2a2a}
-.chip.label{color:var(--violet);border-color:#3a3350}
-.chip.who{color:var(--good);border-color:#244335}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge)}
-th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:600}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-tr:hover td{background:var(--panel2)}
-.bar{height:6px;border-radius:999px;background:#1a2431;overflow:hidden;min-width:80px}
-.bar i{display:block;height:100%;background:linear-gradient(90deg,#7ad0a3,#6ea8fe)}
-.chart{width:100%;height:auto;display:block}
-.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:6px}
-.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
-.kv{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;font-size:13px}
-.kv dt{color:var(--muted)}
-.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
-.status{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--edge);color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.status.open{color:var(--accent);border-color:#26455f}
-.status.in_progress{color:var(--good);border-color:#244335}
-.status.review{color:var(--violet);border-color:#3a3350}
-.status.blocked{color:var(--bad);border-color:#4a2a2a}
-.status.closed{color:var(--dim)}
-.status.deferred{color:var(--warn);border-color:#4a4226}
-.ready{color:var(--good)} .notready{color:var(--warn)}
-ul.plain{list-style:none;margin:0;padding:0}
-ul.plain li{padding:4px 0;border-bottom:1px solid var(--edge)}
-footer{max-width:1280px;margin:0 auto;padding:8px 22px 28px;display:flex;justify-content:space-between;gap:12px;color:var(--dim);font-size:11px;flex-wrap:wrap}
-.empty{color:var(--dim);font-style:italic}
-.error{border-color:#4a2a2a;background:#1a1214}
-@media (max-width:900px){.board{grid-template-columns:repeat(3,minmax(160px,1fr))}.find{width:100%}.find input{flex:1;min-width:0}}
-"#;
-
-fn status_badge(status: &str) -> String {
-    format!(
-        "<span class=\"status {}\">{}</span>",
-        escape(status),
-        escape(if status.is_empty() { "unknown" } else { status })
-    )
+fn status_badge(status: &str) -> Markup {
+    let label = if status.is_empty() { "unknown" } else { status };
+    html! { span class=(format!("status {status}")) { (label) } }
 }
 
-fn tile(key: &str, value: String, class: &str) -> String {
-    format!(
-        "<div class=\"tile\"><div class=\"k\">{}</div><div class=\"v {class}\">{value}</div></div>",
-        escape(key)
-    )
+fn tile(key: &str, value: String, class: &str) -> Markup {
+    html! {
+        div class="tile" {
+            div class="k" { (key) }
+            div class=(format!("v {class}")) { (value) }
+        }
+    }
 }
 
 /// The dashboard: summary, a small burndown, the board, and the busiest projects.
@@ -325,17 +212,6 @@ pub fn dashboard(
         page: Page::Dashboard,
     };
     let summary = Summary::from(book, project, stale_days, book.now);
-    let tiles = [
-        tile("Issues", thousands(summary.total), ""),
-        tile("Ready", thousands(summary.ready), "good"),
-        tile("In progress", thousands(summary.in_progress), "accent"),
-        tile("Review", thousands(summary.review), ""),
-        tile("Blocked", thousands(summary.blocked), "bad"),
-        tile("Stale", thousands(summary.stale), "warn"),
-        tile("Done", format!("{:.1}%", summary.percent_done), "good"),
-    ]
-    .concat();
-
     let selected: Vec<Issue> = book
         .issues
         .iter()
@@ -343,52 +219,8 @@ pub fn dashboard(
         .cloned()
         .collect();
     let burn = model::burndown(&selected, days, book.now);
-    let chart = burndown_chart(&burn, days);
-
     let columns = model::columns(&book.issues, query, project);
-    let board = board_html(&columns, project, 6);
-
     let projects = model::projects(book, stale_days, book.now);
-    let mut project_rows = String::new();
-    for stat in projects.iter().take(8) {
-        project_rows.push_str(&project_row(stat));
-    }
-    let project_table = if project_rows.is_empty() {
-        "<p class=\"empty\">no projects yet</p>".to_string()
-    } else {
-        format!(
-            "<table><thead><tr><th>Project</th><th class=\"num\">Total</th><th class=\"num\">Open</th><th class=\"num\">WIP</th><th class=\"num\">Review</th><th class=\"num\">Blocked</th><th class=\"num\">Ready</th><th class=\"num\">Closed</th><th class=\"num\">Stale</th><th>Progress</th></tr></thead><tbody>{project_rows}</tbody></table>"
-        )
-    };
-
-    let body = format!(
-        r#"<section class="tiles">{tiles}</section>
-<section class="panel">
-  <h2>Burndown · last {days} days</h2>
-  <p class="hint">{scope} in scope · {done} closed · {remaining} remaining · {rate}</p>
-  {chart}
-</section>
-<section class="panel">
-  <h2>Board</h2>
-  <p class="hint">Every issue by status, in the tracker's own order.{filtered}</p>
-  {board}
-</section>
-<section class="panel">
-  <h2>Projects</h2>
-  <p class="hint">Ready follows the same rule as <code>mb ready</code>: open, past grace, unclaimed, every parent closed.</p>
-  {project_table}
-</section>"#,
-        days = days,
-        scope = thousands(burn.scope),
-        done = thousands(burn.done),
-        remaining = thousands(burn.remaining),
-        rate = burn_rate(&burn),
-        filtered = if query.is_empty() {
-            String::new()
-        } else {
-            format!(" Filtered by <code>{}</code>.", escape(query))
-        },
-    );
     let sub = format!(
         "{} issues across {} projects · {} ready · {} stale",
         thousands(summary.total),
@@ -396,11 +228,86 @@ pub fn dashboard(
         thousands(summary.ready),
         thousands(summary.stale)
     );
-    chrome.wrap("Marbles", &escape(&sub), &body)
+    let filtered = if query.is_empty() {
+        String::new()
+    } else {
+        format!(" Filtered by {query}.")
+    };
+    let body = html! {
+        section class="tiles" {
+            (tile("Issues", thousands(summary.total), ""))
+            (tile("Ready", thousands(summary.ready), "good"))
+            (tile("In progress", thousands(summary.in_progress), "accent"))
+            (tile("Review", thousands(summary.review), ""))
+            (tile("Blocked", thousands(summary.blocked), "bad"))
+            (tile("Stale", thousands(summary.stale), "warn"))
+            (tile("Done", format!("{:.1}%", summary.percent_done), "good"))
+        }
+        section class="panel" {
+            h2 { "Burndown · last " (days) " days" }
+            p class="hint" {
+                (thousands(burn.scope)) " in scope · "
+                (thousands(burn.done)) " closed · "
+                (thousands(burn.remaining)) " remaining · "
+                (burn_rate(&burn))
+            }
+            (burndown_chart(&burn, days))
+        }
+        section class="panel" {
+            h2 { "Board" }
+            p class="hint" { "Every issue by status, in the tracker's own order." (filtered) }
+            (board_html(&columns, project, query, 6))
+        }
+        section class="panel" {
+            h2 { "Projects" }
+            p class="hint" {
+                "Ready follows the same rule as " code { "mb ready" }
+                ": open, past grace, unclaimed, every parent closed."
+            }
+            @if projects.is_empty() {
+                p class="empty" { "no projects yet" }
+            } @else {
+                table {
+                    thead {
+                        tr {
+                            th { "Project" }
+                            th class="num" { "Total" }
+                            th class="num" { "Open" }
+                            th class="num" { "WIP" }
+                            th class="num" { "Review" }
+                            th class="num" { "Blocked" }
+                            th class="num" { "Ready" }
+                            th class="num" { "Closed" }
+                            th class="num" { "Stale" }
+                            th { "Progress" }
+                        }
+                    }
+                    tbody {
+                        @for stat in projects.iter().take(8) {
+                            (project_row(stat))
+                        }
+                    }
+                }
+            }
+        }
+    };
+    chrome.wrap("Marbles", &sub, body).into_string()
 }
 
 /// The board on its own, at full width.
-pub fn board_page(book: &Book, project: Option<&str>, query: &str, limit: usize) -> String {
+///
+/// Without `status` this is the six-column overview, capped per column. With
+/// `status` it is that one status, paginated: a column with 2,400 cards is not
+/// a page anyone can read, and rendering all of them is the largest thing this
+/// Spore can be asked to do.
+pub fn board_page(
+    book: &Book,
+    project: Option<&str>,
+    query: &str,
+    limit: usize,
+    status: Option<&str>,
+    page: usize,
+) -> String {
     let chrome = Chrome {
         book,
         project,
@@ -408,22 +315,112 @@ pub fn board_page(book: &Book, project: Option<&str>, query: &str, limit: usize)
         page: Page::Board,
     };
     let columns = model::columns(&book.issues, query, project);
-    let shown: usize = columns.iter().map(Column::count).sum();
-    let body = format!(
-        "<section class=\"panel\"><p class=\"hint\">{} cards{}</p>{}</section>",
-        thousands(shown as i64),
-        if query.is_empty() {
-            String::new()
-        } else {
-            format!(" matching <code>{}</code>", escape(query))
-        },
-        board_html(&columns, project, limit)
-    );
-    chrome.wrap(
-        "Board",
-        "Every issue by status; an unknown status gets a column rather than disappearing.",
-        &body,
-    )
+    let filtered = if query.is_empty() {
+        String::new()
+    } else {
+        format!(" matching {query}")
+    };
+    let body = match status {
+        Some(status) => {
+            let column = columns.iter().find(|column| column.status == status);
+            let cards = column.map(|column| column.cards.as_slice()).unwrap_or(&[]);
+            let total = cards.len();
+            let pages = total.div_ceil(limit).max(1);
+            let page = page.clamp(1, pages);
+            let start = (page - 1).saturating_mul(limit);
+            let shown: Vec<&model::Card> = cards.iter().skip(start).take(limit).collect();
+            html! {
+                section class="panel" {
+                    div class="boardhead" {
+                        div {
+                            h2 {
+                                @if let Some(column) = column {
+                                    (column.title)
+                                } @else {
+                                    (status)
+                                }
+                            }
+                            p class="hint" {
+                                (thousands(total as i64)) " cards" (filtered)
+                                " · showing " (thousands(shown.len() as i64))
+                            }
+                        }
+                        (pager(project, query, status, limit, page, pages))
+                    }
+                    @if shown.is_empty() {
+                        p class="empty" { "no cards in this column" }
+                    } @else {
+                        div class="cards-grid" {
+                            @for card in &shown {
+                                (card_html(card, project))
+                            }
+                        }
+                        (pager(project, query, status, limit, page, pages))
+                    }
+                }
+            }
+        }
+        None => {
+            let shown: usize = columns.iter().map(Column::count).sum();
+            html! {
+                section class="panel" {
+                    p class="hint" {
+                        (thousands(shown as i64)) " cards" (filtered)
+                        " · each column shows the first 12; open a status to page through it"
+                    }
+                    (board_html(&columns, project, query, 12))
+                }
+            }
+        }
+    };
+    chrome
+        .wrap(
+            "Board",
+            "Every issue by status; an unknown status gets a column rather than disappearing.",
+            body,
+        )
+        .into_string()
+}
+
+fn pager(
+    project: Option<&str>,
+    query: &str,
+    status: &str,
+    limit: usize,
+    page: usize,
+    pages: usize,
+) -> Markup {
+    if pages <= 1 {
+        return html! {};
+    }
+    let limit = limit.to_string();
+    let href = |target: usize| {
+        link(
+            "/board",
+            project,
+            &[
+                ("q", query),
+                ("status", status),
+                ("limit", &limit),
+                ("page", &target.to_string()),
+            ],
+        )
+    };
+    html! {
+        nav class="pager" {
+            @if page > 1 {
+                a href=(href(page - 1)) { "← prev" }
+            } @else {
+                span class="off" { "← prev" }
+            }
+            span class="pages" { "page " (page) " / " (pages) }
+            @if page < pages {
+                a href=(href(page + 1)) { "next →" }
+            } @else {
+                span class="off" { "next →" }
+            }
+        }
+    }
 }
 
 /// The burndown on its own, with the day table.
@@ -441,40 +438,50 @@ pub fn burndown_page(book: &Book, project: Option<&str>, query: &str, days: i64)
         .cloned()
         .collect();
     let burn = model::burndown(&selected, days, book.now);
-    let mut rows = String::new();
-    for day in burn.days.iter().rev().take(days.min(31) as usize) {
-        let _ = write!(
-            rows,
-            "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",
-            escape(&date_label(day.at)),
-            thousands(day.scope),
-            thousands(day.done),
-            thousands(day.remaining),
-            thousands(day.ideal)
-        );
-    }
-    let body = format!(
-        r#"<section class="panel">
-  <h2>Remaining against the ideal</h2>
-  <p class="hint">{scope} in scope · {done} closed · {remaining} remaining · {rate}</p>
-  {chart}
-</section>
-<section class="panel">
-  <h2>Days</h2>
-  <table><thead><tr><th>Day</th><th class="num">Scope</th><th class="num">Done</th><th class="num">Remaining</th><th class="num">Ideal</th></tr></thead>
-  <tbody>{rows}</tbody></table>
-</section>"#,
-        scope = thousands(burn.scope),
-        done = thousands(burn.done),
-        remaining = thousands(burn.remaining),
-        rate = burn_rate(&burn),
-        chart = burndown_chart(&burn, days),
-    );
-    chrome.wrap(
-        "Burndown",
-        "Work that existed by each day's end, against an even burn of the same scope.",
-        &body,
-    )
+    let body = html! {
+        section class="panel" {
+            h2 { "Remaining against the ideal" }
+            p class="hint" {
+                (thousands(burn.scope)) " in scope · "
+                (thousands(burn.done)) " closed · "
+                (thousands(burn.remaining)) " remaining · "
+                (burn_rate(&burn))
+            }
+            (burndown_chart(&burn, days))
+        }
+        section class="panel" {
+            h2 { "Days" }
+            table {
+                thead {
+                    tr {
+                        th { "Day" }
+                        th class="num" { "Scope" }
+                        th class="num" { "Done" }
+                        th class="num" { "Remaining" }
+                        th class="num" { "Ideal" }
+                    }
+                }
+                tbody {
+                    @for day in burn.days.iter().rev().take(days.min(31) as usize) {
+                        tr {
+                            td { (date_label(day.at)) }
+                            td class="num" { (thousands(day.scope)) }
+                            td class="num" { (thousands(day.done)) }
+                            td class="num" { (thousands(day.remaining)) }
+                            td class="num" { (thousands(day.ideal)) }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    chrome
+        .wrap(
+            "Burndown",
+            "Work that existed by each day's end, against an even burn of the same scope.",
+            body,
+        )
+        .into_string()
 }
 
 /// The project rollup.
@@ -486,22 +493,42 @@ pub fn projects_page(book: &Book, project: Option<&str>, query: &str, stale_days
         page: Page::Projects,
     };
     let rows = model::projects(book, stale_days, book.now);
-    let mut body = String::new();
-    for stat in &rows {
-        body.push_str(&project_row(stat));
-    }
-    let table = if body.is_empty() {
-        "<p class=\"empty\">no projects yet</p>".to_string()
-    } else {
-        format!(
-            "<table><thead><tr><th>Project</th><th class=\"num\">Total</th><th class=\"num\">Open</th><th class=\"num\">WIP</th><th class=\"num\">Review</th><th class=\"num\">Blocked</th><th class=\"num\">Ready</th><th class=\"num\">Closed</th><th class=\"num\">Stale</th><th>Progress</th></tr></thead><tbody>{body}</tbody></table>"
-        )
+    let body = html! {
+        section class="panel" {
+            @if rows.is_empty() {
+                p class="empty" { "no projects yet" }
+            } @else {
+                table {
+                    thead {
+                        tr {
+                            th { "Project" }
+                            th class="num" { "Total" }
+                            th class="num" { "Open" }
+                            th class="num" { "WIP" }
+                            th class="num" { "Review" }
+                            th class="num" { "Blocked" }
+                            th class="num" { "Ready" }
+                            th class="num" { "Closed" }
+                            th class="num" { "Stale" }
+                            th { "Progress" }
+                        }
+                    }
+                    tbody {
+                        @for stat in &rows {
+                            (project_row(stat))
+                        }
+                    }
+                }
+            }
+        }
     };
-    chrome.wrap(
-        "Projects",
-        "One row per project in the book. Ready is claimable work; stale is open work untouched for the window.",
-        &format!("<section class=\"panel\">{table}</section>"),
-    )
+    chrome
+        .wrap(
+            "Projects",
+            "One row per project in the book. Ready is claimable work; stale is open work untouched for the window.",
+            body,
+        )
+        .into_string()
 }
 
 /// Plans: one row per `metadata.plan` value.
@@ -513,44 +540,49 @@ pub fn plans_page(book: &Book, project: Option<&str>, query: &str) -> String {
         page: Page::Plans,
     };
     let plans = model::plans(book, book.now);
-    let mut rows = String::new();
-    for PlanStat {
-        name,
-        nodes,
-        closed,
-        ready,
-        blocked,
-    } in &plans
-    {
-        let _ = write!(
-            rows,
-            "<tr><td><a href=\"{}\">{}</a></td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td><div class=\"bar\"><i style=\"width:{:.1}%\"></i></div></td></tr>",
-            link("/plan", None, &[("name", name)]),
-            escape(name),
-            thousands(*nodes),
-            thousands(*closed),
-            thousands(*ready),
-            thousands(*blocked),
-            if *nodes > 0 {
-                *closed as f64 / *nodes as f64 * 100.0
-            } else {
-                0.0
+    let body = html! {
+        section class="panel" {
+            @if plans.is_empty() {
+                p class="empty" { "no plans in this book" }
+            } @else {
+                table {
+                    thead {
+                        tr {
+                            th { "Plan" }
+                            th class="num" { "Nodes" }
+                            th class="num" { "Closed" }
+                            th class="num" { "Ready" }
+                            th class="num" { "Blocked" }
+                            th { "Progress" }
+                        }
+                    }
+                    tbody {
+                        @for PlanStat { name, nodes, closed, ready, blocked } in &plans {
+                            tr {
+                                td { a href=(link("/plan", None, &[("name", name)])) { (name) } }
+                                td class="num" { (thousands(*nodes)) }
+                                td class="num" { (thousands(*closed)) }
+                                td class="num" { (thousands(*ready)) }
+                                td class="num" { (thousands(*blocked)) }
+                                td {
+                                    div class="bar" {
+                                        i style=(format!("width:{:.1}%", percent(*closed, *nodes))) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        );
-    }
-    let body = if rows.is_empty() {
-        "<section class=\"panel\"><p class=\"empty\">no plans in this book</p></section>"
-            .to_string()
-    } else {
-        format!(
-            "<section class=\"panel\"><table><thead><tr><th>Plan</th><th class=\"num\">Nodes</th><th class=\"num\">Closed</th><th class=\"num\">Ready</th><th class=\"num\">Blocked</th><th>Progress</th></tr></thead><tbody>{rows}</tbody></table></section>"
-        )
+        }
     };
-    chrome.wrap(
-        "Plans",
-        "A plan is a metadata predicate over ordinary issues, not a second store.",
-        &body,
-    )
+    chrome
+        .wrap(
+            "Plans",
+            "A plan is a metadata predicate over ordinary issues, not a second store.",
+            body,
+        )
+        .into_string()
 }
 
 /// One plan and its nodes.
@@ -566,51 +598,36 @@ pub fn plan_page(book: &Book, name: &str, project: Option<&str>, query: &str) ->
         return error_page(book, 404, &format!("no plan named {name}"));
     }
     let by_id = book.index();
-    let mut rows = String::new();
-    for node in &nodes {
-        let reasons = model::blocking_in(book, &by_id, node, book.now);
-        let wait = if reasons.is_empty() {
-            "<span class=\"ready\">ready</span>".to_string()
-        } else {
-            format!(
-                "<span class=\"notready\">{}</span>",
-                escape(&reasons.join("; "))
-            )
-        };
-        let mut deps = Vec::new();
-        for parent in book
-            .parents
-            .get(&node.id)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-        {
-            let status = by_id
-                .get(parent.as_str())
-                .map(|issue| issue.status.as_str())
-                .unwrap_or("missing");
-            deps.push(format!("{} [{status}]", escape(parent)));
+    let body = html! {
+        section class="panel" {
+            h2 { (name) }
+            p class="hint" { (nodes.len()) " node(s)" }
+            table {
+                thead {
+                    tr {
+                        th { "Id" }
+                        th { "Title" }
+                        th { "Status" }
+                        th class="num" { "Priority" }
+                        th { "Readiness" }
+                        th { "Waits on" }
+                    }
+                }
+                tbody {
+                    @for node in &nodes {
+                        (plan_row(book, &by_id, node))
+                    }
+                }
+            }
         }
-        let _ = write!(
-            rows,
-            "<tr><td><code>{}</code></td><td><a href=\"{}\">{}</a></td><td>{}</td><td class=\"num\">p{}</td><td>{wait}</td><td>{}</td></tr>",
-            escape(&node.id),
-            link("/issue", None, &[("id", &node.id)]),
-            escape(&node.title),
-            status_badge(&node.status),
-            node.priority,
-            deps.join("<br>")
-        );
-    }
-    let body = format!(
-        "<section class=\"panel\"><h2>{}</h2><p class=\"hint\">{} node(s)</p><table><thead><tr><th>Id</th><th>Title</th><th>Status</th><th class=\"num\">Priority</th><th>Readiness</th><th>Waits on</th></tr></thead><tbody>{rows}</tbody></table></section>",
-        escape(name),
-        nodes.len()
-    );
-    chrome.wrap(
-        &format!("Plan · {name}"),
-        "Nodes are ordinary issues carrying plan metadata.",
-        &body,
-    )
+    };
+    chrome
+        .wrap(
+            &format!("Plan · {name}"),
+            "Nodes are ordinary issues carrying plan metadata.",
+            body,
+        )
+        .into_string()
 }
 
 /// One issue with its edges, evidence and metadata.
@@ -626,166 +643,106 @@ pub fn issue_page(book: &Book, id: &str, project: Option<&str>, query: &str) -> 
     };
     let by_id = book.index();
     let reasons = model::blocking_in(book, &by_id, issue, book.now);
-    let readiness = if reasons.is_empty() {
-        "<span class=\"ready\">ready to claim</span>".to_string()
+    let parents = edges(book, &by_id, &issue.id, true);
+    let children = edges(book, &by_id, &issue.id, false);
+    let labels = if issue.labels.is_empty() {
+        html! { span class="empty" { "none" } }
     } else {
-        format!(
-            "<span class=\"notready\">{}</span>",
-            escape(&reasons.join("; "))
-        )
+        html! {
+            @for label in &issue.labels {
+                span class="chip label" { (label) }
+            }
+        }
     };
-
-    let mut waits = String::new();
-    for parent in book
-        .parents
-        .get(&issue.id)
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-    {
-        let (title, status) = by_id
-            .get(parent.as_str())
-            .map(|issue| (issue.title.as_str(), issue.status.as_str()))
-            .unwrap_or(("(missing from the book)", "missing"));
-        let _ = write!(
-            waits,
-            "<li><a href=\"{}\"><code>{}</code></a> {} {}</li>",
-            link("/issue", None, &[("id", parent)]),
-            escape(parent),
-            status_badge(status),
-            escape(title)
-        );
-    }
-    if waits.is_empty() {
-        waits.push_str("<li class=\"empty\">nothing</li>");
-    }
-    let mut blocks = String::new();
-    for child in book
-        .children
-        .get(&issue.id)
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-    {
-        let (title, status) = by_id
-            .get(child.as_str())
-            .map(|issue| (issue.title.as_str(), issue.status.as_str()))
-            .unwrap_or(("(missing from the book)", "missing"));
-        let _ = write!(
-            blocks,
-            "<li><a href=\"{}\"><code>{}</code></a> {} {}</li>",
-            link("/issue", None, &[("id", child)]),
-            escape(child),
-            status_badge(status),
-            escape(title)
-        );
-    }
-    if blocks.is_empty() {
-        blocks.push_str("<li class=\"empty\">nothing</li>");
-    }
-
-    let mut evidence = String::new();
-    for item in &issue.evidence {
-        let _ = write!(
-            evidence,
-            "<li><span class=\"chip label\">{}</span> <code>{}</code></li>",
-            escape(&item.kind),
-            escape(&item.value)
-        );
-    }
-    if evidence.is_empty() {
-        evidence.push_str("<li class=\"empty\">none</li>");
-    }
-
+    let plan = plan_name(issue).map_or_else(
+        || html! { span class="empty" { "none" } },
+        |name| html! { a href=(link("/plan", None, &[("name", name)])) { (name) } },
+    );
     let metadata = if issue.metadata.is_null()
         || issue.metadata.as_object().is_some_and(|map| map.is_empty())
     {
-        "<span class=\"empty\">none</span>".to_string()
+        html! { span class="empty" { "none" } }
     } else {
-        format!(
-            "<pre><code>{}</code></pre>",
-            escape(&serde_json::to_string_pretty(&issue.metadata).unwrap_or_default())
-        )
+        let pretty = serde_json::to_string_pretty(&issue.metadata).unwrap_or_default();
+        html! { pre { code { (pretty) } } }
     };
-    let plan = plan_name(issue)
-        .map(|name| {
-            format!(
-                "<a href=\"{}\">{}</a>",
-                link("/plan", None, &[("name", name)]),
-                escape(name)
-            )
-        })
-        .unwrap_or_else(|| "<span class=\"empty\">none</span>".to_string());
-
-    let body = format!(
-        r#"<div class="grid2">
-<section class="panel">
-  <h2>{} {status_badge}</h2>
-  <p class="hint"><code>{}</code> · {} · p{} · {}</p>
-  <p>{}</p>
-  <dl class="kv">
-    <dt>Project</dt><dd>{}</dd>
-    <dt>Type</dt><dd>{}</dd>
-    <dt>Readiness</dt><dd>{readiness}</dd>
-    <dt>Holder</dt><dd>{}</dd>
-    <dt>Created</dt><dd>{}</dd>
-    <dt>Updated</dt><dd>{}</dd>
-    <dt>Closed</dt><dd>{}</dd>
-    <dt>Available</dt><dd>{}</dd>
-    <dt>Lease expires</dt><dd>{}</dd>
-    <dt>Plan</dt><dd>{plan}</dd>
-    <dt>External ref</dt><dd>{}</dd>
-    <dt>Labels</dt><dd>{}</dd>
-  </dl>
-</section>
-<section class="panel">
-  <h2>Waits on</h2><ul class="plain">{waits}</ul>
-  <h2 style="margin-top:16px">Blocks</h2><ul class="plain">{blocks}</ul>
-  <h2 style="margin-top:16px">Evidence</h2><ul class="plain">{evidence}</ul>
-  <h2 style="margin-top:16px">Metadata</h2>{metadata}
-</section>
-</div>"#,
-        escape(&issue.title),
-        escape(&issue.id),
-        escape(&issue.project),
-        issue.priority,
-        escape(&issue.issue_type),
-        escape(&issue.description),
-        escape(&issue.project),
-        escape(&issue.issue_type),
-        escape(issue.assignee.as_deref().unwrap_or("unclaimed")),
-        escape(&stamp(issue.created_at, book.now)),
-        escape(&stamp(issue.updated_at, book.now)),
-        escape(
-            &issue
-                .closed_at
-                .map(|at| stamp(at, book.now))
-                .unwrap_or_else(|| "—".into())
-        ),
-        escape(
-            &issue
-                .available_at
-                .map(|at| stamp(at, book.now))
-                .unwrap_or_else(|| "—".into())
-        ),
-        escape(
-            &issue
-                .expires_at
-                .map(|at| stamp(at, book.now))
-                .unwrap_or_else(|| "—".into())
-        ),
-        escape(issue.external_ref.as_deref().unwrap_or("—")),
-        if issue.labels.is_empty() {
-            "<span class=\"empty\">none</span>".to_string()
-        } else {
-            issue
-                .labels
-                .iter()
-                .map(|label| format!("<span class=\"chip label\">{}</span>", escape(label)))
-                .collect::<Vec<_>>()
-                .join(" ")
-        },
-        status_badge = status_badge(&issue.status),
-    );
-    chrome.wrap(&format!("{} — {}", issue.id, issue.title), "", &body)
+    let body = html! {
+        div class="grid2" {
+            section class="panel" {
+                h2 {
+                    (issue.title) " " (status_badge(&issue.status))
+                }
+                p class="hint" {
+                    code { (issue.id) } " · " (issue.project)
+                    " · p" (issue.priority) " · " (issue.issue_type)
+                }
+                p { (issue.description) }
+                dl class="kv" {
+                    dt { "Project" } dd { (issue.project) }
+                    dt { "Type" } dd { (issue.issue_type) }
+                    dt { "Readiness" }
+                    dd {
+                        @if reasons.is_empty() {
+                            span class="ready" { "ready to claim" }
+                        } @else {
+                            span class="notready" { (reasons.join("; ")) }
+                        }
+                    }
+                    dt { "Holder" }
+                    dd { (issue.assignee.as_deref().unwrap_or("unclaimed")) }
+                    dt { "Created" } dd { (stamp(issue.created_at, book.now)) }
+                    dt { "Updated" } dd { (stamp(issue.updated_at, book.now)) }
+                    dt { "Closed" }
+                    dd { (issue.closed_at.map(|at| stamp(at, book.now)).unwrap_or_else(|| "—".into())) }
+                    dt { "Available" }
+                    dd { (issue.available_at.map(|at| stamp(at, book.now)).unwrap_or_else(|| "—".into())) }
+                    dt { "Lease expires" }
+                    dd { (issue.expires_at.map(|at| stamp(at, book.now)).unwrap_or_else(|| "—".into())) }
+                    dt { "Plan" } dd { (plan) }
+                    dt { "External ref" }
+                    dd { (issue.external_ref.as_deref().unwrap_or("—")) }
+                    dt { "Labels" } dd { (labels) }
+                }
+            }
+            section class="panel" {
+                h2 { "Waits on" }
+                ul class="plain" {
+                    @if parents.is_empty() {
+                        li class="empty" { "nothing" }
+                    }
+                    @for (id, title, status) in &parents {
+                        (edge_line(id, title, status))
+                    }
+                }
+                h2 style="margin-top:16px" { "Blocks" }
+                ul class="plain" {
+                    @if children.is_empty() {
+                        li class="empty" { "nothing" }
+                    }
+                    @for (id, title, status) in &children {
+                        (edge_line(id, title, status))
+                    }
+                }
+                h2 style="margin-top:16px" { "Evidence" }
+                ul class="plain" {
+                    @if issue.evidence.is_empty() {
+                        li class="empty" { "none" }
+                    }
+                    @for item in &issue.evidence {
+                        li {
+                            span class="chip label" { (item.kind) }
+                            " " code { (item.value) }
+                        }
+                    }
+                }
+                h2 style="margin-top:16px" { "Metadata" }
+                (metadata)
+            }
+        }
+    };
+    chrome
+        .wrap(&format!("{} — {}", issue.id, issue.title), "", body)
+        .into_string()
 }
 
 /// A page for a failure. The same chrome, so a missing issue is still navigable.
@@ -796,14 +753,18 @@ pub fn error_page(book: &Book, status: u16, message: &str) -> String {
         query: "",
         page: Page::Dashboard,
     };
-    chrome.wrap(
-        &format!("{status}"),
-        "",
-        &format!(
-            "<section class=\"panel error\"><h2>Not found</h2><p>{}</p></section>",
-            escape(message)
-        ),
-    )
+    chrome
+        .wrap(
+            &status.to_string(),
+            "",
+            html! {
+                section class="panel error" {
+                    h2 { "Not found" }
+                    p { (message) }
+                }
+            },
+        )
+        .into_string()
 }
 
 fn stamp(at: i64, now: i64) -> String {
@@ -829,82 +790,176 @@ fn burn_rate(burn: &Burndown) -> String {
     }
 }
 
-fn project_row(stat: &ProjectStat) -> String {
-    let percent = if stat.total > 0 {
-        stat.closed as f64 / stat.total as f64 * 100.0
+fn percent(part: i64, whole: i64) -> f64 {
+    if whole > 0 {
+        part as f64 / whole as f64 * 100.0
     } else {
         0.0
+    }
+}
+
+fn project_row(stat: &ProjectStat) -> Markup {
+    html! {
+        tr {
+            td { a href=(link("/board", Some(&stat.slug), &[])) { (stat.slug) } }
+            td class="num" { (thousands(stat.total)) }
+            td class="num" { (thousands(stat.open)) }
+            td class="num" { (thousands(stat.in_progress)) }
+            td class="num" { (thousands(stat.review)) }
+            td class="num" { (thousands(stat.blocked)) }
+            td class="num" { (thousands(stat.ready)) }
+            td class="num" { (thousands(stat.closed)) }
+            td class="num" { (thousands(stat.stale)) }
+            td {
+                div class="bar" {
+                    i style=(format!("width:{:.1}%", percent(stat.closed, stat.total))) {}
+                }
+            }
+        }
+    }
+}
+
+fn plan_row(book: &Book, by_id: &std::collections::BTreeMap<&str, &Issue>, node: &Issue) -> Markup {
+    let reasons = model::blocking_in(book, by_id, node, book.now);
+    let parents: Vec<(String, String, String)> = book
+        .parents
+        .get(&node.id)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|parent| {
+            by_id.get(parent.as_str()).map_or_else(
+                || (parent.clone(), "(missing)".into(), "missing".into()),
+                |issue| (parent.clone(), issue.title.clone(), issue.status.clone()),
+            )
+        })
+        .collect();
+    html! {
+        tr {
+            td { code { (node.id) } }
+            td { a href=(link("/issue", None, &[("id", &node.id)])) { (node.title) } }
+            td { (status_badge(&node.status)) }
+            td class="num" { "p" (node.priority) }
+            td {
+                @if reasons.is_empty() {
+                    span class="ready" { "ready" }
+                } @else {
+                    span class="notready" { (reasons.join("; ")) }
+                }
+            }
+            td {
+                @for (parent, title, status) in &parents {
+                    code { (parent) } " [" (status) "] " (title) br;
+                }
+            }
+        }
+    }
+}
+
+/// `(id, title, status)` for a node's parents (or children).
+fn edges(
+    book: &Book,
+    by_id: &std::collections::BTreeMap<&str, &Issue>,
+    id: &str,
+    parents: bool,
+) -> Vec<(String, String, String)> {
+    let ids = if parents {
+        book.parents.get(id)
+    } else {
+        book.children.get(id)
     };
-    format!(
-        "<tr><td><a href=\"{}\">{}</a></td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td><div class=\"bar\"><i style=\"width:{percent:.1}%\"></i></div></td></tr>",
-        link("/board", Some(&stat.slug), &[]),
-        escape(&stat.slug),
-        thousands(stat.total),
-        thousands(stat.open),
-        thousands(stat.in_progress),
-        thousands(stat.review),
-        thousands(stat.blocked),
-        thousands(stat.ready),
-        thousands(stat.closed),
-        thousands(stat.stale),
-    )
+    ids.map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|other| {
+            by_id.get(other.as_str()).map_or_else(
+                || {
+                    (
+                        other.clone(),
+                        "(missing from the book)".into(),
+                        "missing".into(),
+                    )
+                },
+                |issue| (other.clone(), issue.title.clone(), issue.status.clone()),
+            )
+        })
+        .collect()
 }
 
-fn board_html(columns: &[Column], project: Option<&str>, limit: usize) -> String {
-    let mut out = String::from("<div class=\"board\">");
-    for column in columns {
-        let _ = write!(
-            out,
-            "<div class=\"col\"><h3>{}<span class=\"n\">{}</span></h3>",
-            escape(column.title),
-            thousands(column.count() as i64)
-        );
-        if column.cards.is_empty() {
-            out.push_str("<p class=\"empty\">none</p>");
+fn edge_line(id: &str, title: &str, status: &str) -> Markup {
+    html! {
+        li {
+            a href=(link("/issue", None, &[("id", id)])) { code { (id) } }
+            " " (status_badge(status)) " " (title)
         }
-        for card in column.cards.iter().take(limit) {
-            let _ = write!(
-                out,
-                "<a class=\"card\" href=\"{}\"><span class=\"id\">{}</span><span class=\"title\">{}</span><span class=\"chips\"><span class=\"chip{}\">p{}</span>{}</span></a>",
-                link("/issue", project, &[("id", &card.id)]),
-                escape(&card.id),
-                escape(&card.title),
-                if card.priority <= 1 { " p1" } else { "" },
-                card.priority,
-                chips(card),
-            );
-        }
-        let hidden = column.count().saturating_sub(limit);
-        if hidden > 0 {
-            let _ = write!(
-                out,
-                "<p class=\"empty\">… {} more (narrow with a project or search)</p>",
-                thousands(hidden as i64)
-            );
-        }
-        out.push_str("</div>");
     }
-    out.push_str("</div>");
-    out
 }
 
-fn chips(card: &model::Card) -> String {
-    let mut out = String::new();
-    if !card.project.is_empty() {
-        let _ = write!(out, "<span class=\"chip\">{}</span>", escape(&card.project));
+fn board_html(columns: &[Column], project: Option<&str>, query: &str, limit: usize) -> Markup {
+    html! {
+        div class="board" {
+            @for column in columns {
+                div class="col" {
+                    h3 {
+                        (column.title)
+                        span class="n" { (thousands(column.count() as i64)) }
+                    }
+                    @if column.cards.is_empty() {
+                        p class="empty" { "none" }
+                    }
+                    @for card in column.cards.iter().take(limit) {
+                        (card_html(card, project))
+                    }
+                    @if column.count() > limit {
+                        a class="more" href=(link(
+                            "/board",
+                            project,
+                            &[("q", query), ("status", &column.status)],
+                        )) {
+                            "… " (thousands((column.count() - limit) as i64)) " more"
+                        }
+                    }
+                }
+            }
+        }
     }
-    if let Some(who) = &card.assignee {
-        let _ = write!(out, "<span class=\"chip who\">{}</span>", escape(who));
+}
+
+fn card_html(card: &model::Card, project: Option<&str>) -> Markup {
+    html! {
+        a class="card" href=(link("/issue", project, &[("id", &card.id)])) {
+            div class="card-top" {
+                span class="cid" { (card.id) }
+                span class=(format!("prio p{}", card.priority.clamp(0, 3))) {
+                    "p" (card.priority)
+                }
+            }
+            div class="card-title" title=(card.title) { (card.title) }
+            div class="card-meta" {
+                @if !card.project.is_empty() {
+                    span class="proj" title=(card.project) { (card.project) }
+                }
+                @if let Some(who) = &card.assignee {
+                    span class="who" title=(who) { (who) }
+                }
+                @for label in card.labels.iter().take(2) {
+                    span class="tag" title=(label) { (label) }
+                }
+                @if card.labels.len() > 2 {
+                    span class="tag more" { "+" (card.labels.len() - 2) }
+                }
+            }
+        }
     }
-    for label in card.labels.iter().take(3) {
-        let _ = write!(out, "<span class=\"chip label\">{}</span>", escape(label));
-    }
-    out
 }
 
 /// The burndown as an inline SVG. No chart library, no canvas, no script: the
 /// browser receives the lines already computed.
-fn burndown_chart(burn: &Burndown, days: i64) -> String {
+///
+/// The SVG is the one place markup is not built by `html!`. Every value in it is
+/// a number or a date this module formats, never operator text, so it is safe to
+/// pass through as [`PreEscaped`].
+fn burndown_chart(burn: &Burndown, days: i64) -> Markup {
     const W: f64 = 980.0;
     const H: f64 = 260.0;
     const LEFT: f64 = 46.0;
@@ -921,7 +976,7 @@ fn burndown_chart(burn: &Burndown, days: i64) -> String {
     let line = |get: &dyn Fn(&model::Day) -> i64, class: &str, dash: &str| -> String {
         let mut points = String::new();
         for (index, day) in burn.days.iter().enumerate() {
-            let _ = write!(points, "{:.1},{:.1} ", x(index), y(get(day)));
+            points.push_str(&format!("{:.1},{:.1} ", x(index), y(get(day))));
         }
         format!(
             "<polyline class=\"{class}\" fill=\"none\" stroke-width=\"2\"{dash} points=\"{}\"/>",
@@ -933,34 +988,33 @@ fn burndown_chart(burn: &Burndown, days: i64) -> String {
     for step in 0..=2 {
         let value = (peak * step as f64 / 2.0).round() as i64;
         let at = y(value);
-        let _ = write!(
-            grid,
+        grid.push_str(&format!(
             "<line x1=\"{LEFT}\" y1=\"{at:.1}\" x2=\"{:.1}\" y2=\"{at:.1}\" stroke=\"#222e3a\" stroke-width=\"1\"/><text x=\"{:.1}\" y=\"{:.1}\" fill=\"#5d6b7a\" font-size=\"10\" text-anchor=\"end\">{}</text>",
             W - RIGHT,
             LEFT - 6.0,
             at + 3.0,
             thousands(value)
-        );
+        ));
     }
     let first = burn.days.first().map(|day| day.at).unwrap_or(0);
     let last = burn.days.last().map(|day| day.at).unwrap_or(0);
     let labels = format!(
         "<text x=\"{LEFT}\" y=\"{:.1}\" fill=\"#5d6b7a\" font-size=\"10\" text-anchor=\"start\">{}</text><text x=\"{:.1}\" y=\"{:.1}\" fill=\"#5d6b7a\" font-size=\"10\" text-anchor=\"end\">{}</text>",
         H - 8.0,
-        escape(&date_label(first)),
+        date_label(first),
         W - RIGHT,
         H - 8.0,
-        escape(&date_label(last))
+        date_label(last)
     );
     let area = {
         let mut points = format!("{:.1},{:.1} ", LEFT, TOP + plot_h);
         for (index, day) in burn.days.iter().enumerate() {
-            let _ = write!(points, "{:.1},{:.1} ", x(index), y(day.remaining));
+            points.push_str(&format!("{:.1},{:.1} ", x(index), y(day.remaining)));
         }
-        let _ = write!(points, "{:.1},{:.1}", W - RIGHT, TOP + plot_h);
-        format!("<polygon fill=\"#6ea8fe14\" points=\"{}\"/>", points)
+        points.push_str(&format!("{:.1},{:.1}", W - RIGHT, TOP + plot_h));
+        format!("<polygon fill=\"#6ea8fe14\" points=\"{points}\"/>")
     };
-    format!(
+    let svg = format!(
         r#"<svg class="chart" viewBox="0 0 {W} {H}" role="img" aria-label="Burndown over {days} days">
 <style>.scope{{stroke:#5d6b7a}}.remaining{{stroke:#6ea8fe}}.ideal{{stroke:#c4a7ff;stroke-dasharray:5 5;opacity:.75}}</style>
 {grid}{labels}{area}{scope}{remaining}{ideal}
@@ -972,7 +1026,8 @@ fn burndown_chart(burn: &Burndown, days: i64) -> String {
         scope = line(&|day| day.scope, "scope", ""),
         remaining = line(&|day| day.remaining, "remaining", ""),
         ideal = line(&|day| day.ideal, "ideal", ""),
-    )
+    );
+    html! { (PreEscaped(svg)) }
 }
 
 #[cfg(test)]
@@ -980,15 +1035,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn text_is_escaped_everywhere_it_can_come_from_a_person() {
-        assert_eq!(escape("<script>"), "&lt;script&gt;");
-        assert_eq!(escape("a & b"), "a &amp; b");
-        assert_eq!(escape("\"x\" 'y'"), "&quot;x&quot; &#39;y&#39;");
-    }
-
-    #[test]
     fn query_values_are_percent_encoded() {
         assert_eq!(url_encode("personal/avery"), "personal%2Favery");
         assert_eq!(url_encode("a b"), "a+b");
+    }
+
+    #[test]
+    fn operator_text_is_escaped_by_the_template() {
+        let mut issue = Issue {
+            id: "marbles-1".into(),
+            title: "<script>alert(1)</script>".into(),
+            description: "<img src=x onerror=alert(2)>".into(),
+            project: "demo".into(),
+            status: "open".into(),
+            issue_type: "task".into(),
+            ..Issue::default()
+        };
+        issue.labels = vec!["<b>".into()];
+        let book = Book {
+            issues: vec![issue],
+            ..Book::default()
+        };
+        let page = issue_page(&book, "marbles-1", None, "");
+        assert!(
+            page.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "{page}"
+        );
+        assert!(
+            page.contains("&lt;img src=x onerror=alert(2)&gt;"),
+            "{page}"
+        );
+        assert!(!page.contains("<script>alert(1)</script>"), "{page}");
     }
 }

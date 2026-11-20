@@ -11,6 +11,7 @@ tracker stays the single writer of its own graph.
 | --- | --- |
 | `/` | headline counts, a 14-day burndown, a compact board, the busiest projects |
 | `/board?project=&q=&limit=` | every issue by status; unknown statuses get a column rather than disappearing |
+| `/board?status=open&page=2&limit=50` | one status, paginated; the column view only draws the first 12 |
 | `/burndown?days=&project=&q=` | remaining against the ideal, plus the day table |
 | `/projects?stale=` | one row per project: open, WIP, review, blocked, ready, closed, stale |
 | `/plans` | every `metadata.plan` value with node/ready/closed counts |
@@ -53,8 +54,16 @@ flag is required; once the grant path lands that flag disappears.
 
 - **Read-only.** The grant is `soil:records`; there is no write path and no
   socket of the Spore's own.
-- **SSR.** The guest returns complete HTML. No JSON fetch, no client framework,
-  no script: what the browser receives is what the book said at that moment.
+- **SSR.** The guest returns complete HTML, built with `maud` (the same macro
+  `spore-mail` uses), so every interpolated title or label is escaped by
+  construction. No JSON fetch, no client framework, no script: what the browser
+  receives is what the book said at that moment.
+- **Pagination, not a dump.** The board overview draws twelve cards per column;
+  a status page pages at 50 (limit up to 200). A 2,400-card column is not a page.
+- **HTMX when it earns its place.** There is no HTMX today: every interaction is
+  a link or a GET form. When claim/close or no-reload filtering lands, vendor
+  `htmx.min.js` into the package and serve it from the Spore, as `spore-mail`
+  does — never a CDN.
 - **Tested on the host.** The kanban, burndown, readiness, plan grouping and
   HTML escaping live in `model` and `render`, which compile for the host, so
   `cargo test` covers them without a wasm runtime.
