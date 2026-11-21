@@ -743,28 +743,15 @@ fn capture_card(path: &str) -> Result<Value, String> {
         .and_then(|value| value.get("ended_at_ms"))
         .and_then(Value::as_u64)
         .unwrap_or(started_at_ms);
-    let transcript = read_json(&format!("{path}/transcript.json")).ok();
-    let text = transcript
-        .as_ref()
-        .and_then(|value| {
-            value
-                .get("text")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| {
-                    value
-                        .get("segments")
-                        .and_then(Value::as_array)
-                        .map(|segments| {
-                            segments
-                                .iter()
-                                .filter_map(|segment| segment.get("text").and_then(Value::as_str))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        })
-                })
-        })
-        .unwrap_or_default();
+    // The list is a projection: title, summary and action count. Reading every
+    // transcript here made one card page wait on the entire capture library.
+    // Detail still reads the full transcript; the card does not need it.
+    let text = summary
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
     let title = meta
         .as_ref()
         .and_then(|value| value.get("title"))
@@ -778,7 +765,7 @@ fn capture_card(path: &str) -> Result<Value, String> {
     let source = path.split('/').nth(1).unwrap_or("unknown").to_string();
     let id = path.rsplit('/').next().unwrap_or(path).to_string();
     let words = text.split_whitespace().count();
-    let speakers = transcript.as_ref().map(speaker_count).unwrap_or(0);
+    let speakers = 0usize;
     let duration_ms = ended_at_ms.saturating_sub(started_at_ms);
     let suppressed_until_ms = ended_at_ms.saturating_add(7 * 24 * 60 * 60 * 1000);
     Ok(json!({
@@ -861,20 +848,15 @@ fn captures(
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                 {
-                    if card
-                        .get("suppressed")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
-                    {
-                        hidden += 1;
-                    } else {
-                        processing += 1;
-                        processing_latest = processing_latest.max(
-                            card.get("started_at_ms")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0),
-                        );
-                    }
+                    // Without a summary there is no signal to judge. Keep a
+                    // pending capture in the queue count instead of letting an
+                    // empty card disappear into the hidden bucket.
+                    processing += 1;
+                    processing_latest = processing_latest.max(
+                        card.get("started_at_ms")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                    );
                     continue;
                 }
                 if card

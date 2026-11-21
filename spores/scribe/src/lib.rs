@@ -175,6 +175,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "watch" => watch(args),
         "receive" => receive(args),
         "enrich" => enrich_watch(args),
+        "backfill" => backfill(args),
         "voiceprint" => voiceprint(args),
         "voicefix" => voicefix(args),
         "restyle" => restyle(args),
@@ -494,6 +495,92 @@ fn enrich_watch(args: Args) -> Result<(), String> {
         "failed": failed,
     }));
     Ok(())
+}
+
+fn backfill(args: Args) -> Result<(), String> {
+    let roots = capture_roots()?;
+    let mut seen = 0_u64;
+    let mut enriched = 0_u64;
+    let mut skipped = 0_u64;
+    let mut failed = 0_u64;
+    for root in roots {
+        seen += 1;
+        let summary = read_text(&format!("{root}/summary.md")).unwrap_or_default();
+        if !summary.trim().is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let id = root.rsplit('/').next().unwrap_or("capture").to_string();
+        let source = root.split('/').nth(1).unwrap_or("omi").to_string();
+        let meta = read_json(&format!("{root}/capture.json")).unwrap_or_else(|_| json!({}));
+        let stored = json!({
+            "capture_id": id,
+            "source": source,
+            "bundle": root,
+            "started_at_ms": meta.get("started_at_ms").cloned().unwrap_or(Value::Null),
+            "ended_at_ms": meta.get("ended_at_ms").cloned().unwrap_or(Value::Null),
+        });
+        match load_bundle_event(&stored, &root).and_then(|mut event| {
+            event["checkpoint"] = Value::Bool(false);
+            process_event(
+                &event,
+                &args.model,
+                true,
+                false,
+                &args.deep_model,
+                args.deep_after_chars,
+            )
+        }) {
+            Ok(_) => {
+                enriched += 1;
+                eprintln!("scribe: backfilled {root}");
+            }
+            Err(error) => {
+                failed += 1;
+                eprintln!("scribe: backfill {root}: {error}");
+            }
+        }
+    }
+    finish(json!({
+        "ok": true,
+        "command": "backfill",
+        "seen": seen,
+        "enriched": enriched,
+        "skipped": skipped,
+        "failed": failed,
+    }));
+    Ok(())
+}
+
+fn capture_roots() -> Result<Vec<String>, String> {
+    let mut roots = Vec::new();
+    for source in list_dirs("captures")? {
+        for date in list_dirs(&source)? {
+            for capture in list_dirs(&date)? {
+                roots.push(capture);
+            }
+        }
+    }
+    roots.sort();
+    Ok(roots)
+}
+
+fn list_dirs(parent: &str) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let page = vfs::ls(parent, offset, 256).map_err(|error| format!("vfs ls {parent}: {error:?}"))?;
+        for entry in page.entries {
+            if entry.kind == vfs::Kind::Directory {
+                paths.push(entry.path);
+            }
+        }
+        match page.next {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    Ok(paths)
 }
 
 fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
