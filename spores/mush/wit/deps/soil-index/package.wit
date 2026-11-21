@@ -4,7 +4,7 @@
 // answers browse/search queries and returns paths. The Spore then calls
 // `soil:vfs.stat`/`read` for the authoritative entry and bytes. A host may
 // rebuild the index at any time and bump `generation`.
-package soil:index@1.1.0;
+package soil:index@1.2.0;
 
 interface index {
   enum order {
@@ -56,6 +56,14 @@ interface index {
 
   record hit {
     path: string,
+    /// The whole-content identity of the bytes at `path` (`blake3:<64 hex>`).
+    ///
+    /// A hit is a document, and a document is its bytes: two paths that hold the
+    /// same content are one hit with two paths, and a caller that wants the bytes
+    /// asks for them by this id rather than by the path it happened to see. This
+    /// is what lets one index serve a git tree, a wiki and a research corpus
+    /// without inventing a second notion of identity.
+    content-id: option<string>,
     /// Higher is more relevant. Stable for a given index generation.
     score: u32,
     /// Optional bounded text fragment; the host owns the source text.
