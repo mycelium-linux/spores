@@ -45,9 +45,7 @@ export!(Component);
 impl exports::wasi::http::incoming_handler::Guest for Component {
     fn handle(request: IncomingRequest, response_out: ResponseOutparam) {
         let method = request.method();
-        let target = request
-            .path_with_query()
-            .unwrap_or_else(|| "/".to_string());
+        let target = request.path_with_query().unwrap_or_else(|| "/".to_string());
         let (path, query) = target
             .split_once('?')
             .map(|(path, query)| (path, query))
@@ -149,22 +147,39 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                 Err(error) => api_error(400, &error),
             },
             (Method::Post, "/api/clean") => match queue_clean(query) {
-                Ok(value) => respond(200, "application/json; charset=utf-8", &serde_json::to_vec(&value).unwrap_or_default()),
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
                 Err(error) => api_error(400, &error),
             },
             (Method::Get, "/api/vocabulary") => match read_text("scribe/vocabulary.txt") {
-                Ok(text) => respond(200, "application/json; charset=utf-8", &serde_json::to_vec(&json!({"ok": true, "text": text})).unwrap_or_default()),
-                Err(_) => respond(200, "application/json; charset=utf-8", &serde_json::to_vec(&json!({"ok": true, "text": ""})).unwrap_or_default()),
+                Ok(text) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&json!({"ok": true, "text": text})).unwrap_or_default(),
+                ),
+                Err(_) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&json!({"ok": true, "text": ""})).unwrap_or_default(),
+                ),
             },
             (Method::Post, "/api/vocabulary/save") => match save_vocabulary(query) {
-                Ok(value) => respond(200, "application/json; charset=utf-8", &serde_json::to_vec(&value).unwrap_or_default()),
+                Ok(value) => respond(
+                    200,
+                    "application/json; charset=utf-8",
+                    &serde_json::to_vec(&value).unwrap_or_default(),
+                ),
                 Err(error) => api_error(400, &error),
             },
             (Method::Get, "/api/profile") => match read_json("profile.json") {
                 Ok(profile) => respond(
                     200,
                     "application/json; charset=utf-8",
-                    &serde_json::to_vec(&json!({"ok": true, "profile": profile})).unwrap_or_default(),
+                    &serde_json::to_vec(&json!({"ok": true, "profile": profile}))
+                        .unwrap_or_default(),
                 ),
                 Err(_) => respond(
                     200,
@@ -172,9 +187,9 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
                     &serde_json::to_vec(&json!({"ok": false})).unwrap_or_default(),
                 ),
             },
-            (Method::Get, "/api/capture") => match query_value(query, "path").or_else(|| {
-                query_value(query, "id").and_then(|id| find_capture(&id).ok())
-            }) {
+            (Method::Get, "/api/capture") => match query_value(query, "path")
+                .or_else(|| query_value(query, "id").and_then(|id| find_capture(&id).ok()))
+            {
                 Some(path) => match capture(&path) {
                     Ok(value) => respond(
                         200,
@@ -209,15 +224,10 @@ impl exports::wasi::http::incoming_handler::Guest for Component {
 }
 
 fn respond(status: u16, content_type: &str, body: &[u8]) -> (Fields, u16, Vec<u8>) {
-    let fields = Fields::from_list(&[(
-        "content-type".to_string(),
-        content_type.as_bytes().to_vec(),
-    )])
-    .unwrap_or_else(|_| Fields::new());
-    let _ = fields.set(
-        "cache-control",
-        &[b"no-store".to_vec()],
-    );
+    let fields =
+        Fields::from_list(&[("content-type".to_string(), content_type.as_bytes().to_vec())])
+            .unwrap_or_else(|_| Fields::new());
+    let _ = fields.set("cache-control", &[b"no-store".to_vec()]);
     (fields, status, body.to_vec())
 }
 
@@ -312,7 +322,11 @@ fn write_json(path: &str, value: &Value) -> Result<(), String> {
 
 fn read_overrides(path: &str) -> Value {
     let value = read_json(&format!("{path}/speaker_overrides.json")).unwrap_or_else(|_| json!([]));
-    if value.is_array() { value } else { json!([]) }
+    if value.is_array() {
+        value
+    } else {
+        json!([])
+    }
 }
 
 fn queue_learning(
@@ -432,7 +446,9 @@ fn set_speaker(query: &str) -> Result<Value, String> {
         write_json(&overrides_path, &overrides)?;
         queue_learning(&path, &speaker, name, &person_id, Some(start), Some(end))?;
         let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
-        return Ok(json!({"ok": true, "scope": "line", "speakers": speakers, "overrides": overrides}));
+        return Ok(
+            json!({"ok": true, "scope": "line", "speakers": speakers, "overrides": overrides}),
+        );
     }
 
     let speakers_path = format!("{path}/speakers.json");
@@ -491,13 +507,20 @@ fn swap_speakers(query: &str) -> Result<Value, String> {
 
     if let Ok(mut actions) = read_json(&format!("{path}/actions.json")) {
         if let Some(items) = actions.as_array_mut() {
-            let a_name = speakers[&a].get("name").and_then(Value::as_str).unwrap_or("");
-            let b_name = speakers[&b].get("name").and_then(Value::as_str).unwrap_or("");
+            let a_name = speakers[&a]
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let b_name = speakers[&b]
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             for action in items {
                 if let Some(fields) = action.as_object_mut() {
                     for field in ["title", "quote", "owner", "speaker"] {
                         if let Some(text) = fields.get(field).and_then(Value::as_str) {
-                            fields.insert(field.to_string(), json!(swap_text(text, a_name, b_name)));
+                            fields
+                                .insert(field.to_string(), json!(swap_text(text, a_name, b_name)));
                         }
                     }
                 }
@@ -517,9 +540,14 @@ fn queue_clean(query: &str) -> Result<Value, String> {
     let _ = vfs_mut::mkdir("scribe");
     let queue_path = "scribe/clean.json";
     let mut queue = read_json(queue_path).unwrap_or_else(|_| json!([]));
-    if !queue.is_array() { queue = json!([]); }
+    if !queue.is_array() {
+        queue = json!([]);
+    }
     if let Some(items) = queue.as_array_mut() {
-        if !items.iter().any(|item| item.get("path").and_then(Value::as_str) == Some(path.as_str())) {
+        if !items
+            .iter()
+            .any(|item| item.get("path").and_then(Value::as_str) == Some(path.as_str()))
+        {
             items.push(json!({"path": path}));
         }
     }
@@ -533,8 +561,14 @@ fn save_vocabulary(query: &str) -> Result<Value, String> {
         return Err("vocabulary is too large".into());
     }
     let _ = vfs_mut::mkdir("scribe");
-    vfs_mut::write("scribe/vocabulary.txt", text.as_bytes(), "text/plain", None, None)
-        .map_err(|error| format!("write vocabulary: {error:?}"))?;
+    vfs_mut::write(
+        "scribe/vocabulary.txt",
+        text.as_bytes(),
+        "text/plain",
+        None,
+        None,
+    )
+    .map_err(|error| format!("write vocabulary: {error:?}"))?;
     Ok(json!({"ok": true, "bytes": text.len()}))
 }
 
@@ -633,7 +667,11 @@ fn apply_speaker_names(path: &str, speakers: &Value) -> Result<(), String> {
             continue;
         };
         for field in ["title", "quote", "owner", "speaker"] {
-            let Some(text) = fields.get(field).and_then(Value::as_str).map(str::to_string) else {
+            let Some(text) = fields
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
                 continue;
             };
             let mut next = text;
@@ -686,6 +724,14 @@ fn capture_card(path: &str) -> Result<Value, String> {
         .ok()
         .and_then(|value| value.as_array().map(|items| items.len()))
         .unwrap_or(0);
+    let questions = read_json(&format!("{path}/questions.json"))
+        .ok()
+        .and_then(|value| value.as_array().map(|items| items.len()))
+        .unwrap_or(0);
+    let calendar = read_json(&format!("{path}/calendar.json"))
+        .ok()
+        .and_then(|value| value.as_array().map(|items| items.len()))
+        .unwrap_or(0);
     let meta = read_json(&format!("{path}/capture.json")).ok();
     let started_at_ms = meta
         .as_ref()
@@ -706,13 +752,16 @@ fn capture_card(path: &str) -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .or_else(|| {
-                    value.get("segments").and_then(Value::as_array).map(|segments| {
-                        segments
-                            .iter()
-                            .filter_map(|segment| segment.get("text").and_then(Value::as_str))
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    })
+                    value
+                        .get("segments")
+                        .and_then(Value::as_array)
+                        .map(|segments| {
+                            segments
+                                .iter()
+                                .filter_map(|segment| segment.get("text").and_then(Value::as_str))
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
                 })
         })
         .unwrap_or_default();
@@ -756,6 +805,8 @@ fn capture_card(path: &str) -> Result<Value, String> {
         "summary": summary,
         "preview": text.chars().take(220).collect::<String>(),
         "actions": actions,
+        "questions": questions,
+        "calendar": calendar,
         "speakers": speakers,
         "words": words,
         "duration_ms": duration_ms,
@@ -805,18 +856,31 @@ fn captures(
                 if card.get("merged_into").and_then(Value::as_str).is_some() {
                     continue;
                 }
-                if card.get("processing").and_then(Value::as_bool).unwrap_or(false) {
-                    if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false) {
+                if card
+                    .get("processing")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if card
+                        .get("suppressed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
                         hidden += 1;
                     } else {
                         processing += 1;
                         processing_latest = processing_latest.max(
-                            card.get("started_at_ms").and_then(Value::as_u64).unwrap_or(0),
+                            card.get("started_at_ms")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0),
                         );
                     }
                     continue;
                 }
-                if card.get("suppressed").and_then(Value::as_bool).unwrap_or(false)
+                if card
+                    .get("suppressed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
                     != show_suppressed
                 {
                     hidden += 1;
@@ -849,11 +913,7 @@ fn capture_root(path: &str) -> Option<String> {
     }
 }
 
-fn search_captures(
-    text: &str,
-    from: Option<&str>,
-    to: Option<&str>,
-) -> Result<Value, String> {
+fn search_captures(text: &str, from: Option<&str>, to: Option<&str>) -> Result<Value, String> {
     let query = index::Query {
         text: text.to_string(),
         mode: Some(index::Mode::FullText),
@@ -939,6 +999,8 @@ fn capture(path: &str) -> Result<Value, String> {
     }
     let summary = read_text(&format!("{path}/summary.md")).unwrap_or_default();
     let actions = read_json(&format!("{path}/actions.json")).unwrap_or_else(|_| json!([]));
+    let questions = read_json(&format!("{path}/questions.json")).unwrap_or_else(|_| json!([]));
+    let calendar = read_json(&format!("{path}/calendar.json")).unwrap_or_else(|_| json!([]));
     let transcript = read_json(&format!("{path}/transcript.json"))?;
     let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
     let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
@@ -950,8 +1012,14 @@ fn capture(path: &str) -> Result<Value, String> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim();
-    let started = meta.get("started_at_ms").and_then(Value::as_u64).unwrap_or(0);
-    let ended = meta.get("ended_at_ms").and_then(Value::as_u64).unwrap_or(started);
+    let started = meta
+        .get("started_at_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let ended = meta
+        .get("ended_at_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(started);
     Ok(json!({
         "path": path,
         "id": base(path),
@@ -968,6 +1036,8 @@ fn capture(path: &str) -> Result<Value, String> {
         "design_summary": design_summary,
         "clean_transcript": clean_transcript,
         "actions": actions,
+        "questions": questions,
+        "calendar": calendar,
         "transcript": transcript,
         "speakers": speakers,
         "overrides": overrides,
@@ -1031,7 +1101,11 @@ fn title(summary: &str) -> Option<String> {
                 .trim()
                 .trim_start_matches("Overview:")
                 .trim();
-            let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
+            let first = line
+                .split(". ")
+                .next()
+                .unwrap_or(line)
+                .trim_end_matches('.');
             first.chars().take(40).collect()
         })
         .filter(|line: &String| !line.is_empty())

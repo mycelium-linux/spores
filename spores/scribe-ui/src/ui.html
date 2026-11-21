@@ -36,6 +36,7 @@ h1{font-family:ui-serif,Georgia,serif;font-size:34px;line-height:1.14;letter-spa
 h2{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin:30px 0 8px}.section-head{display:flex;align-items:center;justify-content:space-between;margin:30px 0 8px}.section-head h2{margin:0}.source-btn{font-size:10px;padding:2px 7px;border-radius:5px}.section-tools{display:flex;align-items:center;gap:6px}
 .turn{padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}.turn:hover{background:var(--hover)}
 .speaker{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;margin-bottom:4px;display:flex;align-items:center;gap:6px}.speaker .dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}.speaker-name{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;border:0;background:transparent;padding:0;cursor:pointer}.speaker-name:hover{text-decoration:underline;text-underline-offset:3px}.turn+.turn{margin-top:2px}.text{white-space:pre-wrap;max-width:980px;font-size:15px;line-height:1.7}.turn.flash{background:var(--highlight);box-shadow:inset 3px 0 0 var(--accent)}
+.event{padding:12px 0;border-bottom:1px solid var(--line)}.event:last-child{border-bottom:0}.event-head{display:flex;align-items:center;gap:8px;justify-content:space-between}.event-title{font-weight:560;line-height:1.35}.event-when{font-size:12px;color:var(--muted);margin-top:4px}.attendees{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}.attendee{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 7px;background:var(--surface)}.attendee.needs{color:#8c5b2f;border-color:#e3c7a4}.question{padding:12px 0;border-bottom:1px solid var(--line)}.question:last-child{border-bottom:0}.question-text{font-weight:540;line-height:1.45}.question-who{font-size:11px;color:var(--muted);margin-top:5px}.pill.blocking{background:#f6e2d8;color:#8c3c2f}.pill.hold{background:var(--soft);color:var(--muted)}.pill.confirmed{background:var(--accent-soft);color:var(--accent)}.pill.tentative{background:#f5ead6;color:#8a5b1f}
 .actions{border-left:1px solid var(--line);padding:16px 16px 30px;background:var(--panel)}
 .actions h2{margin:4px 0 12px}
 .action{padding:11px 0;border-bottom:1px solid var(--line)}.action-click{cursor:pointer}.action-click:hover{background:var(--hover)}
@@ -376,11 +377,41 @@ function paragraphs(text) {
   return chunks;
 }
 
+function calendarWhen(item) {
+  if (!item.start) return 'Time not resolved';
+  const start = new Date(item.start);
+  if (Number.isNaN(start.getTime())) return String(item.start);
+  const end = item.end ? new Date(item.end) : null;
+  const date = start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const until = end && !Number.isNaN(end.getTime()) ? `–${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
+  return `${date} · ${time}${until}${item.timezone ? ` · ${item.timezone}` : ''}`;
+}
+function calendarStatus(item) {
+  const status = ['hold', 'tentative', 'confirmed'].includes(item.status) ? item.status : 'hold';
+  const label = status === 'hold' ? 'Personal hold' : status === 'tentative' ? 'Tentative' : 'Confirmed';
+  return `<span class="pill ${status}">${label}</span>`;
+}
+function attendeeChip(attendee) {
+  if (!attendee) return '';
+  const name = attendee.display_name || attendee.name || attendee.person_id || 'Unnamed';
+  const resolved = attendee.person_id || attendee.email;
+  const role = attendee.role && attendee.role !== 'required' ? ` · ${attendee.role}` : '';
+  return `<span class="attendee${resolved ? '' : ' needs'}" title="${esc(attendee.email || attendee.source || '')}">${esc(name)}${esc(role)}${resolved ? '' : ' · needs contact'}</span>`;
+}
+function questionWho(item, capture) {
+  const directed = Array.isArray(item.directed_at) ? item.directed_at.map(name => esc(name)).join(', ') : '';
+  const asked = item.asked_by ? `Asked by ${esc(displaySpeaker(capture, item.asked_by))}` : '';
+  return [asked, directed ? `→ ${directed}` : ''].filter(Boolean).join(' · ');
+}
+
 function render(capture) {
   selectedCapture = capture;
   const headerCopy = document.getElementById('header-copy-link');
   if (headerCopy) headerCopy.hidden = !capture.id;
   const actions = Array.isArray(capture.actions) ? capture.actions : [];
+  const questions = Array.isArray(capture.questions) ? capture.questions : [];
+  const calendar = Array.isArray(capture.calendar) ? capture.calendar : [];
   const segments = capture.transcript?.segments || [];
   const words = capture.transcript?.words || [];
   const turns = [];
@@ -465,6 +496,8 @@ function render(capture) {
     <div class="meta">${esc(metaLine(capture))}${Array.isArray(capture.merged_from) && capture.merged_from.length ? ` · Merged from ${capture.merged_from.length} captures` : ''}${tools}</div>
     ${summaryTools}
     <div id="summary-body" class="summary"></div>
+    ${calendar.length ? `<div class="section-head"><h2>Calendar</h2><button class="source-btn" id="calendar-sources">Sources</button></div><div id="calendar"></div>` : ''}
+    ${questions.length ? `<div class="section-head"><h2>Open questions</h2><button class="source-btn" id="question-sources">Sources</button></div><div id="questions"></div>` : ''}
     <div class="section-head"><h2>Action items</h2><button class="source-btn" id="action-sources">Sources</button></div>
     <div id="actions"></div>
     <div class="section-head"><h2 id="transcript-heading">Transcript</h2><div class="section-tools">${hasClean ? `<div class="pill-group"><button id="original-view">Original</button><button id="clean-view">Clean</button></div>` : ''}<button class="source-btn" id="transcript-sources">Sources</button></div></div>
@@ -493,8 +526,10 @@ function render(capture) {
   document.getElementById('copy-llm')?.addEventListener('click', async () => {
     const people = [...new Set(Object.values(capture.speakers || {}).map(value => value?.name).filter(Boolean))];
     const actionLines = actions.map(action => `- [${action.kind || 'action'}] ${action.title || action.quote || 'Untitled'}${action.owner ? ` — ${displaySpeaker(capture, action.owner)}` : ''}${action.due_at ? ` (${action.due_at})` : ''}`).join('\n');
+    const calendarLines = calendar.map(item => `- ${item.title || 'Untitled'} — ${calendarWhen(item)} [${item.status || 'hold'}]${(item.attendees || []).length ? ` — ${(item.attendees || []).map(a => a.display_name || a.name || a.person_id).filter(Boolean).join(', ')}` : ''}`).join('\n');
+    const questionLines = questions.map(item => `- ${item.question || 'Untitled'}${item.blocking ? ' (blocking)' : ''}${item.asked_by ? ` — ${displaySpeaker(capture, item.asked_by)}` : ''}`).join('\n');
     const transcriptLines = activeTurns.map(turn => `${turn.speaker}: ${turn.text}`).join('\n');
-    const text = `# ${shortTitle(capture.title)}\n\n${metaLine(capture)}${people.length ? `\nParticipants: ${people.join(', ')}` : ''}\n\n## ${summaryView === 'design' ? 'Design doc' : 'Summary'}\n${summaryText()}\n\n## Action items\n${actionLines || 'None captured.'}\n\n## Transcript\n${transcriptLines || capture.transcript?.text || ''}`;
+    const text = `# ${shortTitle(capture.title)}\n\n${metaLine(capture)}${people.length ? `\nParticipants: ${people.join(', ')}` : ''}\n\n## ${summaryView === 'design' ? 'Design doc' : 'Summary'}\n${summaryText()}\n\n## Calendar\n${calendarLines || 'None captured.'}\n\n## Open questions\n${questionLines || 'None captured.'}\n\n## Action items\n${actionLines || 'None captured.'}\n\n## Transcript\n${transcriptLines || capture.transcript?.text || ''}`;
     try {
       await navigator.clipboard.writeText(text);
       const button = document.getElementById('copy-llm');
@@ -558,6 +593,21 @@ function render(capture) {
     const response = await fetch(`/api/relearn?path=${encodeURIComponent(capture.path)}`, { method: 'POST' });
     if (response.ok) alert('Queued both named voices for enrollment. The enrich worker will update templates.');
   });
+  const calendarEl = detail.querySelector('#calendar');
+  if (calendarEl) calendarEl.innerHTML = calendar.length ? calendar.map(item => `
+    <div class="event">
+      <div class="event-head"><div class="event-title">${esc(item.title || 'Calendar candidate')}</div>${calendarStatus(item)}</div>
+      <div class="event-when">${esc(calendarWhen(item))}${item.location ? ` · ${esc(item.location)}` : ''}</div>
+      ${(item.attendees || []).length ? `<div class="attendees">${(item.attendees || []).map(attendeeChip).join('')}</div>` : '<div class="event-when">No attendees — personal hold</div>'}
+      ${item.quote ? `<div class="quote">“${esc(item.quote)}”</div>` : ''}
+    </div>`).join('') : '';
+  const questionEl = detail.querySelector('#questions');
+  if (questionEl) questionEl.innerHTML = questions.length ? questions.map(item => `
+    <div class="question">
+      <div class="question-text">${esc(item.question || 'Untitled question')}${item.blocking ? ' <span class="pill blocking">Blocking</span>' : ''}</div>
+      <div class="question-who">${questionWho(item, capture)}</div>
+      ${item.quote ? `<div class="quote">“${esc(item.quote)}”</div>` : ''}
+    </div>`).join('') : '';
   detail.querySelector('#actions').innerHTML = actions.length ? actions.map(action => `
     <div class="action action-click" data-start="${action.start_ms != null ? Number(action.start_ms) : ''}" title="${action.start_ms != null ? 'Open source in transcript' : 'Action item'}">
       <div class="title">${esc(action.title || action.quote || 'Untitled action')}</div>
@@ -575,6 +625,8 @@ function render(capture) {
   };
   document.getElementById('summary-sources')?.addEventListener('click', () => jumpToTranscript());
   document.getElementById('action-sources')?.addEventListener('click', () => jumpToTranscript(actions[0]?.start_ms));
+  document.getElementById('calendar-sources')?.addEventListener('click', () => jumpToTranscript(calendar[0]?.start_ms));
+  document.getElementById('question-sources')?.addEventListener('click', () => jumpToTranscript(questions[0]?.start_ms));
   document.getElementById('transcript-sources')?.addEventListener('click', () => jumpToTranscript());
   detail.querySelectorAll('.action-source').forEach(button => button.addEventListener('click', (event) => { event.stopPropagation(); jumpToTranscript(Number(button.dataset.start)); }));
   detail.querySelectorAll('.action-click').forEach(action => action.addEventListener('click', () => {

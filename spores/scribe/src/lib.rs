@@ -505,6 +505,8 @@ fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
     let actions = read_json(&format!("{bundle}/actions.omi.json"))
         .or_else(|_| read_json(&format!("{bundle}/actions.json")))
         .unwrap_or_else(|_| json!([]));
+    let questions = read_json(&format!("{bundle}/questions.json")).unwrap_or_else(|_| json!([]));
+    let calendar = read_json(&format!("{bundle}/calendar.json")).unwrap_or_else(|_| json!([]));
     Ok(json!({
         "capture_id": stored.get("capture_id").cloned().unwrap_or(Value::Null),
         "source": stored.get("source").cloned().unwrap_or_else(|| json!("omi")),
@@ -515,6 +517,8 @@ fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
         "emoji": meta.get("emoji").cloned().unwrap_or(Value::Null),
         "summary_md": summary,
         "actions": actions,
+        "questions": questions,
+        "calendar": calendar,
         "transcript": transcript,
         "checkpoint": false,
     }))
@@ -618,17 +622,18 @@ fn learn_manual(args: &Args) -> Result<Value, String> {
         // audio round trip again unless this is an explicit dataset update.
         if !force
             && templates
-            .get("templates")
-            .and_then(Value::as_array)
-            .is_some_and(|list| {
-                list.iter().any(|template| {
-                    template.get("person_id").and_then(Value::as_str) == Some(person_id.as_str())
-                        && template
-                            .get("embedding")
-                            .and_then(Value::as_array)
-                            .is_some_and(|embedding| !embedding.is_empty())
+                .get("templates")
+                .and_then(Value::as_array)
+                .is_some_and(|list| {
+                    list.iter().any(|template| {
+                        template.get("person_id").and_then(Value::as_str)
+                            == Some(person_id.as_str())
+                            && template
+                                .get("embedding")
+                                .and_then(Value::as_array)
+                                .is_some_and(|embedding| !embedding.is_empty())
+                    })
                 })
-            })
         {
             continue;
         }
@@ -736,7 +741,9 @@ fn speaker_windows(transcript: &Value) -> std::collections::BTreeMap<String, (f6
             return;
         }
         let capped_end = (start + (end - start).min(24.0)).max(start + 1.0);
-        let entry = windows.entry(key.to_string()).or_insert((start, capped_end));
+        let entry = windows
+            .entry(key.to_string())
+            .or_insert((start, capped_end));
         if capped_end - start > entry.1 - entry.0 {
             *entry = (start, capped_end);
         }
@@ -974,7 +981,9 @@ fn turn_windows(transcript: &Value) -> Vec<(String, f64, f64)> {
             continue;
         }
         match current.as_mut() {
-            Some((running_key, _, running_end)) if *running_key == key && start - *running_end <= 1.8 => {
+            Some((running_key, _, running_end))
+                if *running_key == key && start - *running_end <= 1.8 =>
+            {
                 *running_end = end;
             }
             _ => {
@@ -1058,9 +1067,10 @@ fn voicefix_capture(args: &Args, path: &str) -> Result<Value, String> {
             skipped += 1;
             continue;
         }
-        if manual.iter().any(|(start, end)| {
-            turn_start < *end && turn_end > *start
-        }) {
+        if manual
+            .iter()
+            .any(|(start, end)| turn_start < *end && turn_end > *start)
+        {
             skipped += 1;
             continue;
         }
@@ -1087,7 +1097,11 @@ fn voicefix_capture(args: &Args, path: &str) -> Result<Value, String> {
                 continue;
             }
         };
-        let probe: Vec<f64> = response.embedding.iter().map(|value| *value as f64).collect();
+        let probe: Vec<f64> = response
+            .embedding
+            .iter()
+            .map(|value| *value as f64)
+            .collect();
         let Ok(probe) = normalize_embedding(&probe) else {
             skipped += 1;
             continue;
@@ -1096,8 +1110,14 @@ fn voicefix_capture(args: &Args, path: &str) -> Result<Value, String> {
             .iter()
             .filter_map(|template| {
                 let embedding = template.get("embedding")?.as_array()?;
-                let values = embedding.iter().map(Value::as_f64).collect::<Option<Vec<f64>>>()?;
-                Some((cosine(&probe, &normalize_embedding(&values).ok()?), template))
+                let values = embedding
+                    .iter()
+                    .map(Value::as_f64)
+                    .collect::<Option<Vec<f64>>>()?;
+                Some((
+                    cosine(&probe, &normalize_embedding(&values).ok()?),
+                    template,
+                ))
             })
             .collect();
         ranked.sort_by(|left, right| right.0.total_cmp(&left.0));
@@ -1311,7 +1331,11 @@ fn clean_capture(args: &Args, path: &str) -> Result<Value, String> {
                     .to_string();
                 let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
                 let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
-                let text = segment.get("text").and_then(Value::as_str).unwrap_or("").trim();
+                let text = segment
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
                 if !text.is_empty() {
                     turns.push(json!({
                         "id": turns.len(),
@@ -1329,7 +1353,11 @@ fn clean_capture(args: &Args, path: &str) -> Result<Value, String> {
         if let Some(words) = transcript.get("words").and_then(Value::as_array) {
             for word in words {
                 let key = speaker_key(word);
-                let token = word.get("word").and_then(Value::as_str).unwrap_or("").trim();
+                let token = word
+                    .get("word")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
                 let start = word.get("start").and_then(Value::as_f64).unwrap_or(0.0);
                 let end = word.get("end").and_then(Value::as_f64).unwrap_or(start);
                 if token.is_empty() || end <= start {
@@ -1367,7 +1395,11 @@ fn clean_capture(args: &Args, path: &str) -> Result<Value, String> {
         let mut end = offset;
         let mut chars = 0usize;
         while end < turns.len() && (end == offset || chars < 120_000) {
-            chars += turns[end].get("text").and_then(Value::as_str).map(str::len).unwrap_or(0);
+            chars += turns[end]
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::len)
+                .unwrap_or(0);
             end += 1;
         }
         let batch = &turns[offset..end];
@@ -1440,7 +1472,11 @@ fn clean_capture(args: &Args, path: &str) -> Result<Value, String> {
         "turns": cleaned,
     });
     let bytes = serde_json::to_vec_pretty(&body).map_err(|error| error.to_string())?;
-    write_file(&format!("{path}/transcript.clean.json"), &bytes, "application/json")?;
+    write_file(
+        &format!("{path}/transcript.clean.json"),
+        &bytes,
+        "application/json",
+    )?;
     Ok(json!({"turns": cleaned.len(), "path": format!("{path}/transcript.clean.json")}))
 }
 
@@ -1485,7 +1521,10 @@ fn apply_speaker_names(path: &str, speakers: &Value) -> Result<bool, String> {
                     continue;
                 };
                 for field in ["title", "quote", "owner", "speaker"] {
-                    let Some(value) = fields.get(field).and_then(Value::as_str).map(str::to_string)
+                    let Some(value) = fields
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
                     else {
                         continue;
                     };
@@ -1560,7 +1599,6 @@ fn cosine(left: &[f64], right: &[f64]) -> f64 {
     left.iter().zip(right).map(|(a, b)| a * b).sum()
 }
 
-
 #[derive(Clone)]
 struct MergeSource {
     path: String,
@@ -1569,6 +1607,8 @@ struct MergeSource {
     speakers: Value,
     overrides: Value,
     actions: Value,
+    questions: Value,
+    calendar: Value,
     summary: String,
     audio: Option<WavAudio>,
     started_at_ms: u64,
@@ -1618,9 +1658,16 @@ fn merge_queue(args: &Args) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(&json!(pending)).map_err(|error| error.to_string())?;
     vfs_mut::write(queue_path, &bytes, "application/json", None, None)
         .map_err(|error| format!("write merge queue: {error:?}"))?;
-    let result_bytes = serde_json::to_vec_pretty(&json!(results)).map_err(|error| error.to_string())?;
-    vfs_mut::write("scribe/merge-result.json", &result_bytes, "application/json", None, None)
-        .map_err(|error| format!("write merge result: {error:?}"))?;
+    let result_bytes =
+        serde_json::to_vec_pretty(&json!(results)).map_err(|error| error.to_string())?;
+    vfs_mut::write(
+        "scribe/merge-result.json",
+        &result_bytes,
+        "application/json",
+        None,
+        None,
+    )
+    .map_err(|error| format!("write merge result: {error:?}"))?;
     Ok(())
 }
 
@@ -1642,8 +1689,11 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
         }
         let transcript = read_json(&format!("{path}/transcript.json"))?;
         let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
-        let overrides = read_json(&format!("{path}/speaker_overrides.json")).unwrap_or_else(|_| json!([]));
+        let overrides =
+            read_json(&format!("{path}/speaker_overrides.json")).unwrap_or_else(|_| json!([]));
         let actions = read_json(&format!("{path}/actions.json")).unwrap_or_else(|_| json!([]));
+        let questions = read_json(&format!("{path}/questions.json")).unwrap_or_else(|_| json!([]));
+        let calendar = read_json(&format!("{path}/calendar.json")).unwrap_or_else(|_| json!([]));
         let summary = read_text(&format!("{path}/summary.md")).unwrap_or_default();
         let started_at_ms = meta
             .get("started_at_ms")
@@ -1661,6 +1711,8 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
             speakers,
             overrides,
             actions,
+            questions,
+            calendar,
             summary,
             audio,
             started_at_ms,
@@ -1669,7 +1721,11 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
     }
     sources.sort_by_key(|source| source.started_at_ms);
     let earliest = sources[0].started_at_ms;
-    let latest = sources.iter().map(|source| source.ended_at_ms).max().unwrap_or(earliest);
+    let latest = sources
+        .iter()
+        .map(|source| source.ended_at_ms)
+        .max()
+        .unwrap_or(earliest);
     let source_name = sources[0]
         .path
         .split('/')
@@ -1690,6 +1746,8 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
     let mut merged_words = Vec::new();
     let mut text_parts = Vec::new();
     let mut merged_actions = Vec::new();
+    let mut merged_questions = Vec::new();
+    let mut merged_calendar = Vec::new();
     let mut merged_overrides = Vec::new();
     for (index, source) in sources.iter().enumerate() {
         let offset_ms = source.started_at_ms.saturating_sub(earliest) as f64;
@@ -1725,14 +1783,107 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
                     }
                     fields["source_capture"] = json!(source.path);
                 }
-                let title = item.get("title").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
-                let quote = item.get("quote").and_then(Value::as_str).unwrap_or("").trim().to_lowercase();
+                let title = item
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase();
+                let quote = item
+                    .get("quote")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase();
                 let duplicate = merged_actions.iter().any(|existing: &Value| {
-                    existing.get("title").and_then(Value::as_str).unwrap_or("").trim().to_lowercase() == title
-                        && existing.get("quote").and_then(Value::as_str).unwrap_or("").trim().to_lowercase() == quote
+                    existing
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_lowercase()
+                        == title
+                        && existing
+                            .get("quote")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim()
+                            .to_lowercase()
+                            == quote
                 });
                 if !duplicate {
                     merged_actions.push(item);
+                }
+            }
+        }
+        if let Some(items) = source.questions.as_array() {
+            for item in items {
+                let mut item = item.clone();
+                if let Some(fields) = item.as_object_mut() {
+                    if let Some(value) = fields.get("start_ms").and_then(Value::as_f64) {
+                        fields["start_ms"] = json!(value + offset_ms);
+                    }
+                    fields["source_capture"] = json!(source.path);
+                }
+                let question = item
+                    .get("question")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase();
+                let quote = item
+                    .get("quote")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase();
+                if !merged_questions.iter().any(|existing: &Value| {
+                    existing
+                        .get("question")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_lowercase()
+                        == question
+                        && existing
+                            .get("quote")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim()
+                            .to_lowercase()
+                            == quote
+                }) {
+                    merged_questions.push(item);
+                }
+            }
+        }
+        if let Some(items) = source.calendar.as_array() {
+            for item in items {
+                let mut item = item.clone();
+                if let Some(fields) = item.as_object_mut() {
+                    if let Some(value) = fields.get("start_ms").and_then(Value::as_f64) {
+                        fields["start_ms"] = json!(value + offset_ms);
+                    }
+                    fields["source_capture"] = json!(source.path);
+                }
+                let title = item
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase();
+                let start = item.get("start").and_then(Value::as_str).unwrap_or("");
+                if !merged_calendar.iter().any(|existing: &Value| {
+                    existing
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_lowercase()
+                        == title
+                        && existing.get("start").and_then(Value::as_str).unwrap_or("") == start
+                }) {
+                    merged_calendar.push(item);
                 }
             }
         }
@@ -1756,11 +1907,15 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
         }
     }
     merged_segments.sort_by(|left, right| {
-        left.get("start").and_then(Value::as_f64).unwrap_or(0.0)
+        left.get("start")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
             .total_cmp(&right.get("start").and_then(Value::as_f64).unwrap_or(0.0))
     });
     merged_words.sort_by(|left, right| {
-        left.get("start").and_then(Value::as_f64).unwrap_or(0.0)
+        left.get("start")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
             .total_cmp(&right.get("start").and_then(Value::as_f64).unwrap_or(0.0))
     });
     let summary = sources
@@ -1789,6 +1944,8 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
         "emoji": emoji,
         "summary_md": summary,
         "actions": merged_actions,
+        "questions": merged_questions,
+        "calendar": merged_calendar,
         "transcript": {
             "text": text_parts.join(" "),
             "segments": merged_segments,
@@ -1821,13 +1978,26 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
         });
     }
     let meta_bytes = serde_json::to_vec_pretty(&meta).map_err(|error| error.to_string())?;
-    write_file(&format!("{root}/capture.json"), &meta_bytes, "application/json")?;
+    write_file(
+        &format!("{root}/capture.json"),
+        &meta_bytes,
+        "application/json",
+    )?;
     if !merged_overrides.is_empty() {
-        let bytes = serde_json::to_vec_pretty(&json!(merged_overrides)).map_err(|error| error.to_string())?;
-        write_file(&format!("{root}/speaker_overrides.json"), &bytes, "application/json")?;
+        let bytes = serde_json::to_vec_pretty(&json!(merged_overrides))
+            .map_err(|error| error.to_string())?;
+        write_file(
+            &format!("{root}/speaker_overrides.json"),
+            &bytes,
+            "application/json",
+        )?;
     }
     let speakers_bytes = serde_json::to_vec_pretty(&speakers).map_err(|error| error.to_string())?;
-    write_file(&format!("{root}/speakers.json"), &speakers_bytes, "application/json")?;
+    write_file(
+        &format!("{root}/speakers.json"),
+        &speakers_bytes,
+        "application/json",
+    )?;
 
     for source in &sources {
         let mut meta = source.meta.clone();
@@ -1835,7 +2005,11 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
             fields["merged_into"] = json!(root);
         }
         let bytes = serde_json::to_vec_pretty(&meta).map_err(|error| error.to_string())?;
-        let _ = write_file(&format!("{}/capture.json", source.path), &bytes, "application/json");
+        let _ = write_file(
+            &format!("{}/capture.json", source.path),
+            &bytes,
+            "application/json",
+        );
     }
     let _ = index::refresh();
     Ok(json!({"ok": true, "bundle": root, "captures": merged, "sources": paths}))
@@ -1852,8 +2026,13 @@ fn unique_merge_id(source: &str, date: &str, first: &str) -> String {
     let first = first.rsplit('/').next().unwrap_or("capture");
     let mut index = 0;
     loop {
-        let suffix = if index == 0 { String::new() } else { format!("-{index}") };
-        let id = sanitize(&format!("merged-{first}{suffix}")).unwrap_or_else(|_| format!("merged-{index}"));
+        let suffix = if index == 0 {
+            String::new()
+        } else {
+            format!("-{index}")
+        };
+        let id = sanitize(&format!("merged-{first}{suffix}"))
+            .unwrap_or_else(|_| format!("merged-{index}"));
         let path = format!("captures/{source}/{date}/{id}");
         if vfs::stat(&path).is_err() {
             return id;
@@ -1890,7 +2069,9 @@ fn transcript_labels(transcript: &Value, labels: &mut std::collections::BTreeSet
     }
 }
 
-fn merge_speakers(sources: &[MergeSource]) -> (Vec<std::collections::BTreeMap<String, String>>, Value) {
+fn merge_speakers(
+    sources: &[MergeSource],
+) -> (Vec<std::collections::BTreeMap<String, String>>, Value) {
     let mut maps = Vec::new();
     let mut global = serde_json::Map::new();
     let mut identities = std::collections::BTreeMap::new();
@@ -1910,7 +2091,11 @@ fn merge_speakers(sources: &[MergeSource]) -> (Vec<std::collections::BTreeMap<St
         }
         let mut map = std::collections::BTreeMap::new();
         for label in labels {
-            let entry = source.speakers.get(&label).cloned().unwrap_or_else(|| json!({}));
+            let entry = source
+                .speakers
+                .get(&label)
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             let identity = entry
                 .get("person_id")
                 .and_then(Value::as_str)
@@ -1938,7 +2123,9 @@ fn merge_speakers(sources: &[MergeSource]) -> (Vec<std::collections::BTreeMap<St
                 }
                 key
             });
-            if !global.contains_key(&mapped) && !entry.as_object().is_some_and(|entry| entry.is_empty()) {
+            if !global.contains_key(&mapped)
+                && !entry.as_object().is_some_and(|entry| entry.is_empty())
+            {
                 global.insert(mapped.clone(), entry);
             }
             map.insert(label, mapped);
@@ -1948,7 +2135,10 @@ fn merge_speakers(sources: &[MergeSource]) -> (Vec<std::collections::BTreeMap<St
     (maps, Value::Object(global))
 }
 
-fn remap_transcript_speakers(transcript: &mut Value, map: &std::collections::BTreeMap<String, String>) {
+fn remap_transcript_speakers(
+    transcript: &mut Value,
+    map: &std::collections::BTreeMap<String, String>,
+) {
     if let Some(segments) = transcript.get_mut("segments").and_then(Value::as_array_mut) {
         for segment in segments {
             remap_speaker_value(segment, map);
@@ -2149,8 +2339,12 @@ fn process_event(
 
     let supplied_summary = event.summary.trim().to_string();
     let supplied_actions = event.actions.clone();
+    let supplied_questions = event.questions.clone();
+    let supplied_calendar = event.calendar.clone();
     let mut generated_summary: Option<String> = None;
     let mut generated_actions: Option<Value> = None;
+    let mut generated_questions: Option<Value> = None;
+    let mut generated_calendar: Option<Value> = None;
     let mut enrichment_model = "provided".to_string();
     let mut enrichment_status = if supplied_summary.is_empty() {
         "pending"
@@ -2162,6 +2356,8 @@ fn process_event(
             Ok(enriched) => {
                 generated_summary = Some(enriched.summary);
                 generated_actions = Some(enriched.actions);
+                generated_questions = Some(enriched.questions);
+                generated_calendar = Some(enriched.calendar);
                 enrichment_model = enriched.model;
                 enrichment_status = "complete";
             }
@@ -2179,6 +2375,12 @@ fn process_event(
     if let Some(actions) = generated_actions.as_ref() {
         event.actions = actions.clone();
     }
+    if let Some(questions) = generated_questions.as_ref() {
+        event.questions = questions.clone();
+    }
+    if let Some(calendar) = generated_calendar.as_ref() {
+        event.calendar = calendar.clone();
+    }
     let summary_source = if generated_summary.is_some() {
         "scribe"
     } else if !supplied_summary.is_empty() {
@@ -2192,6 +2394,10 @@ fn process_event(
     let summary_bytes = event.summary.as_bytes().to_vec();
     let actions_bytes = serde_json::to_vec_pretty(&event.actions)
         .map_err(|error| format!("actions JSON: {error}"))?;
+    let questions_bytes = serde_json::to_vec_pretty(&event.questions)
+        .map_err(|error| format!("questions JSON: {error}"))?;
+    let calendar_bytes = serde_json::to_vec_pretty(&event.calendar)
+        .map_err(|error| format!("calendar JSON: {error}"))?;
 
     let transcript = write_file(
         &format!("{root}/transcript.json"),
@@ -2206,6 +2412,16 @@ fn process_event(
     let actions = write_file(
         &format!("{root}/actions.json"),
         &actions_bytes,
+        "application/json",
+    )?;
+    let questions = write_file(
+        &format!("{root}/questions.json"),
+        &questions_bytes,
+        "application/json",
+    )?;
+    let calendar = write_file(
+        &format!("{root}/calendar.json"),
+        &calendar_bytes,
         "application/json",
     )?;
     let omi_summary = if supplied_summary.is_empty() {
@@ -2234,6 +2450,32 @@ fn process_event(
             &format!("{root}/actions.omi.json"),
             &serde_json::to_vec_pretty(&supplied_actions)
                 .map_err(|error| format!("Omi actions JSON: {error}"))?,
+            "application/json",
+        )?)
+    } else {
+        None
+    };
+    let _omi_questions = if supplied_questions
+        .as_array()
+        .is_some_and(|items| !items.is_empty())
+    {
+        Some(write_file(
+            &format!("{root}/questions.omi.json"),
+            &serde_json::to_vec_pretty(&supplied_questions)
+                .map_err(|error| format!("Omi questions JSON: {error}"))?,
+            "application/json",
+        )?)
+    } else {
+        None
+    };
+    let _omi_calendar = if supplied_calendar
+        .as_array()
+        .is_some_and(|items| !items.is_empty())
+    {
+        Some(write_file(
+            &format!("{root}/calendar.omi.json"),
+            &serde_json::to_vec_pretty(&supplied_calendar)
+                .map_err(|error| format!("Omi calendar JSON: {error}"))?,
             "application/json",
         )?)
     } else {
@@ -2325,6 +2567,18 @@ fn process_event(
             "media_type": "application/json",
             "count": event.actions.as_array().map(Vec::len).unwrap_or(0),
         },
+        "questions": {
+            "content_id": questions.content_id,
+            "path": questions.path,
+            "media_type": "application/json",
+            "count": event.questions.as_array().map(Vec::len).unwrap_or(0),
+        },
+        "calendar": {
+            "content_id": calendar.content_id,
+            "path": calendar.path,
+            "media_type": "application/json",
+            "count": event.calendar.as_array().map(Vec::len).unwrap_or(0),
+        },
         "audio_content_id": event.audio_content_id,
         "segment_count": segment_count,
         "speaker_count": speaker_count,
@@ -2364,6 +2618,10 @@ fn process_event(
         "scribe_summary_content_id": scribe_summary.as_ref().map(|file| file.content_id.clone()),
         "actions_content_id": actions.content_id,
         "action_count": event.actions.as_array().map(Vec::len).unwrap_or(0),
+        "questions_content_id": questions.content_id,
+        "question_count": event.questions.as_array().map(Vec::len).unwrap_or(0),
+        "calendar_content_id": calendar.content_id,
+        "calendar_count": event.calendar.as_array().map(Vec::len).unwrap_or(0),
         "enrichment": enrichment_status,
         "model": enrichment_model,
     }))
@@ -2403,6 +2661,16 @@ fn process_event(
                 "content_id": actions.content_id,
                 "path": actions.path,
                 "count": event.actions.as_array().map(Vec::len).unwrap_or(0),
+            },
+            "questions": {
+                "content_id": questions.content_id,
+                "path": questions.path,
+                "count": event.questions.as_array().map(Vec::len).unwrap_or(0),
+            },
+            "calendar": {
+                "content_id": calendar.content_id,
+                "path": calendar.path,
+                "count": event.calendar.as_array().map(Vec::len).unwrap_or(0),
             },
             "enrichment": enrichment_status,
         }))
@@ -2447,6 +2715,65 @@ fn process_event(
                 );
             }
         }
+        if let Some(items) = event.questions.as_array() {
+            for (index, item) in items.iter().enumerate() {
+                let body = serde_json::to_vec(&json!({
+                    "schema": "scribe.question.v1",
+                    "id": format!("question:{source}:{}:{index}", event.capture_id),
+                    "capture_id": event.capture_id,
+                    "source": source,
+                    "bundle": root,
+                    "record": format!("capture:{source}:{}", event.capture_id),
+                    "started_at_ms": event.started_at_ms,
+                    "ended_at_ms": event.ended_at_ms,
+                    "question": item.get("question").cloned().unwrap_or(Value::Null),
+                    "asked_by": item.get("asked_by").cloned().unwrap_or(Value::Null),
+                    "directed_at": item.get("directed_at").cloned().unwrap_or_else(|| json!([])),
+                    "blocking": item.get("blocking").cloned().unwrap_or(Value::Bool(false)),
+                    "quote": item.get("quote").cloned().unwrap_or(Value::Null),
+                    "start_ms": item.get("start_ms").cloned().unwrap_or(Value::Null),
+                    "speaker": item.get("speaker").cloned().unwrap_or(Value::Null),
+                    "confidence": item.get("confidence").cloned().unwrap_or(Value::Null),
+                }))
+                .map_err(|error| format!("question event JSON: {error}"))?;
+                let _ = bus::publish("scribe.question.v1", &body, None, 7 * 24 * 60 * 60 * 1000);
+            }
+        }
+        if let Some(items) = event.calendar.as_array() {
+            for (index, item) in items.iter().enumerate() {
+                let body = serde_json::to_vec(&json!({
+                    "schema": "scribe.calendar_candidate.v1",
+                    "id": format!("calendar:{source}:{}:{index}", event.capture_id),
+                    "capture_id": event.capture_id,
+                    "source": source,
+                    "bundle": root,
+                    "record": format!("capture:{source}:{}", event.capture_id),
+                    "started_at_ms": event.started_at_ms,
+                    "ended_at_ms": event.ended_at_ms,
+                    "title": item.get("title").cloned().unwrap_or(Value::Null),
+                    "start": item.get("start").cloned().unwrap_or(Value::Null),
+                    "end": item.get("end").cloned().unwrap_or(Value::Null),
+                    "timezone": item.get("timezone").cloned().unwrap_or(Value::Null),
+                    "recurrence": item.get("recurrence").cloned().unwrap_or(Value::Null),
+                    "location": item.get("location").cloned().unwrap_or(Value::Null),
+                    "join_url": item.get("join_url").cloned().unwrap_or(Value::Null),
+                    "status": item.get("status").cloned().unwrap_or_else(|| json!("hold")),
+                    "visibility": item.get("visibility").cloned().unwrap_or_else(|| json!("personal")),
+                    "organizer": item.get("organizer").cloned().unwrap_or(Value::Null),
+                    "attendees": item.get("attendees").cloned().unwrap_or_else(|| json!([])),
+                    "quote": item.get("quote").cloned().unwrap_or(Value::Null),
+                    "start_ms": item.get("start_ms").cloned().unwrap_or(Value::Null),
+                    "confidence": item.get("confidence").cloned().unwrap_or(Value::Null),
+                }))
+                .map_err(|error| format!("calendar event JSON: {error}"))?;
+                let _ = bus::publish(
+                    "scribe.calendar_candidate.v1",
+                    &body,
+                    None,
+                    7 * 24 * 60 * 60 * 1000,
+                );
+            }
+        }
     }
 
     Ok(json!({
@@ -2463,6 +2790,8 @@ fn process_event(
 struct Enriched {
     summary: String,
     actions: Value,
+    questions: Value,
+    calendar: Value,
     model: String,
 }
 
@@ -2493,6 +2822,8 @@ fn enrich_capture(
     let max_output_tokens = if use_deep { 16_384 } else { 2_048 };
     let mut summaries = Vec::new();
     let mut actions: Vec<Value> = Vec::new();
+    let mut questions: Vec<Value> = Vec::new();
+    let mut calendar: Vec<Value> = Vec::new();
     let mut model_used = model.to_string();
 
     for (index, chunk) in chunks.iter().enumerate() {
@@ -2502,9 +2833,9 @@ fn enrich_capture(
                 inference::Message {
                     role: inference::Role::System,
                     content: Some(if design {
-                        "You are Scribe in technical design-doc mode. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the concrete technical subject. Then use these sections with bullets where possible: ## Context, ## Current design, ## Decisions, ## Open questions, ## Next steps. Preserve exact APIs, schemas, model names, file paths, constraints, and numbers. Prefer architecture/decision language over a narrative recap. Do not invent facts.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\", \"title\": string, \"owner\": string, \"due_at\": string|null, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. If no action exists return an empty array."
+                        "You are Scribe in technical design-doc mode. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array, \"questions\": array, \"calendar\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the concrete technical subject. Then use these sections with bullets where possible: ## Context, ## Current design, ## Decisions, ## Open questions, ## Next steps. Preserve exact APIs, schemas, model names, file paths, constraints, and numbers. Prefer architecture/decision language over a narrative recap. Do not invent facts.\n                         Each action: {\"kind\": \"task|feature_request|decision|commitment\", \"title\": string, \"owner\": string, \"due_at\": string|null, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Each question: {\"question\": string, \"asked_by\": string|null, \"directed_at\": [string], \"blocking\": boolean, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Each calendar candidate: {\"title\": string, \"start\": string|null, \"end\": string|null, \"timezone\": string|null, \"recurrence\": string|null, \"location\": string|null, \"join_url\": string|null, \"status\": \"hold|tentative|confirmed\", \"visibility\": \"personal|attendees\", \"organizer\": string|null, \"attendees\": [{\"person_id\": string|null, \"display_name\": string, \"email\": string|null, \"role\": \"required|optional|fyi\", \"source\": \"present|named|explicit_email\", \"confidence\": number}], \"quote\": string, \"start_ms\": number|null, \"confidence\": number}.\n                         Rules: every action, question and calendar candidate must quote the transcript exactly. Questions are things to resolve, not tasks. Calendar candidates are proposals, never sent invites. Do not invent contacts, emails, dates, or times; use null when unknown. If no action exists return an empty array."
                     } else {
-                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"action|reminder|feature_request|decision|open_question|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Rules: every action must quote the transcript exactly. Do not invent owners, dates, or tasks. If no action exists return an empty array."
+                        "You are Scribe, a meeting transcript extractor. Return ONLY valid JSON.\n                         Schema: {\"summary_md\": string, \"actions\": array, \"questions\": array, \"calendar\": array}.\n                         summary_md MUST begin with one Markdown H1 heading of 2-5 words naming the meeting's concrete subject. Do not use generic words like 'meeting' or 'discussion'. Then write a concise overview, decisions, and open questions.\n                         Each action: {\"kind\": \"task|feature_request|decision|commitment\",                          \"title\": string, \"owner\": string, \"due_at\": string|null,                          \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null,                          \"speaker\": string|null, \"confidence\": number}.\n                         Each question: {\"question\": string, \"asked_by\": string|null, \"directed_at\": [string], \"blocking\": boolean, \"quote\": string, \"start_ms\": number|null, \"end_ms\": number|null, \"speaker\": string|null, \"confidence\": number}.\n                         Each calendar candidate: {\"title\": string, \"start\": string|null, \"end\": string|null, \"timezone\": string|null, \"recurrence\": string|null, \"location\": string|null, \"join_url\": string|null, \"status\": \"hold|tentative|confirmed\", \"visibility\": \"personal|attendees\", \"organizer\": string|null, \"attendees\": [{\"person_id\": string|null, \"display_name\": string, \"email\": string|null, \"role\": \"required|optional|fyi\", \"source\": \"present|named|explicit_email\", \"confidence\": number}], \"quote\": string, \"start_ms\": number|null, \"confidence\": number}.\n                         Rules: every action, question and calendar candidate must quote the transcript exactly. Questions are things to resolve, not tasks. Calendar candidates are proposals, never sent invites. Do not invent contacts, emails, dates, or times; use null when unknown. Do not invent owners, dates, or tasks. If no action exists return an empty array."
                     }.into()),
                     name: None,
                     tool_call_id: None,
@@ -2577,6 +2908,115 @@ fn enrich_capture(
                 }
             }
         }
+        if let Some(items) = value.get("questions").and_then(Value::as_array) {
+            for item in items {
+                let question = item
+                    .get("question")
+                    .or_else(|| item.get("title"))
+                    .or_else(|| item.get("text"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                let quote = item.get("quote").and_then(Value::as_str).unwrap_or("");
+                if question.is_empty() || quote.is_empty() {
+                    continue;
+                }
+                let mut item = item.clone();
+                item["question"] = json!(question);
+                item["directed_at"] = item
+                    .get("directed_at")
+                    .cloned()
+                    .filter(Value::is_array)
+                    .unwrap_or_else(|| json!([]));
+                item["blocking"] = json!(item
+                    .get("blocking")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false));
+                if !questions.iter().any(|existing| {
+                    existing.get("question").and_then(Value::as_str) == Some(question)
+                        && existing.get("quote").and_then(Value::as_str) == Some(quote)
+                }) {
+                    questions.push(item);
+                }
+            }
+        }
+        if let Some(items) = value.get("calendar").and_then(Value::as_array) {
+            for item in items {
+                let title = item
+                    .get("title")
+                    .or_else(|| item.get("summary"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                let quote = item.get("quote").and_then(Value::as_str).unwrap_or("");
+                if title.is_empty() || quote.is_empty() {
+                    continue;
+                }
+                let mut item = item.clone();
+                item["title"] = json!(title);
+                item["status"] = json!(match item.get("status").and_then(Value::as_str) {
+                    Some("confirmed") => "confirmed",
+                    Some("tentative") => "tentative",
+                    _ => "hold",
+                });
+                item["visibility"] = json!(match item.get("visibility").and_then(Value::as_str) {
+                    Some("attendees") => "attendees",
+                    _ => "personal",
+                });
+                item["attendees"] = item
+                    .get("attendees")
+                    .and_then(Value::as_array)
+                    .map(|attendees| {
+                        Value::Array(
+                            attendees
+                                .iter()
+                                .filter_map(|attendee| {
+                                    let name = attendee
+                                        .get("display_name")
+                                        .or_else(|| attendee.get("name"))
+                                        .or_else(|| attendee.get("person_id"))
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .trim();
+                                    if name.is_empty() {
+                                        return None;
+                                    }
+                                    let mut attendee = attendee.clone();
+                                    attendee["display_name"] = json!(name);
+                                    attendee["role"] =
+                                        json!(match attendee.get("role").and_then(Value::as_str) {
+                                            Some("optional") => "optional",
+                                            Some("fyi") => "fyi",
+                                            _ => "required",
+                                        });
+                                    attendee["source"] = json!(match attendee
+                                        .get("source")
+                                        .and_then(Value::as_str)
+                                    {
+                                        Some("named") => "named",
+                                        Some("explicit_email") => "explicit_email",
+                                        _ => "present",
+                                    });
+                                    attendee["confidence"] = json!(attendee
+                                        .get("confidence")
+                                        .and_then(Value::as_f64)
+                                        .unwrap_or(0.5));
+                                    Some(attendee)
+                                })
+                                .collect(),
+                        )
+                    })
+                    .unwrap_or_else(|| json!([]));
+                let start = item.get("start").and_then(Value::as_str).unwrap_or("");
+                let duplicate = calendar.iter().any(|existing| {
+                    existing.get("title").and_then(Value::as_str) == Some(title)
+                        && existing.get("start").and_then(Value::as_str).unwrap_or("") == start
+                });
+                if !duplicate {
+                    calendar.push(item);
+                }
+            }
+        }
     }
 
     let summary = summaries
@@ -2587,6 +3027,8 @@ fn enrich_capture(
     Ok(Enriched {
         summary,
         actions: Value::Array(actions),
+        questions: Value::Array(questions),
+        calendar: Value::Array(calendar),
         model: model_used,
     })
 }
@@ -2726,6 +3168,8 @@ struct CaptureEvent {
     transcript: Value,
     summary: String,
     actions: Value,
+    questions: Value,
+    calendar: Value,
     audio_content_id: Option<String>,
     title: Option<String>,
     emoji: Option<String>,
@@ -2771,6 +3215,12 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         .unwrap_or("")
         .to_string();
     let actions = value.get("actions").cloned().unwrap_or_else(|| json!([]));
+    let questions = value.get("questions").cloned().unwrap_or_else(|| json!([]));
+    let calendar = value
+        .get("calendar")
+        .or_else(|| value.get("calendar_candidates"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let audio_content_id = value
         .get("audio_content_id")
         .and_then(Value::as_str)
@@ -2803,6 +3253,8 @@ fn parse_event(body: &Value) -> Result<CaptureEvent, String> {
         transcript,
         summary,
         actions,
+        questions,
+        calendar,
         audio_content_id,
         title,
         emoji,
@@ -2817,7 +3269,10 @@ fn emoji_for(title: &str, summary: &str) -> &'static str {
         (&["launch", "release", "ship", "announce"], "🚀"),
         (&["bug", "debug", "incident", "outage", "fix"], "🐛"),
         (&["design", "ui", "ux", "visual", "style"], "🎨"),
-        (&["architecture", "system", "infra", "platform", "sdk"], "🧱"),
+        (
+            &["architecture", "system", "infra", "platform", "sdk"],
+            "🧱",
+        ),
         (&["finance", "revenue", "pricing", "cost", "budget"], "💰"),
         (&["hire", "interview", "candidate", "team"], "🧑‍💼"),
         (&["research", "experiment", "test", "benchmark"], "🧪"),
@@ -2845,7 +3300,11 @@ fn short_title(value: &str, max_chars: usize) -> String {
         .trim()
         .trim_start_matches("Overview:")
         .trim();
-    let first = line.split(". ").next().unwrap_or(line).trim_end_matches('.');
+    let first = line
+        .split(". ")
+        .next()
+        .unwrap_or(line)
+        .trim_end_matches('.');
     let chars: Vec<char> = first.chars().collect();
     if chars.len() <= max_chars {
         return first.trim().to_string();

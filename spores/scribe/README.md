@@ -55,7 +55,9 @@ captures/<source>/<date>/<capture_id>/
   summary.omi.md      # Omi's supplied summary, preserved when present
   summary.scribe.md   # Scribe's generated summary, when enrichment ran
   summary.json        # provenance: display source + both content ids
-  actions.json
+  actions.json        # tasks, feature requests, decisions, commitments
+  questions.json      # things to resolve, not tasks
+  calendar.json       # calendar candidates, not sent invites
 ```
 
 The record is `capture/<source>:<capture_id>`, schema
@@ -67,8 +69,15 @@ If inference is unavailable, the transcript is still stored and the record is
 Scribe keeps Omi's summary and its own summary side by side. `summary.md` is
 the display copy: Scribe's when enrichment succeeded, otherwise Omi's. The
 Omi text is never overwritten, so a model regression is reversible.
-`actions.json` is Scribe's current extraction; Omi's supplied actions are kept
-as `actions.omi.json` when present.
+`actions.json`, `questions.json`, and `calendar.json` are separate proposals.
+Omi's supplied copies are kept as `*.omi.json` when present.
+
+Actions are things someone should do. Questions are things to resolve, with an
+owner/direction and a blocking flag. Calendar entries are candidates for the
+calendar inbox: `status` is `hold`, `tentative`, or `confirmed`, and `attendees`
+distinguish people present in the capture from people named as invitees. Scribe
+never sends an invite and never invents an email; unresolved attendees are left
+for the inbox to contact.
 
 After writing, Scribe calls `soil:index.refresh()` and publishes:
 
@@ -77,10 +86,13 @@ After writing, Scribe calls `soil:index.refresh()` and publishes:
   duration, segment count and speaker count.
 - one `scribe.action_item.v1` per extracted action, with a stable
   `action:<source>:<capture>:<index>` id and the action's quote/owner/kind.
+- one `scribe.question.v1` per open question.
+- one `scribe.calendar_candidate.v1` per calendar candidate.
 
-The action events are proposals. Scribe does not create marbles or tasks and
-does not execute anything. Elmers/JARVIS decide whether an item deserves a
-workflow or a marble.
+These events are proposals. Scribe does not create marbles, tasks, calendar
+events, or ICS, and does not execute anything. Elmers/JARVIS decide whether an
+item deserves a workflow or a marble; the calendar inbox resolves attendees,
+time zones, recurrence, and ICS status.
 
 ## Grants
 
