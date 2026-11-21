@@ -128,7 +128,8 @@ impl Chrome<'_> {
         html! {
             @for page in [Page::Dashboard, Page::Board, Page::Burndown, Page::Projects, Page::Plans] {
                 a href=(link(page.path(), self.project, &[]))
-                  class=(if page == self.page { "on" } else { "" }) {
+                  class=(if page == self.page { "on" } else { "" })
+                  aria-current=(if page == self.page { "page" } else { "false" }) {
                     (page.title())
                 }
             }
@@ -251,7 +252,7 @@ pub fn dashboard(
                 (thousands(burn.remaining)) " remaining · "
                 (burn_rate(&burn))
             }
-            (burndown_chart(&burn, days))
+            div class="chart-wrap" { (burndown_chart(&burn, days)) }
         }
         section class="panel" {
             h2 { "Board" }
@@ -267,24 +268,26 @@ pub fn dashboard(
             @if projects.is_empty() {
                 p class="empty" { "no projects yet" }
             } @else {
-                table {
-                    thead {
-                        tr {
-                            th { "Project" }
-                            th class="num" { "Total" }
-                            th class="num" { "Open" }
-                            th class="num" { "WIP" }
-                            th class="num" { "Review" }
-                            th class="num" { "Blocked" }
-                            th class="num" { "Ready" }
-                            th class="num" { "Closed" }
-                            th class="num" { "Stale" }
-                            th { "Progress" }
+                div class="table-wrap" {
+                    table class="projects-table" {
+                        thead {
+                            tr {
+                                th { "Project" }
+                                th class="num" { "Total" }
+                                th class="num" { "Open" }
+                                th class="num" { "WIP" }
+                                th class="num" { "Review" }
+                                th class="num" { "Blocked" }
+                                th class="num" { "Ready" }
+                                th class="num" { "Closed" }
+                                th class="num" { "Stale" }
+                                th { "Progress" }
+                            }
                         }
-                    }
-                    tbody {
-                        @for stat in projects.iter().take(8) {
-                            (project_row(stat))
+                        tbody {
+                            @for stat in projects.iter().take(8) {
+                                (project_row(stat))
+                            }
                         }
                     }
                 }
@@ -330,6 +333,7 @@ pub fn board_page(
             let start = (page - 1).saturating_mul(limit);
             let shown: Vec<&model::Card> = cards.iter().skip(start).take(limit).collect();
             html! {
+                (status_tabs(&columns, project, query, Some(status)))
                 section class="panel" {
                     div class="boardhead" {
                         div {
@@ -342,13 +346,27 @@ pub fn board_page(
                             }
                             p class="hint" {
                                 (thousands(total as i64)) " cards" (filtered)
-                                " · showing " (thousands(shown.len() as i64))
+                                @if shown.is_empty() {
+                                    " · none"
+                                } @else {
+                                    " · showing "
+                                    (thousands(start.saturating_add(1) as i64))
+                                    "–"
+                                    (thousands(start.saturating_add(shown.len()) as i64))
+                                    " of "
+                                    (thousands(total as i64))
+                                }
                             }
                         }
                         (pager(project, query, status, limit, page, pages))
                     }
                     @if shown.is_empty() {
-                        p class="empty" { "no cards in this column" }
+                        p class="empty" {
+                            "No cards in this column."
+                            @if !query.is_empty() || project.is_some() {
+                                " " a href=(link("/board", None, &[])) { "Clear filters" }
+                            }
+                        }
                     } @else {
                         div class="cards-grid" {
                             @for card in &shown {
@@ -363,12 +381,22 @@ pub fn board_page(
         None => {
             let shown: usize = columns.iter().map(Column::count).sum();
             html! {
+                (status_tabs(&columns, project, query, None))
                 section class="panel" {
                     p class="hint" {
                         (thousands(shown as i64)) " cards" (filtered)
                         " · each column shows the first 12; open a status to page through it"
                     }
-                    (board_html(&columns, project, query, 12))
+                    @if shown == 0 {
+                        p class="empty" {
+                            "No issues match these filters."
+                            @if !query.is_empty() || project.is_some() {
+                                " " a href=(link("/board", None, &[])) { "Clear filters" }
+                            }
+                        }
+                    } @else {
+                        (board_html(&columns, project, query, 12))
+                    }
                 }
             }
         }
@@ -423,6 +451,33 @@ fn pager(
     }
 }
 
+/// Status tabs: the board's own navigation, and the mobile way to reach a
+/// single column without swiping the six-column overview.
+fn status_tabs(
+    columns: &[Column],
+    project: Option<&str>,
+    query: &str,
+    active: Option<&str>,
+) -> Markup {
+    let total: usize = columns.iter().map(Column::count).sum();
+    html! {
+        nav class="status-tabs" aria-label="Board status" {
+            a href=(link("/board", project, &[("q", query)]))
+              class=(if active.is_none() { "on" } else { "" })
+              aria-current=(if active.is_none() { "page" } else { "false" }) {
+                "All" span class="n" { (thousands(total as i64)) }
+            }
+            @for column in columns {
+                a href=(link("/board", project, &[("q", query), ("status", &column.status)]))
+                  class=(if active == Some(column.status.as_str()) { "on" } else { "" })
+                  aria-current=(if active == Some(column.status.as_str()) { "page" } else { "false" }) {
+                    (column.title) span class="n" { (thousands(column.count() as i64)) }
+                }
+            }
+        }
+    }
+}
+
 /// The burndown on its own, with the day table.
 pub fn burndown_page(book: &Book, project: Option<&str>, query: &str, days: i64) -> String {
     let chrome = Chrome {
@@ -447,28 +502,30 @@ pub fn burndown_page(book: &Book, project: Option<&str>, query: &str, days: i64)
                 (thousands(burn.remaining)) " remaining · "
                 (burn_rate(&burn))
             }
-            (burndown_chart(&burn, days))
+            div class="chart-wrap" { (burndown_chart(&burn, days)) }
         }
         section class="panel" {
             h2 { "Days" }
-            table {
-                thead {
-                    tr {
-                        th { "Day" }
-                        th class="num" { "Scope" }
-                        th class="num" { "Done" }
-                        th class="num" { "Remaining" }
-                        th class="num" { "Ideal" }
-                    }
-                }
-                tbody {
-                    @for day in burn.days.iter().rev().take(days.min(31) as usize) {
+            div class="table-wrap" {
+                table class="days-table" {
+                    thead {
                         tr {
-                            td { (date_label(day.at)) }
-                            td class="num" { (thousands(day.scope)) }
-                            td class="num" { (thousands(day.done)) }
-                            td class="num" { (thousands(day.remaining)) }
-                            td class="num" { (thousands(day.ideal)) }
+                            th { "Day" }
+                            th class="num" { "Scope" }
+                            th class="num" { "Done" }
+                            th class="num" { "Remaining" }
+                            th class="num" { "Ideal" }
+                        }
+                    }
+                    tbody {
+                        @for day in burn.days.iter().rev().take(days.min(31) as usize) {
+                            tr {
+                                td { (date_label(day.at)) }
+                                td class="num" { (thousands(day.scope)) }
+                                td class="num" { (thousands(day.done)) }
+                                td class="num" { (thousands(day.remaining)) }
+                                td class="num" { (thousands(day.ideal)) }
+                            }
                         }
                     }
                 }
@@ -498,24 +555,26 @@ pub fn projects_page(book: &Book, project: Option<&str>, query: &str, stale_days
             @if rows.is_empty() {
                 p class="empty" { "no projects yet" }
             } @else {
-                table {
-                    thead {
-                        tr {
-                            th { "Project" }
-                            th class="num" { "Total" }
-                            th class="num" { "Open" }
-                            th class="num" { "WIP" }
-                            th class="num" { "Review" }
-                            th class="num" { "Blocked" }
-                            th class="num" { "Ready" }
-                            th class="num" { "Closed" }
-                            th class="num" { "Stale" }
-                            th { "Progress" }
+                div class="table-wrap" {
+                    table class="projects-table" {
+                        thead {
+                            tr {
+                                th { "Project" }
+                                th class="num" { "Total" }
+                                th class="num" { "Open" }
+                                th class="num" { "WIP" }
+                                th class="num" { "Review" }
+                                th class="num" { "Blocked" }
+                                th class="num" { "Ready" }
+                                th class="num" { "Closed" }
+                                th class="num" { "Stale" }
+                                th { "Progress" }
+                            }
                         }
-                    }
-                    tbody {
-                        @for stat in &rows {
-                            (project_row(stat))
+                        tbody {
+                            @for stat in &rows {
+                                (project_row(stat))
+                            }
                         }
                     }
                 }
@@ -545,29 +604,55 @@ pub fn plans_page(book: &Book, project: Option<&str>, query: &str) -> String {
             @if plans.is_empty() {
                 p class="empty" { "no plans in this book" }
             } @else {
-                table {
-                    thead {
-                        tr {
-                            th { "Plan" }
-                            th class="num" { "Nodes" }
-                            th class="num" { "Closed" }
-                            th class="num" { "Ready" }
-                            th class="num" { "Blocked" }
-                            th { "Progress" }
+                div class="table-wrap" {
+                    table class="plans-table" {
+                        thead {
+                            tr {
+                                th { "Plan" }
+                                th class="num" { "Nodes" }
+                                th class="num" { "Closed" }
+                                th class="num" { "Ready" }
+                                th class="num" { "Waiting" }
+                                th { "Progress" }
+                            }
+                        }
+                        tbody {
+                            @for PlanStat { name, nodes, closed, ready, blocked } in &plans {
+                                tr {
+                                    td { a href=(link("/plan", None, &[("name", name)])) { (name) } }
+                                    td class="num" { (thousands(*nodes)) }
+                                    td class="num" { (thousands(*closed)) }
+                                    td class="num" { (thousands(*ready)) }
+                                    td class="num" { (thousands(*blocked)) }
+                                    td {
+                                        div class="progress-cell" {
+                                            div class="bar" {
+                                                i style=(format!("width:{:.1}%", percent(*closed, *nodes))) {}
+                                            }
+                                            span class="pct" { (format!("{:.0}%", percent(*closed, *nodes))) }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                    tbody {
-                        @for PlanStat { name, nodes, closed, ready, blocked } in &plans {
-                            tr {
-                                td { a href=(link("/plan", None, &[("name", name)])) { (name) } }
-                                td class="num" { (thousands(*nodes)) }
-                                td class="num" { (thousands(*closed)) }
-                                td class="num" { (thousands(*ready)) }
-                                td class="num" { (thousands(*blocked)) }
-                                td {
-                                    div class="bar" {
-                                        i style=(format!("width:{:.1}%", percent(*closed, *nodes))) {}
-                                    }
+                }
+                div class="plans-cards" {
+                    @for PlanStat { name, nodes, closed, ready, blocked } in &plans {
+                        div class="plan-card plan-list-card" {
+                            div class="plan-card-top" {
+                                a class="plan-card-title" href=(link("/plan", None, &[("name", name)])) { (name) }
+                                span class="pct" { (format!("{:.0}%", percent(*closed, *nodes))) }
+                            }
+                            div class="plan-card-meta" {
+                                span class="chip" { (thousands(*nodes)) " nodes" }
+                                span class="chip" { (thousands(*closed)) " closed" }
+                                span class="chip" { (thousands(*ready)) " ready" }
+                                span class="chip" { (thousands(*blocked)) " waiting" }
+                            }
+                            div class="progress-cell" {
+                                div class="bar" {
+                                    i style=(format!("width:{:.1}%", percent(*closed, *nodes))) {}
                                 }
                             }
                         }
@@ -598,25 +683,59 @@ pub fn plan_page(book: &Book, name: &str, project: Option<&str>, query: &str) ->
         return error_page(book, 404, &format!("no plan named {name}"));
     }
     let by_id = book.index();
+    let closed = nodes.iter().filter(|node| node.status == "closed").count();
+    let ready = nodes
+        .iter()
+        .filter(|node| model::blocking_in(book, &by_id, node, book.now).is_empty())
+        .count();
+    let waiting = nodes.len().saturating_sub(closed).saturating_sub(ready);
+    let done = percent(closed as i64, nodes.len() as i64);
     let body = html! {
+        section class="tiles" {
+            (tile("Nodes", thousands(nodes.len() as i64), ""))
+            (tile("Closed", thousands(closed as i64), "good"))
+            (tile("Ready", thousands(ready as i64), "good"))
+            (tile("Waiting", thousands(waiting as i64), "warn"))
+            (tile("Done", format!("{done:.1}%"), "good"))
+        }
         section class="panel" {
-            h2 { (name) }
-            p class="hint" { (nodes.len()) " node(s)" }
-            table {
-                thead {
-                    tr {
-                        th { "Id" }
-                        th { "Title" }
-                        th { "Status" }
-                        th class="num" { "Priority" }
-                        th { "Readiness" }
-                        th { "Waits on" }
+            div class="boardhead" {
+                div {
+                    h2 { (name) }
+                    p class="hint" {
+                        (nodes.len()) " "
+                        @if nodes.len() == 1 { "node" } @else { "nodes" }
                     }
                 }
-                tbody {
-                    @for node in &nodes {
-                        (plan_row(book, &by_id, node))
+                div class="progress-cell" {
+                    div class="bar" {
+                        i style=(format!("width:{done:.1}%")) {}
                     }
+                    span class="pct" { (format!("{done:.0}%")) }
+                }
+            }
+            div class="table-wrap" {
+                table class="plan-table" {
+                    thead {
+                        tr {
+                            th { "Id" }
+                            th { "Title" }
+                            th { "Status" }
+                            th class="num" { "Priority" }
+                            th { "Readiness" }
+                            th { "Waits on" }
+                        }
+                    }
+                    tbody {
+                        @for node in &nodes {
+                            (plan_row(book, &by_id, node))
+                        }
+                    }
+                }
+            }
+            div class="plan-cards" {
+                @for node in &nodes {
+                    (plan_card(book, &by_id, node))
                 }
             }
         }
@@ -663,14 +782,24 @@ pub fn issue_page(book: &Book, id: &str, project: Option<&str>, query: &str) -> 
     {
         html! { span class="empty" { "none" } }
     } else {
+        let count = issue.metadata.as_object().map_or(0, |map| map.len());
         let pretty = serde_json::to_string_pretty(&issue.metadata).unwrap_or_default();
-        html! { pre { code { (pretty) } } }
+        html! {
+            details class="meta" {
+                summary {
+                    "Metadata (" (count) " "
+                    @if count == 1 { "field" } @else { "fields" }
+                    ")"
+                }
+                pre { code { (pretty) } }
+            }
+        }
     };
     let body = html! {
         div class="grid2" {
             section class="panel" {
                 h2 {
-                    (issue.title) " " (status_badge(&issue.status))
+                    "Details " (status_badge(&issue.status))
                 }
                 p class="hint" {
                     code { (issue.id) } " · " (issue.project)
@@ -708,7 +837,7 @@ pub fn issue_page(book: &Book, id: &str, project: Option<&str>, query: &str) -> 
                 h2 { "Waits on" }
                 ul class="plain" {
                     @if parents.is_empty() {
-                        li class="empty" { "nothing" }
+                        li class="empty" { "No parent issues." }
                     }
                     @for (id, title, status) in &parents {
                         (edge_line(id, title, status))
@@ -717,7 +846,7 @@ pub fn issue_page(book: &Book, id: &str, project: Option<&str>, query: &str) -> 
                 h2 style="margin-top:16px" { "Blocks" }
                 ul class="plain" {
                     @if children.is_empty() {
-                        li class="empty" { "nothing" }
+                        li class="empty" { "No child issues." }
                     }
                     @for (id, title, status) in &children {
                         (edge_line(id, title, status))
@@ -726,7 +855,7 @@ pub fn issue_page(book: &Book, id: &str, project: Option<&str>, query: &str) -> 
                 h2 style="margin-top:16px" { "Evidence" }
                 ul class="plain" {
                     @if issue.evidence.is_empty() {
-                        li class="empty" { "none" }
+                        li class="empty" { "No evidence." }
                     }
                     @for item in &issue.evidence {
                         li {
@@ -811,18 +940,23 @@ fn project_row(stat: &ProjectStat) -> Markup {
             td class="num" { (thousands(stat.closed)) }
             td class="num" { (thousands(stat.stale)) }
             td {
-                div class="bar" {
-                    i style=(format!("width:{:.1}%", percent(stat.closed, stat.total))) {}
+                div class="progress-cell" {
+                    div class="bar" {
+                        i style=(format!("width:{:.1}%", percent(stat.closed, stat.total))) {}
+                    }
+                    span class="pct" { (format!("{:.0}%", percent(stat.closed, stat.total))) }
                 }
             }
         }
     }
 }
 
-fn plan_row(book: &Book, by_id: &std::collections::BTreeMap<&str, &Issue>, node: &Issue) -> Markup {
-    let reasons = model::blocking_in(book, by_id, node, book.now);
-    let parents: Vec<(String, String, String)> = book
-        .parents
+fn node_parents(
+    book: &Book,
+    by_id: &std::collections::BTreeMap<&str, &Issue>,
+    node: &Issue,
+) -> Vec<(String, String, String)> {
+    book.parents
         .get(&node.id)
         .map(Vec::as_slice)
         .unwrap_or_default()
@@ -833,23 +967,83 @@ fn plan_row(book: &Book, by_id: &std::collections::BTreeMap<&str, &Issue>, node:
                 |issue| (parent.clone(), issue.title.clone(), issue.status.clone()),
             )
         })
-        .collect();
+        .collect()
+}
+
+fn plan_row(book: &Book, by_id: &std::collections::BTreeMap<&str, &Issue>, node: &Issue) -> Markup {
+    let reasons = model::blocking_in(book, by_id, node, book.now);
+    let parents = node_parents(book, by_id, node);
     html! {
         tr {
-            td { code { (node.id) } }
+            td class="id" { code { (node.id) } }
             td { a href=(link("/issue", None, &[("id", &node.id)])) { (node.title) } }
             td { (status_badge(&node.status)) }
             td class="num" { "p" (node.priority) }
             td {
-                @if reasons.is_empty() {
+                @if node.status == "closed" {
+                    span class="empty" { "closed" }
+                } @else if reasons.is_empty() {
                     span class="ready" { "ready" }
                 } @else {
-                    span class="notready" { (reasons.join("; ")) }
+                    span class="notready" title=(reasons.join("; ")) { "waiting" }
                 }
             }
             td {
-                @for (parent, title, status) in &parents {
-                    code { (parent) } " [" (status) "] " (title) br;
+                @if parents.is_empty() {
+                    span class="empty" { "—" }
+                } @else {
+                    div class="deps" {
+                        @for (parent, title, status) in &parents {
+                            a class=(format!("dep status-{status}"))
+                              href=(link("/issue", None, &[("id", parent)]))
+                              title=(format!("{status}: {title}")) {
+                                code { (parent) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn plan_card(
+    book: &Book,
+    by_id: &std::collections::BTreeMap<&str, &Issue>,
+    node: &Issue,
+) -> Markup {
+    let reasons = model::blocking_in(book, by_id, node, book.now);
+    let parents = node_parents(book, by_id, node);
+    html! {
+        div class="plan-card" {
+            div class="plan-card-top" {
+                a class="plan-card-title" href=(link("/issue", None, &[("id", &node.id)])) {
+                    (node.title)
+                }
+                span class=(format!("prio p{}", node.priority.clamp(0, 3))) {
+                    "p" (node.priority)
+                }
+            }
+            div class="plan-card-meta" {
+                code { (node.id) }
+                (status_badge(&node.status))
+                @if node.status == "closed" {
+                    span class="empty" { "closed" }
+                } @else if reasons.is_empty() {
+                    span class="ready" { "ready" }
+                } @else {
+                    span class="notready" title=(reasons.join("; ")) { "waiting" }
+                }
+            }
+            @if !parents.is_empty() {
+                div class="deps" {
+                    @for (parent, title, status) in &parents {
+                        a class=(format!("dep status-{status}"))
+                          href=(link("/issue", None, &[("id", parent)]))
+                          title=(format!("{status}: {title}")) {
+                            code { (parent) }
+                        }
+                    }
                 }
             }
         }
@@ -1019,7 +1213,8 @@ fn burndown_chart(burn: &Burndown, days: i64) -> Markup {
 <style>.scope{{stroke:#5d6b7a}}.remaining{{stroke:#6ea8fe}}.ideal{{stroke:#c4a7ff;stroke-dasharray:5 5;opacity:.75}}</style>
 {grid}{labels}{area}{scope}{remaining}{ideal}
 </svg>
-<div class="legend"><span><i style="background:#5d6b7a"></i>scope</span><span><i style="background:#6ea8fe"></i>remaining</span><span><i style="background:#c4a7ff"></i>ideal</span></div>"#,
+<div class="legend"><span><i style="background:#5d6b7a"></i>scope</span><span><i style="background:#6ea8fe"></i>remaining</span><span><i style="background:#c4a7ff"></i>ideal</span></div>
+<p class="chart-hint">Swipe the chart to see the full window →</p>"#,
         grid = grid,
         labels = labels,
         area = area,
