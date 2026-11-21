@@ -1,0 +1,65 @@
+# factory-ui: the software-factory loop, read as a page.
+#
+# The loop's facts live in a VFS written by the control plane: a head ref per
+# session, sealed segment objects holding the events, and one immutable object
+# per comment. This Spore renders that root and writes comments back into it.
+# It holds no state, so the page is the transcript, not a copy of it.
+schema = 1
+
+[spore]
+id = "dev.fungos.factory-ui"
+name = "factory-ui"
+title = "Factory"
+version = "0.1.0"
+license = "MIT"
+summary = "Transcripts and byte-anchored comments over a transcript VFS"
+description = "A server-rendered view of the software factory: the sessions a node ran, each transcript rendered from sealed VFS segments, and comments anchored to the bytes they were written against rather than to a line number."
+homepage = "https://github.com/fungOS-linux/spores"
+
+[docs]
+man = "README.md"
+
+[catalog]
+categories = ["developer-tools", "productivity"]
+keywords = ["factory", "transcript", "comments", "vfs", "ssr", "agents"]
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { vfs = "1.0.0", vfs-mut = "0.1.0", http = "0.2.12" }
+
+[module]
+path = "module.wasm"
+
+[http]
+hosts = ["factory.local", "factory.localhost", "factory.fpl.dev", "factory.myc", "127.0.0.1", "localhost"]
+# Order matters. The gateway takes the first route whose prefix matches, and `/`
+# is a catch-all prefix, so it goes last: with `/` first, a POST to
+# `/s/<id>/comment` is answered "method not granted" by the `/` grant before the
+# narrower one is ever consulted. `/s` carries both methods because the gateway
+# de-duplicates by path.
+routes = [
+  { methods = ["GET", "POST"], path = "/s" },
+  { methods = ["GET"], path = "/api/comment" },
+  { methods = ["GET"], path = "/healthz" },
+  { methods = ["GET"], path = "/" },
+]
+
+# The grant set is the argument for the design: `soil:vfs` to read the
+# transcript objects, `soil:vfs-mut` to write a comment beside them, and nothing
+# else. No records book, no network, no clock, no secrets.
+
+[launch]
+default = "web"
+surfaces = ["web"]
+
+[grants]
+"soil:vfs" = "list sessions, read the head ref and the sealed segments"
+"soil:vfs-mut" = "write one comment object under the session it is about"
+"wasi:http" = "answer the Factory UI host"
+"wasi:io" = "the request and response body streams"
+"wasi:clocks" = "HTTP type timestamps"
+
+[denied]
+transport = ["socket", "quic", "iroh", "ssh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
