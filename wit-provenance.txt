@@ -184,3 +184,9 @@ spores/scribe-ui/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb7789352
 spores/scribe/wit/deps/soil-records.wit 898cb3a58c473488e877a624e65f37c7fb194bcb
 spores/scribe/wit/deps/soil-unibus.wit 991e23853f7bf68bf6f5e63ad072369b0ded6209
 spores/scribe/wit/deps/soil-vfs-mut/package.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/factory-ui/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/factory-ui/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/mush/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/scribe-ui/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/scribe/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/sfx/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
