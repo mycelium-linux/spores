@@ -1,0 +1,20 @@
+// Factory UI: the loop's transcript, rendered from the VFS it wrote.
+//
+// The Spore owns presentation only. Every byte comes from `soil:vfs`, and every
+// comment it writes goes back through `soil:vfs-mut` as an immutable object
+// beside the session. There is no database here and no session state: a reader
+// can mount the same root with any tool and see the same transcript.
+//
+//   GET  /                    the sessions this root holds
+//   GET  /s/<session>         one transcript, its comments, and a composer
+//   GET  /api/comment?session=  one session's comments as JSON
+//   POST /s/<session>/comment  write a comment anchored to bytes
+//   GET  /healthz
+package fungos:factory-ui@0.1.0;
+
+world factory-ui {
+  import soil:vfs/vfs@1.0.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
+
+  export wasi:http/incoming-handler@0.2.12;
+}
