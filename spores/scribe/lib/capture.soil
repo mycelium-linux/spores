@@ -1,0 +1,385 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; The Scribe capture bundle, read as data.
+;
+; This is the domain layer shared by every Scribe surface. Ingest writes the
+; bundle; the UI and any future consumer read it through these functions. It
+; only uses `soil:vfs` and ordinary values, so it runs under the interpreter
+; and, once the component backend lands, compiles into the Spore unchanged.
+;
+; A bundle is:
+;
+;   captures/<source>/<date>/<capture_id>/
+;     capture.json      identity, title, emoji, timestamps
+;     transcript.json   {text, segments?, words?}
+;     summary.md        display summary
+;     summary.omi.md    preserved Omi summary, when present
+;     summary.scribe.md generated summary, when enrichment ran
+;     summary.json      provenance for the display summary
+;     actions.json      extracted action items
+;     speakers.json     speaker label -> {name, person_id, source}
+;
+; Nothing here writes. Mutations live in `capture/write.soil`.
+
+;;; Paths ------------------------------------------------------------------
+
+(defun capture/join (parent child)
+  (if (= parent "")
+      child
+      (str parent "/" child)))
+
+(defun capture/base (path)
+  (last-of (string-split path "/")))
+
+(defun capture/source-of (path)
+  (let ((parts (string-split path "/")))
+    (if (>= (length parts) 2) (nth 1 parts) "unknown")))
+
+(defun capture/date-of (path)
+  (let ((parts (string-split path "/")))
+    (if (>= (length parts) 3) (nth 2 parts) "undated")))
+
+(defun capture/id-of (path)
+  (capture/base path))
+
+(defun capture/bundle (source date id)
+  (str "captures/" source "/" date "/" id))
+
+;;; Reading through soil:vfs ------------------------------------------------
+
+(defun capture/read-into (path offset acc)
+  (let ((chunk (soil:vfs/read path offset 1048576)))
+    (if (not (ok? chunk))
+        nil
+        (let ((body (value chunk)))
+          (let ((data (field body :data)))
+            (if (nil? data) data
+                (let ((acc (if (nil? acc) data (append acc data))))
+                  (if (or (field body :eof) (= (length data) 0))
+                      acc
+                      (capture/read-into path (+ offset (length data)) acc)))))))))
+
+(defun capture/read-text (path)
+  (let ((bytes (capture/read-into path 0 nil)))
+    (if (nil? bytes) "" (bytes->string bytes))))
+
+(defun capture/read-json (path)
+  (let ((text (capture/read-text path)))
+    (if (= text "")
+        nil
+        (try-eval (list 'json-decode text)))))
+
+(defun capture/read-json-or (path fallback)
+  (let ((decoded (capture/read-json path)))
+    (if (ok? decoded) (value decoded) fallback)))
+
+;;; Directory walking ------------------------------------------------------
+
+(defun capture/dir? (entry)
+  (= (field entry :kind) :directory))
+
+(defun capture/ls-page (parent offset acc)
+  (let ((page (soil:vfs/ls parent offset 256)))
+    (if (not (ok? page))
+        acc
+        (let ((body (value page)))
+          (let ((acc (append acc (filter 'capture/dir? (field body :entries))))
+                (next (field body :next)))
+            (if (nil? next)
+                acc
+                (capture/ls-page parent next acc)))))))
+
+(defun capture/dirs (parent)
+  (capture/ls-page parent 0 nil))
+
+(defun capture/entry-path (entry)
+  (field entry :path))
+
+(defun capture/dir-paths (entries)
+  (map 'capture/entry-path entries))
+
+;;; Text helpers -----------------------------------------------------------
+
+(defun capture/digit (character)
+  (cond
+    ((= character "0") 0) ((= character "1") 1) ((= character "2") 2)
+    ((= character "3") 3) ((= character "4") 4) ((= character "5") 5)
+    ((= character "6") 6) ((= character "7") 7) ((= character "8") 8)
+    ((= character "9") 9) (else nil)))
+
+;; `YYYY-MM-DD` becomes `YYYYMMDD`, so a date range is a numeric comparison.
+(defun capture/date-key-into (characters acc)
+  (if (nil? characters)
+      acc
+      (let ((digit (capture/digit (first characters))))
+        (capture/date-key-into (rest characters)
+          (if (nil? digit) acc (+ (* acc 10) digit))))))
+
+(defun capture/date-key (date)
+  (capture/date-key-into (string-chars date) 0))
+
+(defun capture/in-range? (date from to)
+  (let ((key (capture/date-key date)))
+    (and (if (= from "") #t (>= key (capture/date-key from)))
+         (if (= to "") #t (<= key (capture/date-key to))))))
+
+(defun capture/nonempty (text)
+  (not (= (string-trim text) "")))
+
+(defun capture/words (text)
+  (length (filter 'capture/nonempty (string-split (string-trim text) " "))))
+
+(defun capture/take-chars (n text)
+  (string-join (take n (string-chars text)) ""))
+
+(defun capture/prefix? (wanted text)
+  (cond
+    ((nil? wanted) #t)
+    ((nil? text) #f)
+    ((= (first wanted) (first text)) (capture/prefix? (rest wanted) (rest text)))
+    (else #f)))
+
+(defun capture/drop-prefix (prefix text)
+  (let ((wanted (string-chars prefix))
+        (chars (string-chars text)))
+    (if (capture/prefix? wanted chars)
+        (string-join (drop (length wanted) chars) "")
+        text)))
+
+(defun capture/suffix? (suffix text)
+  (if (> (length suffix) (length text))
+      #f
+      (capture/prefix? suffix (drop (- (length text) (length suffix)) text))))
+
+(defun capture/drop-suffix (suffix text)
+  (let ((chars (string-chars text))
+        (suffix-chars (string-chars suffix)))
+    (if (capture/suffix? suffix-chars chars)
+        (string-join (take (- (length chars) (length suffix-chars)) chars) "")
+        text)))
+
+(defun capture/lines (text)
+  (string-split text "\n"))
+
+(defun capture/first-line (lines)
+  (cond
+    ((nil? lines) "")
+    ((capture/nonempty (first lines)) (string-trim (first lines)))
+    (else (capture/first-line (rest lines)))))
+
+;;; Summary and title ------------------------------------------------------
+
+(defun capture/summary-title (summary)
+  (let ((line (capture/first-line (capture/lines summary))))
+    (let ((line (string-trim (capture/drop-prefix "#" line))))
+      (let ((line (string-trim (capture/drop-prefix "Overview:" line))))
+        (let ((first (first (string-split line ". "))))
+          (let ((title (capture/take-chars 40 (string-trim (capture/drop-suffix "." first)))))
+            (if (= title "") nil title)))))))
+
+;;; Transcript -------------------------------------------------------------
+
+(defun capture/segment-line (segment)
+  (let ((text (field segment :text)))
+    (if (nil? text) "" text)))
+
+(defun capture/segment-text (segments)
+  (string-join
+    (filter 'capture/nonempty (map 'capture/segment-line segments))
+    " "))
+
+(defun capture/transcript-text (transcript)
+  (if (nil? transcript)
+      ""
+      (let ((text (field transcript :text)))
+        (if (and (not (nil? text)) (not (= text "")))
+            text
+            (capture/segment-text (field transcript :segments))))))
+
+(defun capture/speaker-label (segment)
+  (cond
+    ((= (field segment :is-user) #t) "You")
+    ((not (nil? (field segment :speaker))) (str (field segment :speaker)))
+    (else "")))
+
+
+(defun capture/speaker-count (transcript)
+  (let ((labels (filter 'capture/nonempty
+                  (map 'capture/speaker-label (field transcript :segments)))))
+    (if (nil? labels) 0 (length (capture/unique labels)))))
+
+(defun capture/member? (value items)
+  (cond
+    ((nil? items) #f)
+    ((= value (first items)) #t)
+    (else (capture/member? value (rest items)))))
+
+(defun capture/unique-into (items acc)
+  (cond
+    ((nil? items) acc)
+    ((capture/member? (first items) acc) (capture/unique-into (rest items) acc))
+    (else (capture/unique-into (rest items) (append acc (list (first items)))))))
+
+(defun capture/unique (items)
+  (capture/unique-into items nil))
+
+;;; Low-signal filter ------------------------------------------------------
+
+(defun capture/low-signal-title? (title)
+  (capture/member? (string-trim title)
+    (list "work" "working" "uma" "a quarter mention" "god damn"
+          "certainly, i'm not sure." "is this thing working?"
+          "trying something exciting" "a brief multilingual sign-off"
+          "alexa lights turn on" "measuring tool at the lab"
+          "unclear spinach remark")))
+
+(defun capture/low-signal-summary? (summary)
+  (or
+    (string-contains? summary "single word")
+    (string-contains? summary "unclear remark")
+    (string-contains? summary "brief, unclear")
+    (string-contains? summary "no supported plans or decisions")
+    (string-contains? summary "fragmentary")
+    (string-contains? summary "the transcript contains the single")
+    (string-contains? summary "the only clear remark")))
+
+(defun capture/low-signal? (title summary text)
+  (or (< (capture/words text) 20)
+      (capture/low-signal-title? title)
+      (capture/low-signal-summary? summary)))
+
+;;; Cards ------------------------------------------------------------------
+
+(defun capture/or (value fallback)
+  (if (or (nil? value) (= value "")) fallback value))
+
+(defun capture/card (path)
+  (let ((summary (capture/read-text (capture/join path "summary.md")))
+        (meta (capture/read-json-or (capture/join path "capture.json") nil))
+        (transcript (capture/read-json-or (capture/join path "transcript.json") nil))
+        (actions (capture/read-json-or (capture/join path "actions.json") nil)))
+    (let ((text (capture/transcript-text transcript)))
+      (let ((started (field meta :started-at-ms))
+            (ended (field meta :ended-at-ms))
+            (given (field meta :title)))
+        (let ((title (if (nil? given)
+                         (let ((derived (capture/summary-title summary)))
+                           (if (nil? derived) (capture/base path) derived))
+                         given)))
+          (list
+            (list :path path)
+            (list :source (capture/source-of path))
+            (list :date (capture/date-of path))
+            (list :id (capture/id-of path))
+            (list :title title)
+            (list :emoji (capture/or (field meta :emoji) ""))
+            (list :summary summary)
+            (list :preview (capture/take-chars 220 text))
+            (list :actions (if (nil? actions) 0 (length actions)))
+            (list :speakers (capture/speaker-count transcript))
+            (list :words (capture/words text))
+            (list :started-at-ms (if (nil? started) 0 started))
+            (list :ended-at-ms (if (nil? ended) (if (nil? started) 0 started) ended))
+            (list :merged-into (field meta :merged-into))
+            (list :processing (= (string-trim summary) ""))
+            (list :suppressed (capture/low-signal? title summary text))))))))
+
+;;; Sorting (insertion sort; this is a page, not a database) -----------------
+
+(defun capture/newer? (a b)
+  (> (field a :started-at-ms) (field b :started-at-ms)))
+
+(defun capture/insert-sorted (card sorted)
+  (cond
+    ((nil? sorted) (list card))
+    ((capture/newer? card (first sorted)) (cons card sorted))
+    (else (cons (first sorted) (capture/insert-sorted card (rest sorted))))))
+
+(defun capture/sort (cards sorted)
+  (if (nil? cards)
+      sorted
+      (capture/sort (rest cards) (capture/insert-sorted (first cards) sorted))))
+
+;;; Listing ----------------------------------------------------------------
+
+(defun capture/cards-for-date (date-path)
+  (capture/cards-of (capture/dirs date-path) nil))
+
+(defun capture/cards-of (caps acc)
+  (if (nil? caps)
+      acc
+      (let ((card (capture/card (field (first caps) :path))))
+        (if (nil? (field card :merged-into))
+            (capture/cards-of (rest caps) (append acc (list card)))
+            (capture/cards-of (rest caps) acc)))))
+
+(defun capture/cards-in (dates from to acc)
+  (if (nil? dates)
+      acc
+      (let ((date (capture/base (field (first dates) :path))))
+        (if (capture/in-range? date from to)
+            (capture/cards-in (rest dates) from to
+              (append acc (capture/cards-for-date (field (first dates) :path))))
+            (capture/cards-in (rest dates) from to acc)))))
+
+(defun capture/all-cards (sources from to acc)
+  (if (nil? sources)
+      acc
+      (capture/all-cards (rest sources) from to
+        (capture/cards-in (capture/dirs (field (first sources) :path)) from to acc))))
+
+(defun capture/cards (from to)
+  (capture/sort (capture/all-cards (capture/dirs "captures") from to nil) nil))
+
+;;; Search ----------------------------------------------------------------
+
+(defun capture/matches? (card text)
+  (or
+    (string-contains? (field card :title) text)
+    (string-contains? (field card :summary) text)
+    (string-contains? (field card :preview) text)))
+
+(defun capture/search (text cards)
+  (filter-with 'capture/matches? text cards))
+
+;;; Detail -----------------------------------------------------------------
+
+(defun capture/full (path)
+  (let ((transcript (capture/read-json-or (capture/join path "transcript.json") nil))
+        (speakers (capture/read-json-or (capture/join path "speakers.json") nil))
+        (actions (capture/read-json-or (capture/join path "actions.json") nil))
+        (overrides (capture/read-json-or (capture/join path "speaker_overrides.json") nil)))
+    (list
+      (list :card (capture/card path))
+      (list :transcript (if (nil? transcript) (list) transcript))
+      (list :speakers (if (nil? speakers) (list) speakers))
+      (list :actions (if (nil? actions) (list) actions))
+      (list :overrides (if (nil? overrides) (list) overrides))
+      (list :design-summary (capture/read-text (capture/join path "summary.design.md")))
+      (list :clean-transcript (capture/read-json-or (capture/join path "transcript.clean.json") nil)))))
+
+(defun capture/find (id)
+  (capture/find-in (capture/dirs "captures") id))
+
+(defun capture/find-in (sources id)
+  (if (nil? sources)
+      nil
+      (let ((found (capture/find-date (capture/dirs (field (first sources) :path)) id)))
+        (if (nil? found)
+            (capture/find-in (rest sources) id)
+            found))))
+
+(defun capture/find-date (dates id)
+  (if (nil? dates)
+      nil
+      (let ((found (capture/find-capture (capture/dirs (field (first dates) :path)) id)))
+        (if (nil? found)
+            (capture/find-date (rest dates) id)
+            found))))
+
+(defun capture/find-capture (caps id)
+  (cond
+    ((nil? caps) nil)
+    ((= (capture/base (field (first caps) :path)) id) (field (first caps) :path))
+    (else (capture/find-capture (rest caps) id))))
