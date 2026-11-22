@@ -1,0 +1,227 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Hue CLI tests: argv parsing, the messages a bad invocation gets, and the
+; summary shaping. Nothing here reaches a bridge.
+;
+; Run with `tests/run.sh`.
+
+(defun test/cli-parses-a-write ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "http://192.168.1.10/"
+                        "--credential" "default" "on"))))
+    (and
+      (ok? parsed)
+      (= (field (value parsed) :action) "on")
+      (= (field (field (value parsed) :bridge) :base) "http://192.168.1.10")
+      (= (field (field (value parsed) :bridge) :credential) "default")
+      (= (field (field (value parsed) :target) :kind) "group")
+      (= (field (field (value parsed) :target) :id) "0"))))
+
+(defun test/cli-targets ()
+  (let ((light (value (hue/parse-argv
+                        (list "--bridge" "http://b" "--key" "k" "--light" "8" "off"))))
+        (group (value (hue/parse-argv
+                        (list "--bridge" "http://b" "--key" "k" "--group" "2" "off")))))
+    (and
+      (= (field (field light :target) :kind) "light")
+      (= (field (field light :target) :id) "8")
+      (= (field (field group :target) :kind) "group")
+      (= (field (field group :target) :id) "2"))))
+
+(defun test/cli-json-and-device ()
+  (let ((parsed (value (hue/parse-argv
+                         (list "--bridge" "http://b" "--credential" "default"
+                               "--json" "--device" "laptop#hue" "status")))))
+    (and
+      (field (field parsed :options) :json)
+      (= (field parsed :device) "laptop#hue"))))
+
+(defun test/cli-pair-device-defaults ()
+  (let ((bare (value (hue/parse-argv (list "--bridge" "http://b" "pair"))))
+        (named (value (hue/parse-argv
+                        (list "--bridge" "http://b" "pair" "laptop#hue")))))
+    (and
+      (= (field bare :action) "pair")
+      (= (field bare :device) "spores#hue")
+      (= (field named :device) "laptop#hue")
+      (nil? (field (field bare :bridge) :credential)))))
+
+(defun test/cli-help ()
+  (let ((parsed (value (hue/parse-argv (list "--help")))))
+    (and
+      (= (field parsed :action) "help")
+      (string-contains? (hue/help-text) "scene-id ID")
+      (string-contains? (hue/help-text) "--credential HANDLE"))))
+
+(defun test/cli-rejects-a-missing-verb ()
+  (let ((parsed (hue/parse-argv (list "--bridge" "http://b" "--key" "k"))))
+    (and
+      (not (ok? parsed))
+      (string-contains? (value parsed) "usage: hue --bridge URL"))))
+
+(defun test/cli-rejects-an-unknown-verb ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "http://b" "--key" "k" "disco"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed) "unknown command: disco"))))
+
+(defun test/cli-rejects-extra-words ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "http://b" "--key" "k" "on" "now" "please"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed) "on: too many arguments"))))
+
+(defun test/cli-requires-a-bridge ()
+  (let ((parsed (hue/parse-argv (list "--key" "k" "status"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed)
+         "--bridge is required, for example --bridge http://192.168.1.10"))))
+
+(defun test/cli-rejects-a-relative-bridge ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "192.168.1.10" "--key" "k" "status"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed) "bridge must be an absolute http(s) URL"))))
+
+(defun test/cli-requires-one-credential ()
+  (let ((none (hue/parse-argv (list "--bridge" "http://b" "status")))
+        (both (hue/parse-argv
+                (list "--bridge" "http://b" "--key" "k"
+                      "--credential" "default" "status")))
+        (empty (hue/parse-argv
+                 (list "--bridge" "http://b" "--key" "" "status"))))
+    (and
+      (not (ok? none))
+      (= (value none)
+         "--key or --credential is required (the bridge application key)")
+      (not (ok? both))
+      (= (value both) "--key and --credential are mutually exclusive")
+      (not (ok? empty))
+      (= (value empty)
+         "--key or --credential is required (the bridge application key)"))))
+
+(defun test/cli-pair-takes-no-credential ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "http://b" "--key" "k" "pair"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed) "pair does not take --key or --credential"))))
+
+(defun test/cli-rejects-two-targets ()
+  (let ((parsed (hue/parse-argv
+                  (list "--bridge" "http://b" "--key" "k"
+                        "--light" "3" "--group" "1" "on"))))
+    (and
+      (not (ok? parsed))
+      (= (value parsed) "--light and --group are mutually exclusive"))))
+
+(defun test/cli-bri-bounds ()
+  (let ((missing (hue/parse-argv
+                   (list "--bridge" "http://b" "--key" "k" "bri")))
+        (junk (hue/parse-argv
+                (list "--bridge" "http://b" "--key" "k" "bri" "dim")))
+        (too-big (hue/parse-argv
+                   (list "--bridge" "http://b" "--key" "k" "bri" "300")))
+        (edge (value (hue/parse-argv
+                       (list "--bridge" "http://b" "--key" "k" "bri" "254")))))
+    (and
+      (not (ok? missing))
+      (= (value missing) "bri: expected 0-254")
+      (not (ok? junk))
+      (= (value junk) "bri: \"dim\" is not 0-254")
+      (not (ok? too-big))
+      (= (value too-big) "bri: \"300\" is not 0-254")
+      (= (field edge :operand) 254))))
+
+(defun test/cli-color-requires-hex ()
+  (let ((missing (hue/parse-argv
+                   (list "--bridge" "http://b" "--key" "k" "color")))
+        (junk (hue/parse-argv
+                (list "--bridge" "http://b" "--key" "k" "color" "#ff88")))
+        (good (value (hue/parse-argv
+                       (list "--bridge" "http://b" "--key" "k"
+                             "colour" "#ff8800")))))
+    (and
+      (not (ok? missing))
+      (= (value missing) "color: expected #RRGGBB")
+      (not (ok? junk))
+      (= (value junk) "color: \"#ff88\" is not #RRGGBB")
+      (= (field good :action) "color")
+      (= (field good :operand) (list 255 136 0)))))
+
+(defun test/cli-scene-operands ()
+  (let ((missing (hue/parse-argv
+                   (list "--bridge" "http://b" "--key" "k" "scene")))
+        (good (value (hue/parse-argv
+                       (list "--bridge" "http://b" "--key" "k" "scene" "Relax")))))
+    (and
+      (not (ok? missing))
+      (= (value missing) "scene: expected a scene name")
+      (= (field good :action) "scene")
+      (= (field good :operand) "Relax"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Output shaping
+;;; ---------------------------------------------------------------------------
+
+(defun test/cli-power-and-brightness ()
+  (and
+    (= (hue/power (list (list :on #t))) "on")
+    (= (hue/power (list (list :on #f))) "off")
+    (= (hue/power nil) "off")
+    (= (hue/bri-value (list (list :bri 180))) 180)
+    (= (hue/bri-value nil) 0)))
+
+(defun test/cli-labels ()
+  (and
+    (= (hue/label (hue/group "0")) "group 0")
+    (= (hue/label (hue/light "3")) "light 3")
+    (= (hue/hex-octet 255) "ff")
+    (= (hue/hex-octet 136) "88")
+    (= (hue/hex-octet 0) "00")
+    (= (hue/downcase "Relax") "relax")))
+
+(defun test/cli-entry-order-is-numeric ()
+  (let ((entries (list (list "10" (list (list :name "Ten")))
+                       (list "2" (list (list :name "Two")))
+                       (list "1" (list (list :name "One"))))))
+    (let ((sorted (hue/sorted-entries entries)))
+      (and
+        (= (first (nth 0 sorted)) "1")
+        (= (first (nth 1 sorted)) "2")
+        (= (first (nth 2 sorted)) "10")))))
+
+(defun test/cli-light-lines ()
+  (let ((entries
+          (hue/sorted-entries
+            (list
+              (list "3" (list (list :name "Window Lamp")
+                              (list :state (list (list :on #t) (list :bri 180)))))
+              (list "1" (list (list :name "Desk")
+                              (list :state (list (list :on #f)))))))))
+    (let ((lines (hue/entry-lines entries "light")))
+      (and
+        (= (nth 0 lines) "1\tDesk\toff\tbri 0")
+        (= (nth 1 lines) "3\tWindow Lamp\ton\tbri 180")
+        (= (hue/lines lines) "1\tDesk\toff\tbri 0\n3\tWindow Lamp\ton\tbri 180")))))
+
+(defun test/cli-scene-find-is-case-insensitive ()
+  (let ((entries (list (list "7" (list (list :name "Relax")))
+                       (list "8" (list (list :name "Focus"))))))
+    (and
+      (= (hue/key-text (first (hue/find-scene entries (hue/downcase "relax")))) "7")
+      (nil? (hue/find-scene entries (hue/downcase "missing"))))))
+
+(defun test/cli-decoded-keys-become-ids ()
+  (let ((decoded (json-decode "{\"10\":{\"name\":\"Ten\"},\"2\":{\"name\":\"Two\"}}")))
+    (let ((lines (hue/entry-lines (hue/sorted-entries decoded) "scene")))
+      (and
+        (= (nth 0 lines) "2\tTwo\tgroup -")
+        (= (nth 1 lines) "10\tTen\tgroup -")
+        (= (hue/key-text :abc) "abc")
+        (= (hue/key-text "abc") "abc")))))

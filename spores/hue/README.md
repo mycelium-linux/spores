@@ -70,9 +70,11 @@ cargo test -p spore-hue
 `lib/hue.soil` is the Spore's Hue domain layer in Soil: bridge URL
 construction, targets, scenes, brightness that encodes as an integer,
 sRGB→CIE-xy conversion, per-lamp gamut clamping, named moods, spatial plans and
-timed demos. It owns Hue semantics only — the host still owns the origin
-allowlist and the bridge key, which the guest writes as `__CREDENTIAL__` and
-names `default`.
+timed demos. `lib/cli.soil` is the CLI over it — the same flags, verbs,
+rejection messages and summaries as the Rust entry point, so the port can be
+measured instead of guessed. Both own Hue semantics only: the host still owns
+the origin allowlist and the bridge key, which the guest writes as
+`__CREDENTIAL__` and names `default`.
 
 It is the layer other Soil programs call, and the seam `lights-view` and the
 CLI port will use:
@@ -86,11 +88,20 @@ CLI port will use:
 (hue/atmosphere (home) "81" "aurora" nil)
 ```
 
-Load it after the prelude and `crates/soil-lang/bindings/soil-http.soil`. The
-Rust CLI in `src/` is unchanged for now; see
-[`docs/hue-soil-port.md`](../../docs/hue-soil-port.md) for the boundary, the
-follow-ups, and why `hue-client` is not retired yet.
+The CLI is the same thing with argv in front of it:
+
+```lisp
+(hue/cli (list "--bridge" "http://192.168.1.10" "--credential" "default"
+               "--group" "1" "scene" "Relax"))
+; => (ok "group 1: scene Relax")
+```
+
+Load the prelude and `crates/soil-lang/bindings/soil-http.soil` first, then
+`lib/hue.soil`, then `lib/cli.soil`. The shipped `module.wasm` is still built
+from `src/`, so the Rust CLI and `hue-client` stay until a Spore module can be
+built from Soil; see [`docs/hue-soil-port.md`](../../docs/hue-soil-port.md) for
+the boundary, the two-implementation rule, and the follow-ups.
 
 ```sh
-cd spores/hue && ./tests/run.sh    # 19 tests, no bridge, no socket
+cd spores/hue && ./tests/run.sh    # 41 tests, no bridge, no socket
 ```

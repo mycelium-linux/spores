@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Run the Hue Spore's Soil tests: colour theory, spatial planning, request
-# shaping, and bridge error decoding. No bridge, no socket.
+# shaping, bridge error decoding, and the CLI's parser and summaries. No
+# bridge, no socket.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 root=${SPORES_ROOT:-$(cd "$here/../.." && pwd)}
@@ -43,8 +44,10 @@ files=(
   "$soil/crates/soil-lang/stdlib/prelude.soil"
   "$soil/crates/soil-lang/bindings/soil-http.soil"
   "$here/lib/hue.soil"
+  "$here/lib/cli.soil"
   "$here/tests/soil/hue.soil"
   "$here/tests/soil/hue_request.soil"
+  "$here/tests/soil/hue_cli.soil"
 )
 
 run() {
