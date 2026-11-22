@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Run the Hue Spore's Soil tests: colour theory, spatial planning, request
-# shaping, bridge error decoding, and the CLI's parser and summaries. No
-# bridge, no socket.
+# shaping, bridge error decoding, and the CLI's parser and summaries.
+#
+#   ./tests/run.sh            # pure: no bridge, no socket
+#   ./tests/run.sh --socket   # then the CLI against tests/fake_bridge.py
 set -euo pipefail
+with_socket=
+for argument in "$@"; do
+  case "$argument" in
+    --socket) with_socket=1 ;;
+    *) echo "run.sh: unknown argument: $argument" >&2; exit 2 ;;
+  esac
+done
 here=$(cd "$(dirname "$0")/.." && pwd)
 root=${SPORES_ROOT:-$(cd "$here/../.." && pwd)}
 
@@ -66,4 +75,15 @@ for name in $(grep -hoE '^\(defun (test/[^ ]+)' "${files[@]}" | awk '{print $2}'
     status=1
   fi
 done
+
+if [ -n "$with_socket" ]; then
+  SOIL="$soil" SOIL_LANG="$soil_lang" "$here/tests/socket.sh" || {
+    code=$?
+    status=1
+    if [ "$code" = 2 ]; then
+      echo "run.sh: the socket suite needs a host that allows the pairing" >&2
+      echo "run.sh: request; set SOIL to a newer Soil tree (see above)." >&2
+    fi
+  }
+fi
 exit "$status"

@@ -27,7 +27,8 @@ Keeping it identical means a future sync is a copy, not a merge, and the
 comment in its header that points at `examples/hue/README.md` still refers to
 the loam checkout that produced it.
 
-Forty-one tests run against a disposable workspace with no bridge and no socket.
+Forty-one tests run against a disposable workspace with no bridge and no socket;
+`--socket` adds twelve more checks against a local HTTP stub.
 
 ## Boundary
 
@@ -49,8 +50,9 @@ exchange that mints one.
 
 ```sh
 cd spores/hue
-./tests/run.sh                 # probes ../loam, ../soil, ../soil-dsp, ../../singularity/soil
-SOIL=/path/to/soil ./tests/run.sh
+./tests/run.sh                 # pure: probes ../loam, ../soil, ../soil-dsp, ../../singularity/soil
+./tests/run.sh --socket        # pure, then the CLI against tests/fake_bridge.py
+SOIL=/path/to/soil ./tests/run.sh [--socket]
 ```
 
 The runner needs a Soil tree with `crates/soil-lang/stdlib/prelude.soil` and
@@ -118,16 +120,36 @@ Rust-shaped:
 Everything else is parity, including the rejection strings, which the tests
 pin word for word.
 
-### Verified against a fake bridge
+## The socket suite
 
-Beyond the unit tests, the CLI was run end to end against a local HTTP bridge
-with `--allow http://127.0.0.1:8899 --http-credential test-key`:
-`status`, `lights`, `on`, `bri 180`, `color #ff8800`, `toggle`, `scene relax`
-(case-insensitive) and a missing scene all returned the expected text, and the
-bridge saw `PUT /api/test-key/groups/1/action {"scene": "7"}` and
-`PUT /api/test-key/lights/3/state {"on": true}` — the credential substituted by
-the host, never present in the Soil source. That run is manual because the
-runner stays socket-free; a committed fake-bridge test is follow-up 4.
+`./tests/run.sh --socket` starts `tests/fake_bridge.py` on a free port and runs
+`tests/soil/hue_socket.soil` through the real host:
+
+```sh
+soil-lang --allow "$HUE_BRIDGE" --http-credential test-key \
+  <prelude> <soil-http binding> lib/hue.soil lib/cli.soil \
+  tests/soil/hue_socket.soil --call test/socket-status
+```
+
+The stub answers the routes the library uses, keeps mutable state so `toggle`
+has something to invert, and **only accepts the key the host leased**. That is
+the assertion worth having: the Soil source writes `__CREDENTIAL__`, the host
+substitutes `test-key`, and a green run means no secret ever lived in the
+guest. The stub also logs every request, so `socket.sh` checks what crossed the
+wire — `PUT /api/test-key/groups/1/action {"scene": "7"}` — and fails if the
+placeholder appears in the log.
+
+The ten socket tests cover `status`, `lights` order, `on`, `bri`/`color`,
+`toggle`, a case-insensitive `scene`, a missing scene, an in-band bridge error
+reaching the CLI as `(err "bridge: ...")`, compact `--json`, and `pair`.
+
+`pair` is the reason the socket suite names a host requirement. It is the one
+request with no credential handle, and an older `NativeHost` (the `soil-dsp`
+checkout, say) always injects a key and answers `(err denied)`. `socket.sh`
+probes for that before running anything and exits 2 with the reason, and
+`run.sh --socket` turns that into an actionable message instead of a Hue
+failure: set `SOIL` to a tree whose native `soil:http` allows a credential-less
+request (the loam tip does). The pure suite needs no such host.
 
 ## What is deliberately still Rust
 
@@ -147,8 +169,6 @@ runner stays socket-free; a committed fake-bridge test is follow-up 4.
 
 1. Point loam's `examples/hue` at this file — a copy is a poor long-term
    relationship, and the example should not be able to drift.
-2. Add the fake-bridge run as a committed test (`tests/` gets a small HTTP
-   stub and an opt-in flag) so the dispatch path is not only verified by hand.
-3. Make `lights-view` call `hue/` functions instead of reimplementing state.
-4. Decide module packaging for a Soil-sourced Spore, then delete `src/` and
+2. Make `lights-view` call `hue/` functions instead of reimplementing state.
+3. Decide module packaging for a Soil-sourced Spore, then delete `src/` and
    `hue-client` together.

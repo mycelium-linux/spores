@@ -103,5 +103,9 @@ built from Soil; see [`docs/hue-soil-port.md`](../../docs/hue-soil-port.md) for
 the boundary, the two-implementation rule, and the follow-ups.
 
 ```sh
-cd spores/hue && ./tests/run.sh    # 41 tests, no bridge, no socket
+cd spores/hue && ./tests/run.sh             # 41 tests, no bridge, no socket
+cd spores/hue && ./tests/run.sh --socket    # plus the CLI against a fake bridge
 ```
+
+`--socket` needs a Soil tree whose host allows the credential-less `pair`
+request (the loam tip does); it says so if the selected tree does not.
