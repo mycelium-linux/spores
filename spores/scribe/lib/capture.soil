@@ -127,17 +127,26 @@
 (defun capture/nonempty (text)
   (not (= (string-trim text) "")))
 
+(defun capture/empty? (items)
+  (or (nil? items) (and (not (atom items)) (= (length items) 0))))
+
 (defun capture/words (text)
-  (length (filter 'capture/nonempty (string-split (string-trim text) " "))))
+  (let ((words (filter 'capture/nonempty (string-split (string-trim text) " "))))
+    (if (nil? words) 0 (length words))))
 
 (defun capture/take-chars (n text)
   (string-join (take n (string-chars text)) ""))
 
-(defun capture/prefix? (wanted text)
+(defun capture/prefix? (prefix text)
+  (if (atom prefix)
+      (capture/prefix-chars? (string-chars prefix) (string-chars text))
+      (capture/prefix-chars? prefix text)))
+
+(defun capture/prefix-chars? (wanted text)
   (cond
     ((nil? wanted) #t)
     ((nil? text) #f)
-    ((= (first wanted) (first text)) (capture/prefix? (rest wanted) (rest text)))
+    ((= (first wanted) (first text)) (capture/prefix-chars? (rest wanted) (rest text)))
     (else #f)))
 
 (defun capture/drop-prefix (prefix text)
@@ -195,7 +204,9 @@
       (let ((text (field transcript :text)))
         (if (and (not (nil? text)) (not (= text "")))
             text
-            (capture/segment-text (field transcript :segments))))))
+            (if (capture/empty? (field transcript :segments))
+                ""
+                (capture/segment-text (field transcript :segments)))))))
 
 (defun capture/speaker-label (segment)
   (cond
@@ -205,9 +216,11 @@
 
 
 (defun capture/speaker-count (transcript)
-  (let ((labels (filter 'capture/nonempty
-                  (map 'capture/speaker-label (field transcript :segments)))))
-    (if (nil? labels) 0 (length (capture/unique labels)))))
+  (if (capture/empty? (field transcript :segments))
+      0
+      (let ((labels (filter 'capture/nonempty
+                      (map 'capture/speaker-label (field transcript :segments)))))
+        (if (nil? labels) 0 (length (capture/unique labels))))))
 
 (defun capture/member? (value items)
   (cond
@@ -352,10 +365,10 @@
         (overrides (capture/read-json-or (capture/join path "speaker_overrides.json") nil)))
     (list
       (list :card (capture/card path))
-      (list :transcript (if (nil? transcript) (list) transcript))
-      (list :speakers (if (nil? speakers) (list) speakers))
-      (list :actions (if (nil? actions) (list) actions))
-      (list :overrides (if (nil? overrides) (list) overrides))
+      (list :transcript transcript)
+      (list :speakers speakers)
+      (list :actions actions)
+      (list :overrides overrides)
       (list :design-summary (capture/read-text (capture/join path "summary.design.md")))
       (list :clean-transcript (capture/read-json-or (capture/join path "transcript.clean.json") nil)))))
 

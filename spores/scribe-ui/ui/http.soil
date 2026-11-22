@@ -1,0 +1,183 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; One HTTP/1.1 request per `soil:streams` session.
+;
+; This is the small, host-neutral half of the Scribe web surface: read the
+; request bytes, parse the request line, query and form fields, and write one
+; response. It parses HTTP because the host owns the socket, not the protocol.
+;
+; Candidate for `soil-lang/stdlib/http.soil` once a second Spore needs it.
+
+(defun http/write (session text)
+  (ok? (soil:streams/[method]session.write session (string->bytes text))))
+
+(defun http/close (session)
+  (soil:streams/[method]session.close session))
+
+(defun http/contains? (text needle)
+  (string-contains? text needle))
+
+(defun http/starts-with? (text prefix)
+  (let ((wanted (string-chars prefix))
+        (chars (string-chars text)))
+    (http/prefix-chars? wanted chars)))
+
+(defun http/prefix-chars? (wanted text)
+  (cond
+    ((nil? wanted) #t)
+    ((nil? text) #f)
+    ((= (first wanted) (first text)) (http/prefix-chars? (rest wanted) (rest text)))
+    (else #f)))
+
+(defun http/number (characters acc)
+  (if (nil? characters)
+      acc
+      (let ((digit (http/digit (first characters))))
+        (http/number (rest characters)
+          (if (nil? digit) acc (+ (* acc 10) digit))))))
+
+(defun http/digit (character)
+  (cond
+    ((= character "0") 0) ((= character "1") 1) ((= character "2") 2)
+    ((= character "3") 3) ((= character "4") 4) ((= character "5") 5)
+    ((= character "6") 6) ((= character "7") 7) ((= character "8") 8)
+    ((= character "9") 9) (else nil)))
+
+(defun http/byte-digit (byte)
+  (cond
+    ((and (>= byte 48) (<= byte 57)) (- byte 48))
+    ((and (>= byte 97) (<= byte 102)) (- byte 87))
+    ((and (>= byte 65) (<= byte 70)) (- byte 55))
+    (else nil)))
+
+(defun http/decode-bytes (bytes index acc)
+  (if (>= index (length bytes))
+      acc
+      (let ((byte (nth index bytes)))
+        (cond
+          ((and (= byte 37) (< (+ index 2) (length bytes)))
+           (let ((high (http/byte-digit (nth (+ index 1) bytes)))
+                 (low (http/byte-digit (nth (+ index 2) bytes))))
+             (if (or (nil? high) (nil? low))
+                 (http/decode-bytes bytes (+ index 1) (append acc (list byte)))
+                 (http/decode-bytes bytes (+ index 3)
+                   (append acc (list (+ (* 16 high) low)))))))
+          ((= byte 43)
+           (http/decode-bytes bytes (+ index 1) (append acc (list 32))))
+          (else
+           (http/decode-bytes bytes (+ index 1) (append acc (list byte))))))))
+
+(defun http/url-decode (text)
+  (bytes->string
+    (http/decode-bytes (string->bytes text) 0 (list))))
+
+(defun http/request-line (request)
+  (first (string-split request "\r\n")))
+
+(defun http/request-parts (request)
+  (string-split (http/request-line request) " "))
+
+(defun http/method (request)
+  (let ((parts (http/request-parts request)))
+    (if (nil? parts) "" (nth 0 parts))))
+
+(defun http/target (request)
+  (let ((parts (http/request-parts request)))
+    (if (< (length parts) 2) "/" (nth 1 parts))))
+
+(defun http/path (request)
+  (first (string-split (http/target request) "?")))
+
+(defun http/query (request)
+  (let ((parts (string-split (http/target request) "?")))
+    (if (<= (length parts) 1) "" (nth 1 parts))))
+
+(defun http/body (request)
+  (let ((parts (string-split request "\r\n\r\n")))
+    (if (<= (length parts) 1)
+        ""
+        (string-join (rest parts) "\r\n\r\n"))))
+
+(defun http/header (request name)
+  (let ((line (http/find-header (string-split request "\r\n") name)))
+    (if (nil? line) "" line)))
+
+(defun http/find-header (lines name)
+  (cond
+    ((nil? lines) nil)
+    ((http/starts-with? (http/lower-head (first lines)) (str name ":"))
+     (string-trim (http/drop-head (first lines) name)))
+    (else (http/find-header (rest lines) name))))
+
+(defun http/lower-head (line)
+  (string-replace (string-replace line "Content-Length" "content-length")
+    "Transfer-Encoding" "transfer-encoding"))
+
+(defun http/drop-head (line name)
+  (let ((chars (string-chars line)))
+    (string-trim (string-join (drop (+ (length name) 1) chars) ""))))
+
+(defun http/content-length (request)
+  (http/number (string-chars (http/header request "content-length")) 0))
+
+(defun http/read-request (session buffer)
+  (if (not (http/contains? buffer "\r\n\r\n"))
+      (http/read-more session buffer)
+      (if (< (length (string->bytes (http/body buffer))) (http/content-length buffer))
+          (http/read-more session buffer)
+          buffer)))
+
+(defun http/read-more (session buffer)
+  (let ((next (soil:streams/[method]session.read session 65536)))
+    (if (not (ok? next))
+        buffer
+        (let ((data (value next)))
+          (if (nil? data)
+              buffer
+              (http/read-request session (str buffer (bytes->string data))))))))
+
+(defun http/param-in (pairs key)
+  (cond
+    ((nil? pairs) "")
+    ((= (nth 0 (string-split (first pairs) "=")) key)
+     (let ((value (nth 1 (string-split (first pairs) "="))))
+       (if (nil? value) "" (http/url-decode value))))
+    (else (http/param-in (rest pairs) key))))
+
+(defun http/param (source key)
+  (http/param-in (string-split source "&") key))
+
+(defun http/form (request key)
+  (http/param (http/body request) key))
+
+(defun http/query-param (request key)
+  (http/param (http/query request) key))
+
+(defun http/respond (session status content-type body)
+  (http/write session
+    (str "HTTP/1.1 " status "\r\n"
+         "Content-Type: " content-type "\r\n"
+         "Content-Length: " (length (string->bytes body)) "\r\n"
+         "Cache-Control: no-store\r\n"
+         "Connection: close\r\n\r\n"
+         body))
+  (http/close session))
+
+(defun http/html (session body)
+  (http/respond session "200 OK" "text/html; charset=utf-8" body))
+
+(defun http/redirect (session location)
+  (http/write session
+    (str "HTTP/1.1 303 See Other\r\n"
+         "Location: " location "\r\n"
+         "Content-Length: 0\r\n"
+         "Cache-Control: no-store\r\n"
+         "Connection: close\r\n\r\n"))
+  (http/close session))
+
+(defun http/not-found (session)
+  (http/respond session "404 Not Found" "text/plain; charset=utf-8" "not found\n"))
+
+(defun http/not-allowed (session)
+  (http/respond session "405 Method Not Allowed" "text/plain; charset=utf-8" "method not allowed\n"))

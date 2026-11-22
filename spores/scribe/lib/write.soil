@@ -1,0 +1,173 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Scribe bundle mutations.
+;
+; Every write Scribe performs goes through here: the UI's speaker corrections
+; and queue actions, and (next) ingest's bundle. The caller decides *what* the
+; bundle should say; this file only names the paths and keeps JSON shapes.
+;
+; A queue is a JSON array under `scribe/` or `voiceprints/`. Other processes
+; drain it; Scribe never executes the work itself.
+
+(defun write/json (path value)
+  (soil:vfs-mut/write path (string->bytes (json-encode value)) "application/json" nil nil))
+
+(defun write/text (path text)
+  (soil:vfs-mut/write path (string->bytes text) "text/plain" nil nil))
+
+(defun write/markdown (path text)
+  (soil:vfs-mut/write path (string->bytes text) "text/markdown" nil nil))
+
+(defun write/ok? (result)
+  (ok? result))
+
+;;; Records ---------------------------------------------------------------
+
+(defun write/record-get (path)
+  (let ((decoded (try-eval (list 'json-decode (capture/read-text path)))))
+    (if (ok? decoded) (value decoded) nil)))
+
+(defun write/record-array (path)
+  (let ((value (write/record-get path)))
+    (if (nil? value) nil value)))
+
+(defun write/key-is? (pair key)
+  (= (capture/drop-prefix ":" (str (first pair))) key))
+
+(defun write/without (record key)
+  (filter-with 'write/pair-not-key key record))
+
+(defun write/pair-not-key (pair key)
+  (not (write/key-is? pair key)))
+
+;; Soil has no `keyword` builtin yet; the reader already parses `:name`.
+(defun write/keyword (name)
+  (first (read (str ":" name))))
+
+(defun write/set (record key value)
+  (cons (list (write/keyword key) value) (write/without record key)))
+
+(defun write/key (record key)
+  (let ((pair (write/find-with 'write/key-is? key record)))
+    (if (nil? pair) nil (nth 1 pair))))
+
+(defun write/find-with (predicate argument items)
+  (cond
+    ((nil? items) nil)
+    ((apply predicate (list (first items) argument)) (first items))
+    (else (write/find-with predicate argument (rest items)))))
+
+;;; Speakers --------------------------------------------------------------
+
+(defun write/speaker-name (speakers label)
+  (let ((entry (write/key speakers label)))
+    (if (nil? entry)
+        label
+        (let ((name (field entry :name)))
+          (if (nil? name) label name)))))
+
+(defun write/set-speaker (path label name person-id)
+  (let ((speakers (write/record-get (capture/join path "speakers.json"))))
+    (let ((speakers (write/set (if (nil? speakers) nil speakers) label
+                       (list (list :name name)
+                             (list :person-id person-id)
+                             (list :source "manual")))))
+      (write/json (capture/join path "speakers.json") speakers)
+      (write/apply-speaker-names path speakers)
+      speakers)))
+
+(defun write/apply-speaker-names (path speakers)
+  (let ((actions (write/record-get (capture/join path "actions.json"))))
+    (if (nil? actions)
+        nil
+        (write/json (capture/join path "actions.json")
+          (map-with 'write/rename-action speakers actions)))))
+
+(defun write/rename-action (action speakers)
+  (let ((action (write/rename-field action :title speakers))
+        (action (write/rename-field action :quote speakers))
+        (action (write/rename-field action :owner speakers))
+        (action (write/rename-field action :speaker speakers)))
+    action))
+
+(defun write/rename-field (action field-name speakers)
+  (let ((text (field action field-name)))
+    (if (nil? text)
+        action
+        (assoc field-name (write/replace-labels text speakers) action))))
+
+(defun write/replace-labels (text speakers)
+  (write/replace-labels-into text speakers))
+
+(defun write/replace-labels-into (text speakers)
+  (if (nil? speakers)
+      text
+      (let ((pair (first speakers)))
+        (let ((label (capture/drop-prefix ":" (str (first pair))))
+              (entry (nth 1 pair)))
+          (let ((name (field entry :name)))
+            (if (nil? name)
+                (write/replace-labels-into text (rest speakers))
+                (write/replace-labels-into
+                  (string-replace text label name)
+                  (rest speakers))))))))
+
+;;; Queues ----------------------------------------------------------------
+
+(defun write/queue-add (path item key value)
+  (let ((queue (write/record-array path)))
+    (if (write/queue-has? queue key value)
+        #t
+        (begin
+          (write/json path (append queue (list item)))
+          #t))))
+
+(defun write/queue-has? (queue key value)
+  (cond
+    ((nil? queue) #f)
+    ((= (field (first queue) key) value) #t)
+    (else (write/queue-has? (rest queue) key value))))
+
+(defun write/queue-paths (paths)
+  (write/queue-add "scribe/merge.json" (list (list :paths paths)) :paths paths))
+
+;;; Vocabulary ------------------------------------------------------------
+
+(defun write/vocabulary (text)
+  (soil:vfs-mut/mkdir "scribe")
+  (write/text "scribe/vocabulary.txt" text))
+
+;;; Speaker swap and relearn -----------------------------------------------
+
+(defun write/swap-speakers (path a b)
+  (let ((speakers (write/record-get (capture/join path "speakers.json"))))
+    (let ((a-entry (write/key speakers a))
+          (b-entry (write/key speakers b)))
+      (if (or (nil? a-entry) (nil? b-entry))
+          nil
+          (let ((speakers (write/set (write/set speakers a b-entry) b a-entry)))
+            (write/json (capture/join path "speakers.json") speakers)
+            (write/apply-speaker-names path speakers))))))
+
+(defun write/queue-relearn (path)
+  (write/queue-relearn-into path
+    (write/record-get (capture/join path "speakers.json"))))
+
+(defun write/queue-relearn-into (path speakers)
+  (if (nil? speakers)
+      0
+      (let ((pair (first speakers))
+            (entry (nth 1 (first speakers))))
+        (let ((name (field entry :name)))
+          (if (nil? name)
+              (write/queue-relearn-into path (rest speakers))
+              (begin
+                (write/queue-add "voiceprints/learn.json"
+                  (list (list :path path)
+                        (list :speaker (capture/drop-prefix ":" (str (first pair))))
+                        (list :name name)
+                        (list :person-id (capture/or (field entry :person-id) name))
+                        (list :force #t))
+                  :path path)
+                (write/queue-relearn-into path (rest speakers))))))))

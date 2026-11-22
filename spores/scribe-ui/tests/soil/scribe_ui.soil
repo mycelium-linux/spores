@@ -1,0 +1,73 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Scribe UI tests. Run with `tests/run.sh`, which builds a disposable VFS.
+;
+; The convention is the Soil test corpus: every `test/...` function returns
+; non-nil, non-false on success. These tests never touch a host socket.
+
+(defun test/url-decode ()
+  (and (= (http/url-decode "Hello+world") "Hello world")
+       (= (http/url-decode "a%2Fb") "a/b")
+       (= (http/url-decode "%C3%A9") "é")))
+
+(defun test/date-range ()
+  (and (capture/in-range? "2026-11-19" "" "")
+       (capture/in-range? "2026-11-19" "2026-11-01" "2026-11-30")
+       (not (capture/in-range? "2026-10-31" "2026-11-01" ""))
+       (= (capture/date-key "2026-11-19") 20261119)))
+
+(defun test/prefix ()
+  (and (capture/prefix? "# " "# Weekly sync")
+       (not (capture/prefix? "### " "# Weekly sync"))
+       (not (capture/prefix? "### " "We agreed"))
+       (= (capture/drop-prefix "# " "# Weekly sync") "Weekly sync")
+       (= (capture/drop-suffix "." "Ship it.") "Ship it")))
+
+(defun test/summary-title ()
+  (and (= (capture/summary-title "# Weekly sync\n\nBody.") "Weekly sync")
+       (= (capture/summary-title "Overview: Ship the port. Then rest.") "Ship the port")
+       (nil? (capture/summary-title ""))))
+
+(defun test/words-and-labels ()
+  (and (= (capture/words "one two  three") 3)
+       (= (capture/words "") 0)
+       (= (capture/unique (list "a" "b" "a")) (list "a" "b"))
+       (= (capture/speaker-count (json-decode "{\"segments\":[{\"speaker\":\"A\"},{\"speaker\":\"B\"},{\"speaker\":\"A\"}]}"))
+          2)))
+
+(defun test/view-shape ()
+  (let ((html (render-html (views/shell "T" (list (el "p" nil (list (txt "a & b"))))))))
+    (and (string-contains? html "<title>T</title>")
+         (string-contains? html "a &amp; b"))))
+
+;; Writes a bundle through the real capability boundary, then reads it back as
+;; the UI does. The workspace is disposable (see tests/run.sh).
+(defun test/bundle-roundtrip ()
+  (let ((root "captures/test/2026-01-02/t1"))
+    (write/markdown (capture/join root "summary.md") "# Test capture\n\nWe agreed to ship.\n")
+    (write/json (capture/join root "capture.json")
+      (list (list :capture-id "t1") (list :source "test") (list :title "Test capture")
+            (list :started-at-ms 1) (list :ended-at-ms 2)))
+    (write/json (capture/join root "transcript.json")
+      (list (list :text "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one")
+            (list :segments (list (list (list :speaker "SPEAKER_00") (list :text "hello"))))))
+    (write/json (capture/join root "actions.json")
+      (list (list :kind "action" :title "Ship it" :owner "SPEAKER_00")))
+    (let ((cards (capture/cards "2026-01-01" "2026-01-03")))
+      (and (= (length cards) 1)
+           (= (field (first cards) :title) "Test capture")
+           (= (field (first cards) :words) 20)
+           (= (field (first cards) :speakers) 1)))))
+
+(defun test/speaker-write ()
+  (let ((root "captures/test/2026-01-02/t1"))
+    (write/set-speaker root "SPEAKER_00" "Avery" "avery")
+    (let ((speakers (json-decode (capture/read-text (capture/join root "speakers.json")))))
+      (and (= (write/speaker-name speakers "SPEAKER_00") "Avery")
+           (= (field (field (write/key speakers "SPEAKER_00") :name) :name) "Avery")))))
+
+(defun test/queue-dedupe ()
+  (let ((path "captures/test/2026-01-02/t1"))
+    (write/queue-add "scribe/clean.json" (list (list :path path)) :path path)
+    (write/queue-add "scribe/clean.json" (list (list :path path)) :path path)
+    (let ((queue (json-decode (capture/read-text "scribe/clean.json"))))
+      (= (length queue) 1))))
