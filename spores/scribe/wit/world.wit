@@ -1,22 +1,36 @@
-// Scribe: durable capture ingestion from Unibus into VFS + records.
+// Scribe: durable capture ingestion from Unibus into VFS + records, and the
+// browser view over the resulting bundles.
 //
-// The Spore owns the bundle layout, the capture schema, and the action manifest.
-// The host owns VFS bytes, records durability, indexing, and Unibus transport.
+// The Spore owns the bundle layout, the capture schema, the action manifest and
+// the HTML surface. The host owns VFS bytes, records durability, indexing,
+// Unibus transport, and the socket.
 package fungos:scribe@0.1.0;
 
+/// The ingestion half. `watch` or `ingest`; see README.md.
 world scribe {
   import soil:vfs/vfs@1.0.0;
-  import soil:streams/duplex@0.1.0;
   import soil:vfs-mut/vfs-mut@0.1.0;
+  import soil:streams/duplex@0.1.0;
   import soil:index/index@1.1.0;
   import soil:records/records@0.1.0;
   import soil:inference/inference@0.3.0;
   import soil:unibus/bus@0.1.0;
   import soil:time/time@1.0.0;
 
-  /// `watch` or `ingest`; see README.md.
   export run: func(args: list<string>) -> result<_, string>;
 
   /// Counts from the last run.
   export snapshot: func() -> result<list<u8>, string>;
+}
+
+/// The web half. The host accepts the transport and queues each request as a
+/// `soil:streams` session; `main` answers them until the stream is taken away.
+/// It reads with `soil:vfs` and mutates only through `soil:vfs-mut`.
+world scribe-web {
+  import soil:vfs/vfs@1.0.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
+  import soil:streams/duplex@0.1.0;
+  import soil:index/index@1.1.0;
+
+  export main: func() -> result<_, string>;
 }

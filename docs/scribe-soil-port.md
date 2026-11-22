@@ -18,13 +18,16 @@ translation.
 ## What landed
 
 ```text
-spores/scribe/lib/capture.soil    read-only domain layer over soil:vfs
-spores/scribe/lib/write.soil      every soil:vfs-mut write
-spores/scribe-ui/ui/http.soil     request line, path, query, headers, body
-spores/scribe-ui/ui/styles.soil   one palette, dark via media query
-spores/scribe-ui/ui/views.soil    shell, list, detail, settings
-spores/scribe-ui/ui/main.soil     accept loop and routes
-spores/scribe-ui/tests/           nine Soil tests plus a disposable-VFS runner
+spores/scribe/spore.soil          Spore v0 manifest, source-distributed
+spores/scribe/spore.lock          package identity and file digests
+spores/scribe/wit/world.wit       the cli world and the web world
+spores/scribe/source/lib/capture.soil   read-only domain layer over soil:vfs
+spores/scribe/source/lib/write.soil     every soil:vfs-mut write
+spores/scribe/source/ui/http.soil       request line, path, query, headers, body
+spores/scribe/source/ui/styles.soil     one palette, dark via media query
+spores/scribe/source/ui/views.soil      shell, list, detail, settings
+spores/scribe/source/ui/main.soil       accept loop and routes
+spores/scribe/tests/                    nine tests plus a disposable-VFS runner
 ```
 
 `capture.soil` owns paging, chunked reads, date keys, titles, transcripts,
@@ -38,6 +41,32 @@ No capture logic is duplicated between the UI and ingest.
 ingest and presentation share the reader without either one taking on the
 other's grants. A spore that only presents needs `soil:vfs`; only a spore that
 edits needs `soil:vfs-mut`.
+
+### One spore, two surfaces
+
+The port merges the former `scribe` and `scribe-ui` packages. Spore v0 gives a
+package several surfaces, so ingest is `cli` and the browser view is `web` over
+the same `source/` tree. That is what makes the shared library real: there is no
+second package to vendor `capture.soil` into, and no way for the two halves to
+drift onto different readers.
+
+```lisp
+(spore
+  (schema 1)
+  (kind "spore")
+  (id "dev.fungos.scribe")
+  (world "fungos:scribe/scribe@0.1.0")
+  (wit "wit/")
+  (distribution "source")
+  (source "source/")
+  (surfaces
+    (surface "cli" (world "fungos:scribe/scribe@0.1.0"))
+    (surface "web" (world "fungos:scribe/scribe-web@0.1.0"))))
+```
+
+`spore.lock` covers every file in the tree, including the legacy Rust module
+that is still here so the app stays deployable. The lock is regenerated when
+`src/`, `spore.toml`, and `module.wasm` are deleted with the ingest port.
 
 ## UI shape
 
@@ -65,7 +94,7 @@ rather than becoming a shared API with one user.
 ## Running the tests
 
 ```sh
-cd spores/scribe-ui
+cd spores/scribe
 SOIL=/path/to/soil ./tests/run.sh
 ```
 
@@ -79,8 +108,9 @@ Rendering a page without a socket is a single call:
 ```sh
 soil-lang --prelude <soil>/crates/soil-lang/stdlib/prelude.soil \
   --workspace-root /tmp/scribe-vfs --records-root /tmp/scribe-records --book scribe \
-  <ui.soil> <bindings> capture.soil write.soil \
-  http.soil styles.soil views.soil main.soil \
+  <bindings>/soil-vfs.soil <bindings>/soil-vfs-mut.soil \
+  source/lib/capture.soil source/lib/write.soil \
+  source/ui/http.soil source/ui/styles.soil source/ui/views.soil source/ui/main.soil \
   --call scribe-ui/render-detail probe.soil
 ```
 
@@ -90,7 +120,10 @@ checked, and how the speaker, queue, and vocabulary writes were verified.
 ## Host gap
 
 The UI is proven by rendering and by its mutation tests. It is not yet served
-over a real socket in this tree. Two host options exist and neither is finished:
+over a real socket in this tree. `soil spore run <dir> --listen ADDR` is the
+intended entry point for a source Spore, but the installed `soil` binary
+predates the `spore.soil` manifest and still looks for `spore.toml`. Two host
+options exist and neither is finished:
 
 - `soil-serve` in the Soil tree owns a TCP listener and one `soil:streams`
   session per connection, but it hardcodes a harness path and a
@@ -108,13 +141,13 @@ to change for it; only the load list and manifest do.
 
 1. Generate `soil-vfs-mut` and `soil-streams` bindings in the current Soil tree,
    then serve `main.soil` over a socket and exercise a POST round-trip.
-2. Move `capture.soil` and `write.soil` under the spore's `source/` and write a
-   `spore.soil` manifest in the new layout.
-3. Port ingest: watcher, receiver, snapshot, and bundle writer onto
+2. Port ingest: watcher, receiver, snapshot, and bundle writer onto
    `capture.soil` + `write.soil`. Keep `omi-decoder` and inference as host calls.
-4. Point STT at the DGX Spark through `fpl/transcribe` (`fpl/stt` alias) and
+3. Point STT at the DGX Spark through `fpl/transcribe` (`fpl/stt` alias) and
    confirm `scribe/summarize` and `scribe/deep` route there.
-5. Delete the Rust UI and its `ui.html`, then measures the delta.
+4. Delete `src/`, `spore.toml`, and `module.wasm`, then re-lock:
+   `../soil/scripts/spore-pack.sh lock spores/scribe`.
+5. Measure the delta and move the remaining spores onto the v0 layout.
 
 ## omi-rs
 

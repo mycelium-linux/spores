@@ -1,0 +1,42 @@
+; Scribe: capture ingestion and the browser view, in one Spore.
+;
+; Spore v0. See docs/spore-v0.md in the Soil tree.
+(spore
+  (schema 1)
+  (kind "spore")
+
+  (id "dev.fungos.scribe")
+  (version "0.1.0")
+  (license "MIT")
+  (summary "Ingest voice capture bundles into VFS, records, and the index; serve the captures")
+  (homepage "https://github.com/mycelium-linux/spores")
+
+  (world "fungos:scribe/scribe@0.1.0")
+  (wit "wit/")
+
+  ; Source-distributed. `module.wasm` in this tree is the previous Rust
+  ; build; it is deleted when the ingest port lands and is not the
+  ; implementation this manifest describes.
+  (distribution "source")
+  (source "source/")
+
+  (requires
+    ("soil:vfs/vfs@1.0.0" "list capture bundles and read transcript, summary and actions")
+    ("soil:vfs-mut/vfs-mut@0.1.0" "write capture bundles, speaker names, and edits")
+    ("soil:streams/duplex@0.1.0" "answer the Scribe UI and accept host-owned capture streams")
+    ("soil:index/index@1.1.0" "refresh the derived index after a bundle lands")
+    ("soil:records/records@0.1.0" "write the capture@1 and trigger@1 records")
+    ("soil:unibus/bus@0.1.0" "poll capture events and publish scribe.capture.stored.v1")
+    ("soil:inference/inference@0.3.0" "summarize the transcript and extract action items")
+    ("soil:time/time@1.0.0" "monotonic watch deadlines")
+    ("wasi:cli" "the command-line surface")
+    ("wasi:clocks" "timestamps")
+    ("wasi:io" "stdio and streams"))
+
+  (surfaces
+    (surface "cli" (world "fungos:scribe/scribe@0.1.0"))
+    (surface "web" (world "fungos:scribe/scribe-web@0.1.0")))
+
+  (docs
+    (usage "scribe watch | ingest --event JSON | receive | snapshot; web: serve the captures")
+    (man "README.md")))

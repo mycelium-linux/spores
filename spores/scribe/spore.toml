@@ -1,3 +1,4 @@
+# Deprecated: superseded by spore.soil (Spore v0). Removed with src/ and module.wasm.
 # The Scribe Spore: Omi capture events in, VFS bundle + records out.
 schema = 1
 
