@@ -17,6 +17,8 @@ spores/hue/tests/soil/hue.soil           colour, planning and restore tests (loa
 spores/hue/tests/soil/hue_request.soil   request shaping and bridge error decoding
 spores/hue/tests/soil/hue_cli.soil       parser, rejection messages and summary shaping
 spores/hue/tests/run.sh                  runner: prelude + soil:http binding + library + tests
+spores/hue/lib/hue.provenance            upstream commit and SHA-256 of the copy
+spores/hue/tests/check-hue-lib.sh        fails when loam's copy has moved past the pin
 ```
 
 `lib/hue.soil` is byte-identical to loam's example at `86a1296`
@@ -26,6 +28,22 @@ moods, spatial plans over a room layout, and timed demos that restore the room.
 Keeping it identical means a future sync is a copy, not a merge, and the
 comment in its header that points at `examples/hue/README.md` still refers to
 the loam checkout that produced it.
+
+A copy, identical or not, is a relationship that decays unless something checks
+it, so the pin is mechanical rather than a sentence in a document:
+
+```sh
+cd spores/hue && ./tests/check-hue-lib.sh
+SOIL=/path/to/loam ./tests/check-hue-lib.sh
+```
+
+`lib/hue.provenance` records the upstream commit and the SHA-256 of the file
+that was taken. The check passes when loam's file still matches that pin (the
+copy is current) or already matches the copy (the pin is behind, not the code),
+and fails with a diff when loam has moved past it — the moment a change has to
+be ported into `lib/hue.soil` and the pin bumped in the same commit. It skips
+with a message when no loam checkout is present, so it stays out of the way of
+a plain `cargo test` tree but still fails CI where one is.
 
 Forty-one tests run against a disposable workspace with no bridge and no socket;
 `--socket` adds twelve more checks against a local HTTP stub.
@@ -52,6 +70,7 @@ exchange that mints one.
 cd spores/hue
 ./tests/run.sh                 # pure: probes ../loam, ../soil, ../soil-dsp, ../../singularity/soil
 ./tests/run.sh --socket        # pure, then the CLI against tests/fake_bridge.py
+./tests/check-hue-lib.sh       # the copy still matches its provenance pin
 SOIL=/path/to/soil ./tests/run.sh [--socket]
 ```
 
@@ -167,8 +186,10 @@ request (the loam tip does). The pure suite needs no such host.
 
 ## Follow-ups, named
 
-1. Point loam's `examples/hue` at this file — a copy is a poor long-term
-   relationship, and the example should not be able to drift.
+1. Delete loam's `examples/hue/hue.soil` and have it load this file. The
+   provenance pin stops the two copies drifting quietly, but two copies is
+   still one too many; removing it needs the example to be able to name a file
+   outside its own tree, which is a loam change.
 2. Make `lights-view` call `hue/` functions instead of reimplementing state.
 3. Decide module packaging for a Soil-sourced Spore, then delete `src/` and
    `hue-client` together.

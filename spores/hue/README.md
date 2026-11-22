@@ -104,6 +104,7 @@ the boundary, the two-implementation rule, and the follow-ups.
 
 ```sh
 cd spores/hue && ./tests/run.sh             # 41 tests, no bridge, no socket
+cd spores/hue && ./tests/check-hue-lib.sh   # the copy still matches loam at the pin
 cd spores/hue && ./tests/run.sh --socket    # plus the CLI against a fake bridge
 ```
 
