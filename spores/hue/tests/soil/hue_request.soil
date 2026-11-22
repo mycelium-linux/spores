@@ -1,0 +1,80 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Hue request shaping and bridge error decoding, without a socket.
+;
+; `hue/request` is a pure function, so the URL, method, headers, body and
+; credential a write would send can be asserted directly. `hue/check` decodes
+; the bridge's in-band `[{"error": ...}]` replies, so a failure is testable
+; with a synthetic response instead of a broken bridge.
+;
+; Run with `tests/run.sh`, which loads the prelude, the soil:http binding, the
+; library, and both test files.
+
+(defun test/hue-request-shapes ()
+  (let ((bridge (hue/bridge "http://bridge.local/" "default")))
+    (let ((get (hue/request bridge "get" "/lights" nil))
+          (put (hue/request bridge "put" "/lights/3/state" (list (list :on #t)))))
+      (and
+        (= (field get :url) "http://bridge.local/api/__CREDENTIAL__/lights")
+        (= (field get :method) "get")
+        (nil? (field get :body))
+        (= (field get :credential) "default")
+        (= (field get :timeout-ms) 10000)
+        (= (field put :url)
+           "http://bridge.local/api/__CREDENTIAL__/lights/3/state")
+        (= (field put :method) "put")
+        (= (field put :body) "{\"on\":true}")))))
+
+(defun test/hue-headers-follow-the-body ()
+  (let ((bridge (hue/bridge "http://bridge.local" "default")))
+    (let ((get (hue/request bridge "get" "/lights" nil))
+          (put (hue/request bridge "put" "/lights/3/state" (list (list :on #t)))))
+      (and
+        (= (length (field get :headers)) 1)
+        (= (length (field put :headers)) 2)
+        (= (field (nth 1 (field put :headers)) :name) "content-type")))))
+
+(defun test/hue-target-paths ()
+  (and
+    (= (hue/action-path (hue/group "0")) "/groups/0/action")
+    (= (hue/action-path (hue/light "3")) "/lights/3/state")
+    (= (hue/state-path (hue/group "1")) "/groups/1")
+    (= (hue/state-path (hue/light "8")) "/lights/8")))
+
+(defun test/hue-pair-url-has-no-credential ()
+  (and
+    (= (hue/pair-url (hue/bridge "http://bridge.local/" nil))
+       "http://bridge.local/api")
+    (nil? (field (hue/bridge "http://bridge.local/" nil) :credential))))
+
+(defun test/hue-check-accepts-a-good-reply ()
+  (let ((result
+          (hue/check
+            (list (list :status 200) (list :body "{\"lights\":{\"3\":{}}}")))))
+    (and
+      (ok? result)
+      (not (nil? (field (value result) :lights))))))
+
+(defun test/hue-check-decodes-an-in-band-error ()
+  (let ((result
+          (hue/check
+            (list
+              (list :status 200)
+              (list :body
+                "[{\"error\":{\"type\":7,\"address\":\"/lights/3/state/bri\",\"description\":\"invalid value, 300, for parameter, bri\"}}]")))))
+    (and
+      (not (ok? result))
+      (= (value result) "bridge: invalid value, 300, for parameter, bri"))))
+
+(defun test/hue-check-rejects-an-http-error ()
+  (let ((result (hue/check (list (list :status 404) (list :body "not found")))))
+    (and
+      (not (ok? result))
+      (= (value result) "bridge: HTTP 404"))))
+
+(defun test/hue-check-treats-plain-json-as-success ()
+  (let ((result (hue/check (list (list :status 200) (list :body "{\"on\":true}")))))
+    (and
+      (ok? result)
+      (= (field (value result) :on) #t))))

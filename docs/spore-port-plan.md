@@ -72,6 +72,11 @@ The Soil port lands in `fungOS-linux/soil`:
 - REPL instructions in `examples/hue/README.md`;
 - a fake bridge test for the semantics and a local-socket test for the host.
 
+The library is now folded into the Spore at `spores/hue/lib/hue.soil`, with
+its tests in `spores/hue/tests/` and the boundary recorded in
+`docs/hue-soil-port.md`. Loam keeps the REPL example; the Spore copy is what
+other Spores call, and the two should stop being independent copies.
+
 That yields the daily loop:
 
 ```lisp

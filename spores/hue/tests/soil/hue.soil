@@ -1,0 +1,109 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Hue colour theory and spatial planning, without a bridge.
+
+(defun test/hue-hsl-primaries ()
+  (and
+    (= (nth 0 (hue/hsl->rgb 0 1.0 0.5)) 255)
+    (= (nth 1 (hue/hsl->rgb 120 1.0 0.5)) 255)
+    (= (nth 2 (hue/hsl->rgb 240 1.0 0.5)) 255)
+    (= (nth 1 (hue/hsl->rgb 480 1.0 0.5)) 255)))
+
+(defun test/hue-harmony-strategies ()
+  (and
+    (= (length (hue/harmony 0 0.6 0.5 "analogous")) 3)
+    (= (length (hue/harmony 0 0.6 0.5 "complementary")) 2)
+    (= (length (hue/harmony 0 0.6 0.5 "split")) 3)
+    (= (length (hue/harmony 0 0.6 0.5 "triadic")) 3)
+    (= (length (hue/harmony 0 0.6 0.5 "tetradic")) 4)))
+
+(defun test/hue-palette-interpolates ()
+  (let ((mid (hue/palette-at (list (list 0 0 0) (list 100 100 100)) 0.5)))
+    (and
+      (= (nth 0 mid) 50)
+      (= (nth 1 mid) 50)
+      (= (nth 2 mid) 50))))
+
+(defun test/hue-gamut-clamp ()
+  (let ((gamut
+          (list
+            (list 0.6915 0.3083)
+            (list 0.17 0.7)
+            (list 0.1532 0.0475))))
+    (let ((inside (list 0.4 0.4)))
+      (and
+        (= (hue/clamp-gamut inside gamut) inside)
+        (hue/inside-triangle?
+          (hue/clamp-gamut (list 0.05 0.05) gamut)
+          gamut)))))
+
+(defun test/hue-spatial-plan ()
+  (let ((lights
+          (list
+            (list (list :id "3") (list :name "Window Lamp"))
+            (list (list :id "8") (list :name "Window")))))
+    (let ((plan
+            (hue/plan-lights
+              lights
+              (list (list 255 0 0) (list 0 0 255))
+              180 80 20 nil 0 2)))
+      (and
+        (= (length plan) 2)
+        (= (field (nth 0 plan) :t) 0)
+        (= (field (nth 1 plan) :t) 1)
+        (not (= (field (nth 0 plan) :xy) (field (nth 1 plan) :xy)))
+        (not (= (field (nth 0 plan) :bri) (field (nth 1 plan) :bri)))))))
+
+(defun test/hue-layout-overrides-order ()
+  (let ((lights
+          (list
+            (list (list :id "3") (list :name "Window Lamp"))
+            (list (list :id "8") (list :name "Window")))))
+    (let ((layout (list (list "3" 1.0 0.0) (list "8" 0.0 0.0))))
+      (let ((plan
+              (hue/plan-lights
+                lights
+                (list (list 255 0 0) (list 0 0 255))
+                180 80 20 layout 0 2)))
+        (and
+          (= (field (nth 0 plan) :t) 1)
+          (= (field (nth 1 plan) :t) 0))))))
+
+(defun test/hue-mood-presets-exist ()
+  (and
+    (= (length (field (hue/mood "aurora") :palette)) 3)
+    (= (length (field (hue/mood "movie") :palette)) 3)
+    (= (length (field (hue/mood "sunset") :palette)) 3)))
+
+(defun test/hue-timed-helpers ()
+  (and
+    (= (hue/triangle 0.0) 0)
+    (= (hue/triangle 0.5) 1)
+    (= (hue/triangle 1.0) 0)
+    (= (length (hue/cyclic-palette (list (list 1 2 3)))) 2)
+    (= (hue/frames-for 1000 250) 4)))
+
+(defun test/hue-restore-body-keeps-the-colour-mode ()
+  (let ((state
+          (list
+            (list :on #t)
+            (list :bri 207)
+            (list :colormode "xy")
+            (list :xy (list 0.5 0.4)))))
+    (let ((body (hue/restore-body state)))
+      (and
+        (= (field body :on) #t)
+        (= (field body :bri) 207)
+        (= (field body :xy) (list 0.5 0.4))))))
+
+(defun test/hue-find-scene-by-name ()
+  (let ((scenes
+          (list
+            (list "7" (list (list :name "Relax")))
+            (list "8" (list (list :name "Focus"))))))
+    (and
+      (= (hue/find-scene-id scenes "Relax") "7")
+      (nil? (hue/find-scene-id scenes "Missing")))))
+
+(defun test/hue-bri-encodes-as-an-integer ()
+  (let ((body (json-encode (list (list :bri (hue/clamp-bri 160.4))))))
+    (= body "{\"bri\":160}")))

@@ -64,3 +64,33 @@ Native tests use a fake transport and need no bridge:
 ```sh
 cargo test -p spore-hue
 ```
+
+## Soil library
+
+`lib/hue.soil` is the Spore's Hue domain layer in Soil: bridge URL
+construction, targets, scenes, brightness that encodes as an integer,
+sRGB→CIE-xy conversion, per-lamp gamut clamping, named moods, spatial plans and
+timed demos. It owns Hue semantics only — the host still owns the origin
+allowlist and the bridge key, which the guest writes as `__CREDENTIAL__` and
+names `default`.
+
+It is the layer other Soil programs call, and the seam `lights-view` and the
+CLI port will use:
+
+```lisp
+(defun home () (hue/bridge "http://192.168.1.10" "default"))
+
+(hue/on (home) (hue/group "0"))
+(hue/bri (home) (hue/light "3") 180)
+(hue/scene (home) (hue/group "1") "Relax")
+(hue/atmosphere (home) "81" "aurora" nil)
+```
+
+Load it after the prelude and `crates/soil-lang/bindings/soil-http.soil`. The
+Rust CLI in `src/` is unchanged for now; see
+[`docs/hue-soil-port.md`](../../docs/hue-soil-port.md) for the boundary, the
+follow-ups, and why `hue-client` is not retired yet.
+
+```sh
+cd spores/hue && ./tests/run.sh    # 19 tests, no bridge, no socket
+```
