@@ -1,0 +1,85 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; One Hue request, host-parsed: bridge in, response record out.
+
+(defun hue/http-response (status content-type body)
+  (list
+    (list :status status)
+    (list :content-type content-type)
+    (list :body body)))
+
+(defun hue/http-bridge (base)
+  (hue/bridge base "default"))
+
+(defun hue/http-form-lookup (key pairs)
+  (if (nil? pairs)
+      ""
+      (if (= (first (first pairs)) key)
+          (nth 1 (first pairs))
+          (hue/http-form-lookup key (rest pairs)))))
+
+(defun hue/http-form (body key)
+  (hue/http-form-lookup key (url/parse-query (str body))))
+
+(defun hue/http-target (kind id)
+  (if (= kind "light") (hue/light id) (hue/group id)))
+
+(defun hue/http-power (bridge kind id action)
+  (let ((home (hue/http-bridge bridge))
+        (target (hue/http-target kind id)))
+    (cond
+      ((= action "on") (hue/on home target))
+      ((= action "off") (hue/off home target))
+      ((= action "toggle") (hue/toggle home target))
+      (else (list 'err "unknown power action")))))
+
+(defun hue/http-brightness (bridge kind id value)
+  (if (= value "")
+      nil
+      (hue/bri (hue/http-bridge bridge) (hue/http-target kind id) (json-decode value))))
+
+(defun hue/http-colour (bridge kind id value)
+  (if (= value "")
+      nil
+      (hue/color-hex (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
+(defun hue/http-scene (bridge kind id value)
+  (if (= value "")
+      nil
+      (hue/scene (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
+(defun hue/http (bridge method target body)
+  (let ((path (first (url/split-char (str target) "?"))))
+    (cond
+      ((and (= method "GET") (= path "/"))
+        (let ((home (hue/http-bridge bridge)))
+          (hue/http-response 200 "text/html; charset=utf-8"
+            (hue/dashboard (hue/groups home) (hue/lights home) (hue/scenes home)))))
+      ((and (= method "GET") (= path "/healthz"))
+        (hue/http-response 200 "text/plain; charset=utf-8" "ok\n"))
+      ((and (= method "POST") (= path "/power"))
+        (let ((result (hue/http-power bridge
+                        (hue/http-form body "kind")
+                        (hue/http-form body "id")
+                        (hue/http-form body "action"))))
+          (if (ok? result)
+              (hue/http-response 303 "text/plain; charset=utf-8" "")
+              (hue/http-response 503 "text/plain; charset=utf-8" (str (value result))))))
+      ((and (= method "POST") (= path "/brightness"))
+        (hue/http-brightness bridge
+          (hue/http-form body "kind")
+          (hue/http-form body "id")
+          (hue/http-form body "value"))
+        (hue/http-response 303 "text/plain; charset=utf-8" ""))
+      ((and (= method "POST") (= path "/colour"))
+        (hue/http-colour bridge
+          (hue/http-form body "kind")
+          (hue/http-form body "id")
+          (hue/http-form body "value"))
+        (hue/http-response 303 "text/plain; charset=utf-8" ""))
+      ((and (= method "POST") (= path "/scene"))
+        (hue/http-scene bridge
+          (hue/http-form body "kind")
+          (hue/http-form body "id")
+          (hue/http-form body "value"))
+        (hue/http-response 303 "text/plain; charset=utf-8" ""))
+      (else (hue/http-response 404 "text/plain; charset=utf-8" "not found\n")))))
