@@ -462,6 +462,7 @@ interface cli {
 world theseus-agents {
   import soil:records/records@0.1.0;
   import soil:vfs/vfs@1.0.0;
+  import soil:vfs-mut/vfs-mut@0.1.0;
 
   export observe;
   export control;

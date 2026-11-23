@@ -24,6 +24,7 @@ surfaces = ["native"]
 "fungos:theseus-agents" = "the adapter exports these interfaces"
 "soil:records" = "read Theseus turns and usage records"
 "soil:vfs" = "read canonical thread events from the Theseus workspace"
+"soil:vfs-mut" = "write control messages and interrupts into the thread"
 
 [denied]
 "wasi:filesystem" = ["records are the interface, not the filesystem"]

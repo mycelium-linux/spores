@@ -14,6 +14,7 @@ wit_bindgen::generate!({
 use serde_json::Value;
 use soil::records::records;
 use soil::vfs::vfs;
+use soil::vfs_mut::vfs_mut;
 
 use exports::fungos::theseus_agents::{control, dispatch, metrics, observe};
 mod types {
@@ -642,6 +643,41 @@ impl observe::Guest for Component {
     }
 }
 
+fn control_write(id: &str, kind: &str, text: &str) -> Result<(), control::Error> {
+    let conversation = id.strip_prefix("theseus:").ok_or(control::Error::NotFound)?;
+    let dir = format!("agents/{conversation}/control");
+    let _ = vfs_mut::mkdir(&dir);
+    let mut count = 0u64;
+    let mut offset = 0u64;
+    loop {
+        match vfs::ls(&dir, offset, 256) {
+            Ok(page) => {
+                count += page.entries.len() as u64;
+                match page.next {
+                    Some(next) if next != offset => offset = next,
+                    _ => break,
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let path = format!("{dir}/{:06}-{kind}.json", count + 1);
+    let body = serde_json::json!({
+        "schema": "fungos.thread.control.v1",
+        "kind": kind,
+        "text": text,
+    });
+    vfs_mut::write(
+        &path,
+        serde_json::to_vec(&body).map_err(|_| control::Error::Io)?.as_slice(),
+        "application/json",
+        None,
+        None,
+    )
+    .map_err(|_| control::Error::Io)?;
+    Ok(())
+}
+
 impl control::Guest for Component {
     fn respond(
         _id: String,
@@ -651,12 +687,12 @@ impl control::Guest for Component {
         Err(control::Error::Unsupported)
     }
 
-    fn send(_id: String, _text: String) -> Result<(), control::Error> {
-        Err(control::Error::Unsupported)
+    fn send(id: String, text: String) -> Result<(), control::Error> {
+        control_write(&id, "message", &text)
     }
 
-    fn interrupt(_id: String) -> Result<(), control::Error> {
-        Err(control::Error::Unsupported)
+    fn interrupt(id: String) -> Result<(), control::Error> {
+        control_write(&id, "interrupt", "")
     }
 }
 
@@ -741,6 +777,17 @@ impl exports::fungos::theseus_agents::cli::Guest for Component {
                     "sinceMs": report.since_ms,
                     "untilMs": report.until_ms,
                 }))
+            }
+            "send" => {
+                let id = args.get(1).ok_or("send needs an agent id")?;
+                let text = args.get(2).ok_or("send needs text")?;
+                control_write(id, "message", text).map_err(|error| format!("{error:?}"))?;
+                Ok(serde_json::json!({"status": "queued"}))
+            }
+            "interrupt" => {
+                let id = args.get(1).ok_or("interrupt needs an agent id")?;
+                control_write(id, "interrupt", "").map_err(|error| format!("{error:?}"))?;
+                Ok(serde_json::json!({"status": "queued"}))
             }
             "transcript" => {
                 let id = args.get(1).ok_or("transcript needs an agent id")?;
