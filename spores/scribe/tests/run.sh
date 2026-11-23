@@ -34,18 +34,22 @@ files=(
   "$bindings/soil-vfs-mut.soil"
   "$here/source/lib/capture.soil"
   "$here/source/lib/write.soil"
+  "$here/source/lib/ingest.soil"
   "$here/source/ui/http.soil"
   "$here/source/ui/styles.soil"
   "$here/source/ui/views.soil"
   "$here/source/ui/main.soil"
   "$here/tests/soil/scribe_ui.soil"
+  "$here/tests/soil/ingest.soil"
 )
 run() {
   "$soil_lang" --prelude "$prelude" \
     --workspace-root "$work/vfs" --records-root "$work/records" --book scribe \
     "${files[@]}" --call "$1" >/dev/null
 }
-for name in $(grep -oE '^\(defun (test/[^ ]+)' "$here/tests/soil/scribe_ui.soil" | awk '{print $2}'); do
-  printf 'ok %s\n' "$name"
-  run "$name"
+for file in "$here/tests/soil/scribe_ui.soil" "$here/tests/soil/ingest.soil"; do
+  for name in $(grep -oE '^\(defun (test/[^ ]+)' "$file" | awk '{print $2}'); do
+    printf 'ok %s\n' "$name"
+    run "$name"
+  done
 done
