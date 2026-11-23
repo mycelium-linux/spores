@@ -372,7 +372,13 @@ local function draw_columns(box)
 end
 
 local function draw_rows(snapshot, box, shown, tone)
-  local listing = snapshot.listing or {}
+  local listing = {}
+  for _, entry in ipairs(snapshot.listing or {}) do
+    local name = tostring(entry.name or "")
+    if name ~= "" and name:sub(1, 1) ~= "." then
+      listing[#listing + 1] = entry
+    end
+  end
   local col = columns(box)
   local row_h = row_pitch()
   local y = box.rows.y
