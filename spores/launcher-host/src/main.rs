@@ -205,7 +205,7 @@ impl Launcher for SystemLauncher {
                     .unwrap_or(&entry.name)
                     .trim_end_matches("-dev");
                 let url = format!("http://127.0.0.1:8088/?surface={surface_id}");
-                open_url(&url)?;
+                open_window(&url, &entry.name, &entry.id)?;
                 Ok(url)
             }
         }
@@ -220,28 +220,69 @@ fn data_dir(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-#[cfg(target_os = "macos")]
-fn open_url(url: &str) -> Result<(), String> {
-    let status = Command::new("open")
-        .arg(url)
-        .status()
-        .map_err(|error| format!("open {url}: {error}"))?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| format!("open {url} exited {status}"))
+/// Ask the local Loam supervisor for a native window. The launcher does not
+/// own the window or the child process; closing the window is a surface event,
+/// not a launcher failure.
+fn open_window(url: &str, title: &str, id: &str) -> Result<(), String> {
+    let loamd = std::env::var("LOAMD").unwrap_or_else(|_| "loamd".into());
+    open_window_with(&loamd, url, title, id)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn open_url(url: &str) -> Result<(), String> {
-    let status = Command::new("xdg-open")
+fn open_window_with(loamd: &str, url: &str, title: &str, id: &str) -> Result<(), String> {
+    let status = Command::new(loamd)
+        .arg("window")
+        .arg("start")
         .arg(url)
+        .arg("--id")
+        .arg(format!("{id}-web"))
+        .arg("--title")
+        .arg(title)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
         .status()
-        .map_err(|error| format!("xdg-open {url}: {error}"))?;
+        .map_err(|error| format!("start {loamd} window: {error}"))?;
     status
         .success()
         .then_some(())
-        .ok_or_else(|| format!("xdg-open {url} exited {status}"))
+        .ok_or_else(|| format!("{loamd} window start exited {status}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_launch_asks_loamd_for_a_window() {
+        let dir = std::env::temp_dir().join(format!("launcher-window-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("loamd");
+        let args = dir.join("args");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", args.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        open_window_with(
+            script.to_str().unwrap(),
+            "http://127.0.0.1:8088/?surface=app",
+            "app",
+            "dev.fungos.app",
+        )
+        .unwrap();
+        let args = std::fs::read_to_string(&args).unwrap();
+        assert_eq!(
+            args,
+            "window\nstart\nhttp://127.0.0.1:8088/?surface=app\n--id\ndev.fungos.app-web\n--title\napp\n"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn main() -> Result<()> {
