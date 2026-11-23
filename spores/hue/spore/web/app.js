@@ -18,12 +18,13 @@
   };
 
   const post = async (form, overrides = {}) => {
-    const data = new FormData(form);
+    const data = new URLSearchParams();
+    for (const [key, value] of new FormData(form)) data.append(key, value);
     for (const [key, value] of Object.entries(overrides)) data.set(key, value);
-    const response = await fetch(form.action, {
+    const response = await fetch(form.getAttribute('action'), {
       method: 'POST',
       body: data,
-      headers: { accept: 'text/html' },
+      headers: { accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
     });
     if (!response.ok) {
       const detail = (await response.text()).trim();
