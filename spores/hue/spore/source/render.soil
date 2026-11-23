@@ -1,0 +1,128 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; The Hue controller page: groups, lights and scenes, rendered as HTML.
+
+(defun hue/esc (value)
+  (html-escape (str value)))
+
+(defun hue/fill (value)
+  (if (nil? value) "" (hue/esc value)))
+
+(defun hue/page (body)
+  (render-page "Hue"
+    ".panel{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:16px;margin:0 0 16px}.row{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.10)}.row:last-child{border-bottom:0}.grow{flex:1;min-width:0}.small{color:#a1a1a8;font-size:12px}.tag{font-size:11px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,.10);color:#a1a1a8}form{display:inline}.btn{font:inherit;padding:6px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);color:#f5f5f7;cursor:pointer}input{font:inherit;width:74px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:#f5f5f7}.notice{padding:10px 12px;border-radius:9px;background:rgba(255,255,255,.06);color:#a1a1a8;margin:8px 0}.error{color:#ff8a9b}h2{font-size:15px;margin:0 0 10px}"
+    (raw body)))
+
+(defun hue/notice (text)
+  (str "<div class=\"notice\">" (hue/esc text) "</div>"))
+
+(defun hue/error (text)
+  (str "<div class=\"notice error\">" (hue/esc text) "</div>"))
+
+(defun hue/power-forms (kind id)
+  (str
+    "<form method=\"post\" action=\"/power\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input type=\"hidden\" name=\"action\" value=\"on\">"
+    "<button class=\"btn\">on</button></form>"
+    "<form method=\"post\" action=\"/power\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input type=\"hidden\" name=\"action\" value=\"off\">"
+    "<button class=\"btn\">off</button></form>"
+    "<form method=\"post\" action=\"/power\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input type=\"hidden\" name=\"action\" value=\"toggle\">"
+    "<button class=\"btn\">toggle</button></form>"))
+
+(defun hue/bri-form (kind id)
+  (str
+    "<form method=\"post\" action=\"/brightness\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input name=\"value\" type=\"number\" min=\"1\" max=\"254\" placeholder=\"bri\">"
+    "<button class=\"btn\">bri</button></form>"))
+
+(defun hue/color-form (kind id)
+  (str
+    "<form method=\"post\" action=\"/colour\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input name=\"value\" placeholder=\"#ff8800\">"
+    "<button class=\"btn\">colour</button></form>"))
+
+(defun hue/scene-form (kind id)
+  (str
+    "<form method=\"post\" action=\"/scene\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input name=\"value\" placeholder=\"Relax\">"
+    "<button class=\"btn\">scene</button></form>"))
+
+(defun hue/group-row (entry)
+  (let ((id (hue/key-text (first entry)))
+        (body (nth 1 entry))
+        (action (field (nth 1 entry) :action)))
+    (str "<div class=\"row\"><div class=\"grow\"><div>"
+         (hue/fill (hue/name-or body "?")) "</div><div class=\"small\">"
+         (hue/fill (hue/power action)) " · "
+         (hue/fill (length (or-empty (field body :lights)))) " lights</div></div>"
+         (hue/power-forms "group" id)
+         (hue/bri-form "group" id)
+         (hue/color-form "group" id)
+         (hue/scene-form "group" id)
+         "</div>")))
+
+(defun hue/light-row (entry)
+  (let ((id (hue/key-text (first entry)))
+        (body (nth 1 entry))
+        (state (field (nth 1 entry) :state)))
+    (str "<div class=\"row\"><div class=\"grow\"><div>"
+         (hue/fill (hue/name-or body "?")) "</div><div class=\"small\">"
+         (hue/fill (hue/power state)) "</div></div>"
+         (hue/power-forms "light" id)
+         (hue/bri-form "light" id)
+         (hue/color-form "light" id)
+         "</div>")))
+
+(defun hue/groups-panel (result)
+  (if (not (ok? result))
+      (hue/error (str "bridge: " (value result)))
+      (let ((entries (value result)))
+        (str "<div class=\"panel\"><h2>groups</h2>"
+             (if (nil? entries) "<div class=\"small\">No groups.</div>"
+                 (string-join (map 'hue/group-row entries) ""))
+             "</div>"))))
+
+(defun hue/lights-panel (result)
+  (if (not (ok? result))
+      (hue/error (str "bridge: " (value result)))
+      (let ((entries (value result)))
+        (str "<div class=\"panel\"><h2>lights</h2>"
+             (if (nil? entries) "<div class=\"small\">No lights.</div>"
+                 (string-join (map 'hue/light-row entries) ""))
+             "</div>"))))
+
+(defun hue/scene-row (entry)
+  (let ((body (nth 1 entry)))
+    (str "<div class=\"row\"><div class=\"grow\"><div>"
+         (hue/fill (hue/name-or body "?")) "</div><div class=\"small\">group "
+         (hue/fill (field body :group)) "</div></div></div>")))
+
+(defun hue/scenes-panel (result)
+  (if (not (ok? result))
+      (hue/error (str "bridge: " (value result)))
+      (let ((entries (value result)))
+        (str "<div class=\"panel\"><h2>scenes</h2>"
+             (if (nil? entries) "<div class=\"small\">No scenes.</div>"
+                 (string-join (map 'hue/scene-row entries) ""))
+             "</div>"))))
+
+(defun hue/dashboard (groups lights scenes)
+  (hue/page
+    (str
+      "<h2>Hue</h2>"
+      (hue/groups-panel groups)
+      (hue/lights-panel lights)
+      (hue/scenes-panel scenes))))
