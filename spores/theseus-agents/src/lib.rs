@@ -13,6 +13,7 @@ wit_bindgen::generate!({
 
 use serde_json::Value;
 use soil::records::records;
+use soil::vfs::vfs;
 
 use exports::fungos::theseus_agents::{control, dispatch, metrics, observe};
 mod types {
@@ -424,6 +425,88 @@ fn load() -> Result<Loaded, types::Error> {
     })
 }
 
+fn event_seq(name: &str) -> u64 {
+    name.split('-')
+        .next()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default()
+}
+
+fn event_turn(value: &Value) -> Option<(u64, types::Turn)> {
+    let kind = str_field(value, "kind");
+    let seq = u64_field(value, "seq");
+    let at = u64_field(value, "at");
+    let text = str_field(value, "text").to_string();
+    let role = match kind {
+        "message" => match str_field(value, "role") {
+            "user" => types::Role::User,
+            _ => types::Role::Assistant,
+        },
+        "tool-call" | "tool-result" => types::Role::Tool,
+        "notice" | "handoff" => types::Role::Assistant,
+        _ => return None,
+    };
+    Some((
+        seq,
+        types::Turn {
+            role,
+            text,
+            at_ms: at,
+        },
+    ))
+}
+
+fn transcript_vfs(
+    conversation: &str,
+    before: Option<u64>,
+    limit: u32,
+) -> Result<Option<observe::Page>, types::Error> {
+    let parent = format!("agents/{conversation}/events");
+    let mut entries = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let page = match vfs::ls(&parent, offset, 512) {
+            Ok(page) => page,
+            Err(vfs::Error::NotFound | vfs::Error::NotDirectory) => return Ok(None),
+            Err(_) => return Err(types::Error::Io),
+        };
+        entries.extend(page.entries);
+        match page.next {
+            Some(next) if next != offset => offset = next,
+            _ => break,
+        }
+        if entries.len() > 4096 {
+            break;
+        }
+    }
+    entries.sort_by_key(|entry| event_seq(&entry.name));
+    let mut events = Vec::new();
+    for entry in entries {
+        if !entry.name.ends_with(".json") {
+            continue;
+        }
+        let chunk = vfs::read(&entry.path, 0, 1_048_576)
+            .map_err(|_| types::Error::Io)?;
+        let Ok(value) = serde_json::from_slice::<Value>(&chunk.data) else {
+            continue;
+        };
+        if let Some((seq, turn)) = event_turn(&value) {
+            if before.is_none_or(|before| seq < before) {
+                events.push((seq, turn));
+            }
+        }
+    }
+    events.sort_by_key(|(seq, _)| *seq);
+    let take = limit.clamp(1, MAX_TRANSCRIPT) as usize;
+    let start = events.len().saturating_sub(take);
+    let page = events[start..].to_vec();
+    let before = page.first().map(|(seq, _)| *seq);
+    Ok(Some(observe::Page {
+        turns: page.into_iter().map(|(_, turn)| turn).collect(),
+        before,
+    }))
+}
+
 fn find(loaded: &Loaded, id: &str) -> Option<types::Agent> {
     loaded.agents.iter().find(|agent| agent.id == id).cloned()
 }
@@ -529,6 +612,13 @@ impl observe::Guest for Component {
         before: Option<u64>,
         limit: u32,
     ) -> Result<observe::Page, types::Error> {
+        if let Some(conversation) = id.strip_prefix("theseus:") {
+            if let Some(page) = transcript_vfs(conversation, before, limit)? {
+                return Ok(page);
+            }
+        }
+        // Older conversations predate the VFS thread store; keep their turn
+        // records readable until the adapter can migrate them.
         let loaded = load()?;
         let rows = loaded
             .transcripts
@@ -654,11 +744,20 @@ impl exports::fungos::theseus_agents::cli::Guest for Component {
             }
             "transcript" => {
                 let id = args.get(1).ok_or("transcript needs an agent id")?;
-                let (_, rows) = loaded
-                    .transcripts
-                    .iter()
-                    .find(|(conversation, _)| conversation == id)
-                    .ok_or("unknown agent")?;
+                let vfs_rows = id
+                    .strip_prefix("theseus:")
+                    .and_then(|conversation| transcript_vfs(conversation, None, 200).ok().flatten())
+                    .map(|page| page.turns)
+                    .filter(|rows| !rows.is_empty());
+                let rows = match vfs_rows {
+                    Some(rows) => rows,
+                    None => loaded
+                        .transcripts
+                        .iter()
+                        .find(|(conversation, _)| conversation == id)
+                        .map(|(_, rows)| rows.clone())
+                        .ok_or("unknown agent")?,
+                };
                 Ok(serde_json::to_value(
                     rows.iter()
                         .map(|turn| {

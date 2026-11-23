@@ -18,7 +18,7 @@ impl exports::wasi::cli::run::Guest for Component {
         } else {
             args.into_iter().skip(1).collect()
         };
-        match fungos::agents::cli::run(&args) {
+        match fungos::theseus_agents::cli::run(&args) {
             Ok(text) => {
                 println!("{text}");
                 Ok(())
