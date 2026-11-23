@@ -1,0 +1,30 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.acp-agents-cli"
+name = "acp-agents-cli"
+version = "0.1.0"
+license = "MIT"
+summary = "WASI command wrapper for the ACP adapter probe"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[[commands]]
+name = "acp-agents"
+summary = "print the normalized agent list"
+module = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"fungos:acp-agents" = "compose the ACP adapter for the probe"
+
+[denied]
+host = ["process", "secrets", "environment"]
