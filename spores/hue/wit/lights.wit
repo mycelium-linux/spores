@@ -42,17 +42,9 @@ interface lights {
     bridge(string),
   }
 
-  resource bridge {
-    /// Connect through the host's `soil:http` grant. `credential` is an opaque
-    /// host handle such as `default` or `geode://home/hue/bridge`.
-    connect: static func(base: string, credential: string) -> result<bridge, error>;
-
-    /// The full room/lamp/scene view, including the bridge's all-lights group.
-    snapshot: func() -> result<snapshot, error>;
-
-    set-power: func(target: target, on: bool) -> result<_, error>;
-    set-brightness: func(target: target, value: u8) -> result<_, error>;
-    set-colour: func(target: target, hex: string) -> result<_, error>;
-    set-scene: func(group: string, scene: string) -> result<_, error>;
-  }
+  state: func(base: string, credential: string) -> result<snapshot, error>;
+  set-power: func(base: string, credential: string, target: target, on: bool) -> result<_, error>;
+  set-brightness: func(base: string, credential: string, target: target, value: u8) -> result<_, error>;
+  set-colour: func(base: string, credential: string, target: target, hex: string) -> result<_, error>;
+  set-scene: func(base: string, credential: string, group: string, scene: string) -> result<_, error>;
 }

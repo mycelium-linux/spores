@@ -73,12 +73,11 @@ function. Other Spores can hold a `bridge` resource and read rooms, lamps and
 scenes without scraping the CLI:
 
 ```wit
-let br = hue/lights.bridge.connect("http://hue.local", "default");
-let snap = br.snapshot();
-br.set-power(hue/lights.target.group("81"), true);
-br.set-brightness(hue/lights.target.light("3"), 180);
-br.set-colour(hue/lights.target.light("3"), "#ff8800");
-br.set-scene("81", "qRFrxxoQ9xCWxv1h");
+let snap = hue/lights.state("http://hue.local", "default");
+hue/lights.set-power("http://hue.local", "default", hue/lights.target.group("81"), true);
+hue/lights.set-brightness("http://hue.local", "default", hue/lights.target.light("3"), 180);
+hue/lights.set-colour("http://hue.local", "default", hue/lights.target.light("3"), "#ff8800");
+hue/lights.set-scene("http://hue.local", "default", "81", "qRFrxxoQ9xCWxv1h");
 ```
 
 The resource never receives a bridge key. `credential` is a host handle such as

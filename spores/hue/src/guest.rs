@@ -6,13 +6,12 @@
 wit_bindgen::generate!({ path: "wit", world: "hue", generate_all });
 
 use cli_http::{Http, Method, Request, Response};
-use hue_client::{Bridge, brightness as brightness_body, color as color_body, parse_hex, rgb_to_xy};
+use hue_client::{Bridge, brightness as brightness_body, color as color_body, parse_hex};
 use lights_core::Snapshot;
 use serde_json::json;
 
 use exports::fungos::hue::lights::{
-    Bridge as BridgeHandle, Error as LightsError, Guest as LightsGuest,
-    GuestBridge as LightsBridge, Target,
+    Error as LightsError, Guest as LightsGuest, Group, Light, Scene, Snapshot as WitSnapshot, Target,
 };
 
 struct Component;
@@ -26,21 +25,9 @@ impl Guest for Component {
 }
 
 impl LightsGuest for Component {
-    type Bridge = HueBridge;
-}
-
-struct HueBridge {
-    bridge: Bridge,
-}
-
-impl LightsBridge for HueBridge {
-    fn connect(base: String, credential: String) -> Result<BridgeHandle, LightsError> {
-        let bridge = Bridge::with_credential(base, credential).map_err(LightsError::Invalid)?;
-        Ok(BridgeHandle::new(HueBridge { bridge }))
-    }
-
-    fn snapshot(&self) -> Result<exports::fungos::hue::lights::Snapshot, LightsError> {
-        let value = self.bridge.snapshot(&mut HostHttp).map_err(bridge_error)?;
+    fn state(base: String, credential: String) -> Result<WitSnapshot, LightsError> {
+        let bridge = connect(base, credential)?;
+        let value = bridge.snapshot(&mut HostHttp).map_err(bridge_error)?;
         let core = Snapshot::parse(&value).map_err(LightsError::Invalid)?;
 
         let mut rooms = std::collections::BTreeMap::new();
@@ -53,7 +40,7 @@ impl LightsBridge for HueBridge {
         let lights = core
             .lights
             .values()
-            .map(|light| exports::fungos::hue::lights::Light {
+            .map(|light| Light {
                 id: light.id.clone(),
                 name: light.name.clone(),
                 on: light.on,
@@ -66,7 +53,7 @@ impl LightsBridge for HueBridge {
         let groups = core
             .groups
             .iter()
-            .map(|group| exports::fungos::hue::lights::Group {
+            .map(|group| Group {
                 id: group.id.clone(),
                 name: group.name.clone(),
                 kind: group.kind.clone(),
@@ -79,14 +66,14 @@ impl LightsBridge for HueBridge {
         let scenes = core
             .scenes
             .iter()
-            .map(|scene| exports::fungos::hue::lights::Scene {
+            .map(|scene| Scene {
                 id: scene.id.clone(),
                 name: scene.name.clone(),
                 group: scene.group.clone(),
             })
             .collect();
 
-        Ok(exports::fungos::hue::lights::Snapshot {
+        Ok(WitSnapshot {
             bridge: core.bridge_name,
             lights,
             groups,
@@ -94,32 +81,58 @@ impl LightsBridge for HueBridge {
         })
     }
 
-    fn set_power(&self, target: Target, on: bool) -> Result<(), LightsError> {
-        self.bridge
+    fn set_power(
+        base: String,
+        credential: String,
+        target: Target,
+        on: bool,
+    ) -> Result<(), LightsError> {
+        let bridge = connect(base, credential)?;
+        bridge
             .put(&mut HostHttp, &action_path(&target), json!({ "on": on }))
             .map(|_| ())
             .map_err(bridge_error)
     }
 
-    fn set_brightness(&self, target: Target, value: u8) -> Result<(), LightsError> {
-        let value = value.clamp(1, 254);
-        self.bridge
-            .put(&mut HostHttp, &action_path(&target), brightness_body(value))
+    fn set_brightness(
+        base: String,
+        credential: String,
+        target: Target,
+        value: u8,
+    ) -> Result<(), LightsError> {
+        let bridge = connect(base, credential)?;
+        bridge
+            .put(
+                &mut HostHttp,
+                &action_path(&target),
+                brightness_body(value.clamp(1, 254)),
+            )
             .map(|_| ())
             .map_err(bridge_error)
     }
 
-    fn set_colour(&self, target: Target, hex: String) -> Result<(), LightsError> {
+    fn set_colour(
+        base: String,
+        credential: String,
+        target: Target,
+        hex: String,
+    ) -> Result<(), LightsError> {
+        let bridge = connect(base, credential)?;
         let (r, g, b) = parse_hex(&hex).map_err(LightsError::Invalid)?;
-        let _ = rgb_to_xy(r, g, b);
-        self.bridge
+        bridge
             .put(&mut HostHttp, &action_path(&target), color_body(r, g, b))
             .map(|_| ())
             .map_err(bridge_error)
     }
 
-    fn set_scene(&self, group: String, scene: String) -> Result<(), LightsError> {
-        self.bridge
+    fn set_scene(
+        base: String,
+        credential: String,
+        group: String,
+        scene: String,
+    ) -> Result<(), LightsError> {
+        let bridge = connect(base, credential)?;
+        bridge
             .put(
                 &mut HostHttp,
                 &format!("/groups/{group}/action"),
@@ -128,6 +141,10 @@ impl LightsBridge for HueBridge {
             .map(|_| ())
             .map_err(bridge_error)
     }
+}
+
+fn connect(base: String, credential: String) -> Result<Bridge, LightsError> {
+    Bridge::with_credential(base, credential).map_err(LightsError::Invalid)
 }
 
 fn action_path(target: &Target) -> String {
