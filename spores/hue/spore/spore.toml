@@ -1,0 +1,40 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.hue"
+name = "hue"
+title = "Hue"
+version = "0.1.0"
+license = "MIT"
+summary = "Hue groups, lights and scenes as a server-rendered Spore"
+description = "The Hue controller page. This package ships a static web surface for the Spore-as-a-service loop; the interactive controller is the same source run by the Soil host."
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[[surfaces]]
+name = "hue"
+kind = "web"
+
+[anycast]
+name = "hue"
+kind = "hue"
+alpns = ["soil/http/1"]
+ttl_secs = 240
+
+[launch]
+default = "hue"
+surfaces = ["web"]
+
+[denied]
+transport = ["socket", "quic", "iroh"]
+host = ["process", "secrets", "environment", "raw-filesystem", "clock"]
+
+[catalog]
+categories = ["system", "utilities"]
+keywords = ["hue", "lights", "scenes", "home"]
+
+[presentation]
+badge = "H"
+color = "#f0a35e"

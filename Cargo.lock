@@ -2036,6 +2036,7 @@ version = "0.1.0"
 dependencies = [
  "cli-http",
  "hue-client",
+ "lights-core",
  "serde",
  "serde_json",
  "wit-bindgen 0.57.1",

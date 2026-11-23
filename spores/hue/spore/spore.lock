@@ -1,0 +1,8 @@
+spore-lock 1
+spore dev.fungos.hue
+version 0.1.0
+file c3fd36d5bed253a9d02e8daad8c592bc262df18186c41081f1e1f65345037b88 827 spore.toml
+file 8b75a571be956bd95e35ea2f62e8c1e8bfe50d4b0083afeba816337f426d8899 14712 web/app.css
+file 7ac996d5213a8b0c92c2c289c673b1961dda2dd98b4eaee625abeb92c59a3059 4197 web/app.js
+file 5ae04e36b7cc0da0204fe961764df6acabfd18538574f0860ee23ed5311cebdb 37854 web/index.html
+digest 17f733cb59d33eb19d07eea6eeffc10fd3e185aeda2d33ec34d93bc82310f47d

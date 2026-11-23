@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; One Hue request, host-parsed: bridge in, response record out.
+;
+; Presentation lives in /app.css and /app.js. This file owns semantics:
+; which bridge call a form means, how a saved scene is captured, and how a
+; saved scene is replayed one lamp at a time.
+
+(defun hue/http-response (status content-type body)
+  (list
+    (list :status status)
+    (list :content-type content-type)
+    (list :body body)))
+
+(defun hue/http-json (value)
+  (hue/http-response 200 "application/json; charset=utf-8" (json-encode value)))
+
+(defun hue/http-bridge (base)
+  (hue/bridge base "default"))
+
+(defun hue/http-form-lookup (key pairs)
+  (if (nil? pairs)
+      ""
+      (if (= (first (first pairs)) key)
+          (nth 1 (first pairs))
+          (hue/http-form-lookup key (rest pairs)))))
+
+(defun hue/http-form (body key)
+  (hue/http-form-lookup key (url/parse-query (str body))))
+
+(defun hue/http-path (target)
+  (first (url/split-char (str target) "?")))
+
+(defun hue/http-target (kind id)
+  (if (= kind "light") (hue/light id) (hue/group id)))
+
+(defun hue/http-target-parts (target)
+  (let ((parts (url/split-char (str target) ":")))
+    (list (if (nil? (first parts)) "group" (first parts))
+          (if (nil? (nth 1 parts)) "0" (nth 1 parts)))))
+
+(defun hue/http-power (bridge kind id action)
+  (let ((home (hue/http-bridge bridge))
+        (target (hue/http-target kind id)))
+    (cond
+      ((= action "on") (hue/on home target))
+      ((= action "off") (hue/off home target))
+      ((= action "toggle") (hue/toggle home target))
+      (else (list 'err "unknown power action")))))
+
+(defun hue/http-brightness (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/bri (hue/http-bridge bridge) (hue/http-target kind id) (json-decode value))))
+
+(defun hue/http-colour (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/color-hex (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
+(defun hue/http-scene (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/scene (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
+(defun hue/http-scene-id (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/scene-id (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
+(defun hue/http-mood (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/atmosphere (hue/http-bridge bridge) id value nil)))
+
+(defun hue/http-ok (result)
+  (if (ok? result)
+      (hue/http-response 303 "text/plain; charset=utf-8" "")
+      (hue/http-response 503 "text/plain; charset=utf-8" (str (value result)))))
+
+(defun hue/http-all-ok? (results)
+  (cond
+    ((nil? results) #t)
+    ((ok? (first results)) (hue/http-all-ok? (rest results)))
+    (else #f)))
+
+(defun hue/http-keep-pair (pair)
+  (if (nil? (nth 1 pair)) nil pair))
+
+(defun hue/http-pairs (pairs)
+  (if (nil? pairs)
+      nil
+      (let ((pair (hue/http-keep-pair (first pairs))))
+        (if (nil? pair)
+            (hue/http-pairs (rest pairs))
+            (cons pair (hue/http-pairs (rest pairs)))))))
+
+(defun hue/http-light-snapshot (light)
+  (let ((state (field light :state)))
+    (list
+      (list :id (field light :id))
+      (list :on (field state :on))
+      (list :bri (field state :bri))
+      (list :xy (field state :xy))
+      (list :hue (field state :hue))
+      (list :sat (field state :sat))
+      (list :ct (field state :ct))
+      (list :colormode (field state :colormode)))))
+
+(defun hue/http-snapshots (bridge kind id)
+  (if (= kind "group")
+      (let ((lights (hue/lights-in-group bridge id)))
+        (if (ok? lights)
+            (list 'ok (map 'hue/http-light-snapshot (value lights)))
+            lights))
+      (let ((light (hue/load-light id bridge)))
+        (if (ok? light)
+            (list 'ok (list (hue/http-light-snapshot (value light))))
+            light))))
+
+(defun hue/http-saved-id (name now)
+  (str "hue.scene/" now "-" (url/encode name)))
+
+(defun hue/http-save-scene (bridge target name)
+  (if (= name "")
+      (list 'err "scene name is empty")
+      (let ((kind (first (hue/http-target-parts target))))
+        (let ((id (nth 1 (hue/http-target-parts target))))
+          (let ((snapshots (hue/http-snapshots (hue/http-bridge bridge) kind id)))
+            (if (not (ok? snapshots))
+                snapshots
+                (let ((now (now-ms)))
+                  (let ((scene
+                          (list
+                            (list :id (hue/http-saved-id name now))
+                            (list :name name)
+                            (list :target_kind kind)
+                            (list :target_id id)
+                            (list :created_at now)
+                            (list :lights (value snapshots)))))
+                    (let ((write (upsert-record "hue.scenes" (field scene :id) "hue.scene@1" scene now)))
+                      (if (ok? write)
+                          (list 'ok scene)
+                          write))))))))))
+
+(defun hue/http-saved-scenes ()
+  (let ((result
+          (soil:records/query
+            (list
+              (list :collection "hue.scenes")
+              (list :prefix "hue.scene/")
+              (list :filters nil)
+              (list :fields nil)
+              (list :cursor nil)
+              (list :limit 128)))))
+    (if (ok? result)
+        (reverse (map 'entry-body (or-empty (field (value result) :entries))))
+        (list))))
+
+(defun hue/http-saved-body (id)
+  (let ((entry (soil:records/get (record-key "hue.scenes" id))))
+    (if (ok? entry)
+        (list 'ok (entry-body (value entry)))
+        (list 'err "saved scene not found"))))
+
+(defun hue/http-apply-light (bridge light)
+  (let ((pairs
+          (hue/http-pairs
+            (list
+              (list :on (field light :on))
+              (list :bri (field light :bri))
+              (list :xy (field light :xy))
+              (list :hue (field light :hue))
+              (list :sat (field light :sat))
+              (list :ct (field light :ct))))))
+    (if (nil? pairs)
+        (list 'ok nil)
+        (hue/put bridge (str "/lights/" (field light :id) "/state") pairs))))
+
+(defun hue/http-apply-lights (bridge lights)
+  (if (nil? lights)
+      (list 'ok nil)
+      (let ((result (hue/http-apply-light bridge (first lights))))
+        (if (ok? result)
+            (hue/http-apply-lights bridge (rest lights))
+            result))))
+
+(defun hue/http-apply-saved (bridge id)
+  (let ((body (hue/http-saved-body id)))
+    (if (ok? body)
+        (hue/http-apply-lights (hue/http-bridge bridge) (field (value body) :lights))
+        body)))
+
+(defun hue/http-delete-saved (id)
+  (let ((result (soil:records/delete (record-key "hue.scenes" id))))
+    (if (ok? result) (list 'ok nil) result)))
+
+(defun hue/http (bridge method target body)
+  (let ((path (hue/http-path target)))
+    (cond
+      ((and (= method "GET") (= path "/"))
+        (let ((home (hue/http-bridge bridge)))
+          (hue/http-response 200 "text/html; charset=utf-8"
+            (hue/dashboard-full
+              (hue/groups home)
+              (hue/lights home)
+              (hue/scenes home)
+              (hue/http-saved-scenes)))))
+      ((and (= method "GET") (= path "/healthz"))
+        (hue/http-response 200 "text/plain; charset=utf-8" "ok\n"))
+      ((and (= method "POST") (= path "/power"))
+        (hue/http-ok
+          (hue/http-power bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "action"))))
+      ((and (= method "POST") (= path "/brightness"))
+        (hue/http-ok
+          (hue/http-brightness bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "value"))))
+      ((and (= method "POST") (= path "/colour"))
+        (hue/http-ok
+          (hue/http-colour bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "value"))))
+      ((and (= method "POST") (= path "/scene"))
+        (hue/http-ok
+          (hue/http-scene bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "value"))))
+      ((and (= method "POST") (= path "/scene-id"))
+        (hue/http-ok
+          (hue/http-scene-id bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "value"))))
+      ((and (= method "POST") (= path "/mood"))
+        (let ((results
+                (hue/http-mood bridge
+                  (hue/http-form body "kind")
+                  (hue/http-form body "id")
+                  (hue/http-form body "value"))))
+          (if (hue/http-all-ok? results)
+              (hue/http-response 303 "text/plain; charset=utf-8" "")
+              (hue/http-response 503 "text/plain; charset=utf-8" "mood write failed"))))
+      ((and (= method "POST") (= path "/saved/save"))
+        (let ((result
+                (hue/http-save-scene bridge
+                  (hue/http-form body "target")
+                  (hue/http-form body "name"))))
+          (hue/http-ok result)))
+      ((and (= method "POST") (= path "/saved/apply"))
+        (hue/http-ok
+          (hue/http-apply-saved bridge (hue/http-form body "id"))))
+      ((and (= method "POST") (= path "/saved/delete"))
+        (hue/http-ok
+          (hue/http-delete-saved (hue/http-form body "id"))))
+      (else (hue/http-response 404 "text/plain; charset=utf-8" "not found\n")))))

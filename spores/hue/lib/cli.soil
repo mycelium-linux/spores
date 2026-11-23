@@ -1,0 +1,490 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; The Hue CLI, in Soil: argv in, one line out.
+;
+; This is the entry point the Rust module (`src/lib.rs`) still provides. It
+; parses the same flags and verbs, refuses the same combinations with the same
+; messages, and prints the same summaries, but the work goes through
+; `lib/hue.soil` instead of `hue-client`.
+;
+;   (hue/cli (argv))
+;
+; Parsing is pure, so `hue/parse-argv` is tested without a host:
+; `(hue/parse-argv (list "--bridge" "http://b" "--credential" "default" "on"))`
+; returns `(ok <command>)` and every rejection returns `(err "message")`.
+
+;;; ---------------------------------------------------------------------------
+;;; Small helpers the prelude does not carry
+;;; ---------------------------------------------------------------------------
+
+(defun hue/prefix? (text prefix)
+  (let ((wanted (string-chars prefix)))
+    (= (take (length wanted) (string-chars text)) wanted)))
+
+(defun hue/digit-value (character)
+  (cond
+    ((= character "0") 0)
+    ((= character "1") 1)
+    ((= character "2") 2)
+    ((= character "3") 3)
+    ((= character "4") 4)
+    ((= character "5") 5)
+    ((= character "6") 6)
+    ((= character "7") 7)
+    ((= character "8") 8)
+    ((= character "9") 9)
+    (else nil)))
+
+;;; Decimal digits to an integer, or nil when any character is not a digit.
+(defun hue/parse-uint (characters acc)
+  (if (nil? characters)
+      acc
+      (let ((digit (hue/digit-value (first characters))))
+        (if (nil? digit)
+            nil
+            (hue/parse-uint (rest characters) (+ (* acc 10) digit))))))
+
+(defun hue/parse-int (text)
+  (let ((characters (string-chars text)))
+    (if (nil? characters) nil (hue/parse-uint characters 0))))
+
+;;; Hue ids are bridge-assigned and numeric in practice. Numeric ids sort as
+;;; numbers; anything else keeps the bridge's order.
+(defun hue/id-before? (a b)
+  (let ((x (hue/parse-int (hue/key-text a)))
+        (y (hue/parse-int (hue/key-text b))))
+    (if (and (not (nil? x)) (not (nil? y))) (< x y) #f)))
+
+(defun hue/insert-entry (entry entries)
+  (cond
+    ((nil? entries) (list entry))
+    ((hue/id-before? (first (first entries)) (first entry))
+     (cons (first entries) (hue/insert-entry entry (rest entries))))
+    (else (cons entry entries))))
+
+(defun hue/sorted-entries (entries)
+  (if (nil? entries)
+      nil
+      (hue/insert-entry (first entries) (hue/sorted-entries (rest entries)))))
+
+(defun hue/lines (lines)
+  (cond
+    ((nil? lines) "")
+    ((nil? (rest lines)) (first lines))
+    (else (str (first lines) "\n" (hue/lines (rest lines))))))
+
+(defun hue/line-for (entry kind)
+  (let ((id (hue/key-text (first entry)))
+        (body (nth 1 entry)))
+    (cond
+      ((= kind "light")
+        (str id "\t"
+             (hue/name-or body "?") "\t"
+             (hue/power (field body :state)) "\tbri "
+             (hue/bri-value (field body :state))))
+      ((= kind "group")
+        (str id "\t"
+             (hue/name-or body "?") "\t"
+             (hue/power (field body :action)) "\tbri "
+             (hue/bri-value (field body :action)) "\t"
+             (hue/count-of (field body :lights)) " lights"))
+      (else
+        (str id "\t"
+             (hue/name-or body "?") "\tgroup "
+             (hue/text-or (field body :group) "-"))))))
+
+(defun hue/entry-lines (entries kind)
+  (if (nil? entries)
+      nil
+      (cons (hue/line-for (first entries) kind)
+            (hue/entry-lines (rest entries) kind))))
+
+(defun hue/name-or (body fallback)
+  (hue/text-or (field body :name) fallback))
+
+(defun hue/text-or (value fallback)
+  (if (nil? value) fallback value))
+
+;;; Decoded JSON object keys arrive as keywords (`:1`), and Hue addresses
+;;; resources by that text. Drop the sigil; a plain string passes through.
+(defun hue/key-text (key)
+  (let ((characters (string-chars (str key))))
+    (if (and (not (nil? characters)) (= (first characters) ":"))
+        (string-join (rest characters) "")
+        (str key))))
+
+(defun hue/count-of (value)
+  (if (nil? value) 0 (length value)))
+
+(defun hue/power (state)
+  (if (field state :on) "on" "off"))
+
+(defun hue/bri-value (state)
+  (let ((bri (field state :bri)))
+    (if (nil? bri) 0 (int bri))))
+
+(defun hue/json? (command)
+  (field (field command :options) :json))
+
+(defun hue/hex-digit (value)
+  (nth value (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"
+                   "a" "b" "c" "d" "e" "f")))
+
+(defun hue/hex-octet (value)
+  (str (hue/hex-digit (floor (/ value 16))) (hue/hex-digit (- value (* 16 (floor (/ value 16)))))))
+
+(defun hue/number (value)
+  (str (hue/round-4 value)))
+
+(defun hue/downcase (text)
+  (string-join (map 'hue/downcase-char (string-chars text)) ""))
+
+(defun hue/downcase-char (character)
+  (let ((upper (list "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M"
+                     "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z"))
+        (lower (list "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m"
+                     "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z")))
+    (hue/lookup-character character upper lower 0)))
+
+(defun hue/lookup-character (character upper lower index)
+  (cond
+    ((nil? upper) character)
+    ((= character (first upper)) (first lower))
+    (else (hue/lookup-character character (rest upper) (rest lower) (+ index 1)))))
+
+(defun hue/label (target)
+  (str (field target :kind) " " (field target :id)))
+
+;;; ---------------------------------------------------------------------------
+;;; Parsing
+;;; ---------------------------------------------------------------------------
+
+(defun hue/usage ()
+  (str "usage: hue --bridge URL (--key KEY | --credential HANDLE) "
+       "<status|on|off|toggle|bri N|color #RRGGBB|scene NAME|lights|groups|scenes|pair>"))
+
+(defun hue/help-text ()
+  (str
+    "usage: hue --bridge URL (--key KEY | --credential HANDLE) [--group ID | --light ID] [--json] COMMAND\n"
+    "       hue --bridge URL pair [DEVICE]\n"
+    "\n"
+    "commands:\n"
+    "  pair [DEVICE]       press the bridge link button, then mint an application key\n"
+    "  status              bridge name, light/group counts, all-lights state\n"
+    "  lights              list lights\n"
+    "  groups              list groups\n"
+    "  scenes              list scenes\n"
+    "  on | off            switch the target on or off\n"
+    "  toggle              invert the target's current power state\n"
+    "  bri N               set brightness 0-254\n"
+    "  color #RRGGBB       set colour as CIE xy\n"
+    "  scene NAME          recall a scene by name (case-insensitive)\n"
+    "  scene-id ID         recall a scene by bridge id\n"
+    "\n"
+    "examples:\n"
+    "  hue --bridge http://192.168.1.10 pair\n"
+    "  hue --bridge http://192.168.1.10 --credential geode://home/hue/bridge on\n"
+    "  hue --bridge http://192.168.1.10 --key $HUE_KEY --light 3 color #ff8800\n"
+    "  hue --bridge http://192.168.1.10 --key $HUE_KEY --group 1 scene Relax"))
+
+(defun hue/parse-argv (argv)
+  (hue/parse-args argv nil nil))
+
+(defun hue/parse-args (argv options words)
+  (if (nil? argv)
+      (hue/build-command options words)
+      (let ((argument (first argv)))
+        (cond
+          ((= argument "--bridge")
+           (hue/parse-args (drop 2 argv) (assoc :bridge (nth 1 argv) options) words))
+          ((= argument "--key")
+           (hue/parse-args (drop 2 argv) (assoc :key (nth 1 argv) options) words))
+          ((= argument "--credential")
+           (hue/parse-args (drop 2 argv) (assoc :credential (nth 1 argv) options) words))
+          ((= argument "--device")
+           (hue/parse-args (drop 2 argv) (assoc :device (nth 1 argv) options) words))
+          ((= argument "--group")
+           (hue/parse-args (drop 2 argv) (assoc :group (nth 1 argv) options) words))
+          ((= argument "--light")
+           (hue/parse-args (drop 2 argv) (assoc :light (nth 1 argv) options) words))
+          ((= argument "--json")
+           (hue/parse-args (rest argv) (assoc :json #t options) words))
+          ((or (= argument "--help") (= argument "-h"))
+           (list 'ok (hue/help-command options)))
+          (else
+           (hue/parse-args (rest argv) options (append words (list argument))))))))
+
+(defun hue/help-command (options)
+  (list
+    (list :action "help")
+    (list :operand nil)
+    (list :options options)
+    (list :target (hue/group "0"))
+    (list :bridge (hue/bridge "http://localhost" nil))
+    (list :device "spores#hue")))
+
+(defun hue/command (action operand options target bridge device)
+  (list
+    (list :action action)
+    (list :operand operand)
+    (list :options options)
+    (list :target target)
+    (list :bridge bridge)
+    (list :device device)))
+
+(defun hue/build-command (options words)
+  (let ((verb (first words)))
+    (if (nil? verb)
+        (list 'err (hue/usage))
+        (hue/action-for verb (nth 1 words) options words))))
+
+(defun hue/action-for (verb operand options words)
+  (if (> (length words) 2)
+      (list 'err (str verb ": too many arguments"))
+      (hue/dispatch-action verb operand options)))
+
+(defun hue/dispatch-action (verb operand options)
+  (cond
+    ((= verb "status") (hue/finish "status" nil options))
+    ((= verb "lights") (hue/finish "lights" nil options))
+    ((= verb "groups") (hue/finish "groups" nil options))
+    ((= verb "scenes") (hue/finish "scenes" nil options))
+    ((= verb "on") (hue/finish "on" nil options))
+    ((= verb "off") (hue/finish "off" nil options))
+    ((= verb "toggle") (hue/finish "toggle" nil options))
+    ((= verb "pair") (hue/finish-pair operand options))
+    ((or (= verb "bri") (= verb "brightness")) (hue/bri-action operand options))
+    ((or (= verb "color") (= verb "colour")) (hue/color-action operand options))
+    ((= verb "scene") (hue/operand-action "scene" operand options "scene: expected a scene name"))
+    ((= verb "scene-id") (hue/operand-action "scene-id" operand options "scene-id: expected a scene id"))
+    (else (list 'err (str "unknown command: " verb)))))
+
+(defun hue/operand-action (action operand options missing)
+  (if (nil? operand)
+      (list 'err missing)
+      (hue/finish action operand options)))
+
+(defun hue/bri-action (operand options)
+  (if (nil? operand)
+      (list 'err "bri: expected 0-254")
+      (let ((value (hue/parse-int operand)))
+        (if (or (nil? value) (> value 255))
+            (list 'err (str "bri: \"" operand "\" is not 0-254"))
+            (hue/finish "bri" value options)))))
+
+(defun hue/color-action (operand options)
+  (if (nil? operand)
+      (list 'err "color: expected #RRGGBB")
+      (let ((rgb (hue/parse-hex operand)))
+        (if (nil? rgb)
+            (list 'err (str "color: \"" operand "\" is not #RRGGBB"))
+            (hue/finish "color" rgb options)))))
+
+(defun hue/finish (action operand options)
+  (let ((base (field options :bridge)))
+    (if (nil? base)
+        (list 'err "--bridge is required, for example --bridge http://192.168.1.10")
+        (if (not (or (hue/prefix? base "http://") (hue/prefix? base "https://")))
+            (list 'err "bridge must be an absolute http(s) URL")
+            (hue/finish-auth action operand options (hue/trim-slash base))))))
+
+(defun hue/finish-auth (action operand options base)
+  (let ((key (field options :key))
+        (credential (field options :credential)))
+    (cond
+      ((and (not (nil? key)) (nil? credential) (not (= key "")))
+       (hue/finish-target action operand options (hue/bridge base key)))
+      ((and (nil? key) (not (nil? credential)) (not (= credential "")))
+       (hue/finish-target action operand options (hue/bridge base credential)))
+      ((and (not (nil? key)) (not (nil? credential)))
+       (list 'err "--key and --credential are mutually exclusive"))
+      (else
+       (list 'err "--key or --credential is required (the bridge application key)")))))
+
+(defun hue/finish-target (action operand options bridge)
+  (let ((light (field options :light))
+        (group (field options :group)))
+    (cond
+      ((and (not (nil? light)) (not (nil? group)))
+       (list 'err "--light and --group are mutually exclusive"))
+      ((not (nil? light))
+       (list 'ok (hue/command action operand options (hue/light light) bridge
+                              (hue/device options nil))))
+      (else
+       (list 'ok (hue/command action operand options
+                              (hue/group (if (nil? group) "0" group)) bridge
+                              (hue/device options nil)))))))
+
+(defun hue/finish-pair (operand options)
+  (let ((base (field options :bridge)))
+    (cond
+      ((nil? base)
+       (list 'err "--bridge is required, for example --bridge http://192.168.1.10"))
+      ((not (or (hue/prefix? base "http://") (hue/prefix? base "https://")))
+       (list 'err "bridge must be an absolute http(s) URL"))
+      ((or (not (nil? (field options :key))) (not (nil? (field options :credential))))
+       (list 'err "pair does not take --key or --credential"))
+      (else
+       (list 'ok (hue/command "pair" operand options (hue/group "0")
+                              (hue/bridge (hue/trim-slash base) nil)
+                              (hue/device options operand)))))))
+
+(defun hue/device (options operand)
+  (let ((device (field options :device)))
+    (cond
+      ((not (nil? device)) device)
+      ((not (nil? operand)) operand)
+      (else "spores#hue"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Execution
+;;; ---------------------------------------------------------------------------
+
+(defun hue/cli (argv)
+  (let ((parsed (hue/parse-argv argv)))
+    (if (ok? parsed) (hue/run (value parsed)) parsed)))
+
+(defun hue/run (command)
+  (let ((action (field command :action)))
+    (cond
+      ((= action "help") (list 'ok (hue/help-text)))
+      ((= action "pair") (hue/do-pair command))
+      ((= action "status") (hue/do-status command))
+      ((= action "lights") (hue/do-list command "/lights" "light"))
+      ((= action "groups") (hue/do-list command "/groups" "group"))
+      ((= action "scenes") (hue/do-list command "/scenes" "scene"))
+      ((= action "on") (hue/do-power command #t))
+      ((= action "off") (hue/do-power command #f))
+      ((= action "toggle") (hue/do-toggle command))
+      ((= action "bri") (hue/do-bri command))
+      ((= action "color") (hue/do-color command))
+      ((= action "scene") (hue/do-scene command))
+      ((= action "scene-id") (hue/do-scene-id command))
+      (else (list 'err (str "unknown command: " action))))))
+
+(defun hue/do-status (command)
+  (let ((config (hue/get (field command :bridge) "")))
+    (if (ok? config)
+        (let ((all (hue/get (field command :bridge) "/groups/0")))
+          (if (ok? all)
+              (if (hue/json? command)
+                  (list 'ok (json-encode
+                              (list (list :bridge (value config))
+                                    (list :all (value all)))))
+                  (list 'ok (hue/status-text (value config) (value all))))
+              all))
+        config)))
+
+(defun hue/status-text (config all)
+  (let ((name (field (field config :config) :name))
+        (action (field all :action)))
+    (str (hue/text-or name "hue bridge")
+         "\nlights: " (hue/count-of (field config :lights))
+         "\ngroups: " (hue/count-of (field config :groups))
+         "\nall: " (hue/power action) " bri: " (hue/bri-value action))))
+
+(defun hue/do-list (command path kind)
+  (let ((reply (hue/get (field command :bridge) path)))
+    (if (ok? reply)
+        (if (hue/json? command)
+            (list 'ok (json-encode (value reply)))
+            (list 'ok (hue/lines
+                        (hue/entry-lines
+                          (hue/sorted-entries (value reply)) kind))))
+        reply)))
+
+(defun hue/reply (command reply text)
+  (if (ok? reply)
+      (if (hue/json? command)
+          (list 'ok (json-encode (value reply)))
+          (list 'ok text))
+      reply))
+
+(defun hue/target-command (command body action)
+  (hue/put (field command :bridge) (hue/action-path (field command :target)) body))
+
+(defun hue/do-power (command on)
+  (let ((reply (hue/target-command command (list (list :on on)) nil)))
+    (hue/reply command reply
+      (str (hue/label (field command :target)) ": " (if on "on" "off")))))
+
+(defun hue/do-toggle (command)
+  (let ((target (field command :target))
+        (bridge (field command :bridge)))
+    (let ((state (hue/get bridge (hue/state-path target))))
+      (if (ok? state)
+          (let ((container (if (= (field target :kind) "group")
+                               (field (value state) :action)
+                               (field (value state) :state))))
+            (let ((on (field container :on)))
+              (if (nil? on)
+                  (list 'err (str (hue/label target)
+                                  ": bridge did not report a power state"))
+                  (hue/do-power command (not on)))))
+          state))))
+
+(defun hue/do-bri (command)
+  (let ((value (field command :operand)))
+    (if (> value 254)
+        (list 'err (str "bri: " value " is outside 0-254"))
+        (let ((reply (hue/target-command command
+                                         (list (list :bri (int value))) nil)))
+          (hue/reply command reply
+            (str (hue/label (field command :target)) ": brightness " value))))))
+
+(defun hue/do-color (command)
+  (let ((rgb (field command :operand)))
+    (let ((xy (hue/rgb->xy (nth 0 rgb) (nth 1 rgb) (nth 2 rgb))))
+      (let ((reply (hue/target-command command (list (list :xy xy)) nil)))
+        (hue/reply command reply
+          (str (hue/label (field command :target)) ": #"
+               (hue/hex-octet (nth 0 rgb))
+               (hue/hex-octet (nth 1 rgb))
+               (hue/hex-octet (nth 2 rgb))
+               " -> xy (" (hue/number (nth 0 xy))
+               ", " (hue/number (nth 1 xy)) ")"))))))
+
+(defun hue/find-scene (entries wanted)
+  (if (nil? entries)
+      nil
+      (let ((entry (first entries)))
+        (if (= (hue/downcase (hue/name-or (nth 1 entry) "")) wanted)
+            entry
+            (hue/find-scene (rest entries) wanted)))))
+
+(defun hue/do-scene (command)
+  (let ((name (field command :operand)))
+    (let ((scenes (hue/get (field command :bridge) "/scenes")))
+      (if (ok? scenes)
+          (let ((entry (hue/find-scene (hue/sorted-entries (value scenes))
+                                       (hue/downcase name))))
+            (if (nil? entry)
+                (list 'err (str "scene: no scene named \"" name "\""))
+                (let ((reply (hue/target-command command
+                                                 (list (list :scene (hue/key-text (first entry))))
+                                                 nil)))
+                  (hue/reply command reply
+                    (str (hue/label (field command :target)) ": scene "
+                         (hue/name-or (nth 1 entry) name))))))
+          scenes))))
+
+(defun hue/do-scene-id (command)
+  (let ((id (field command :operand)))
+    (let ((reply (hue/target-command command (list (list :scene id)) nil)))
+      (hue/reply command reply
+        (str (hue/label (field command :target)) ": scene " id)))))
+
+(defun hue/do-pair (command)
+  (let ((reply (hue/pair (field command :bridge) (field command :device))))
+    (if (ok? reply)
+        (if (hue/json? command)
+            (list 'ok (json-encode (value reply)))
+            (let ((key (field (field (first (value reply)) :success) :username)))
+              (if (nil? key)
+                  (list 'err "bridge did not return an application key")
+                  (list 'ok
+                        (str "paired " (field command :device)
+                             "\napplication key: " key
+                             "\nstore it as geode://home/hue/bridge")))))
+        reply)))

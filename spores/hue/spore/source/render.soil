@@ -1,0 +1,364 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; The Hue controller page: rich markup for /app.css and /app.js.
+; Soil owns the data and the form semantics; the browser gets the motion.
+
+(defun hue/esc (value)
+  (html-escape (str value)))
+
+(defun hue/fill (value)
+  (if (nil? value) "" (hue/esc value)))
+
+(defun hue/or-default (value fallback)
+  (if (nil? value) fallback value))
+
+(defun hue/page (body)
+  (render-page "Hue" ""
+    (raw (str
+      "<link rel=\"stylesheet\" href=\"/app.css\">"
+      body
+      "<script src=\"/app.js\" defer></script>"))))
+
+(defun hue/pct (bri)
+  (str (hue/or-default bri 0)))
+
+(defun hue/on? (state)
+  (if (field state :on) #t #f))
+
+(defun hue/group-type (entry)
+  (field (nth 1 entry) :type))
+
+(defun hue/room? (entry)
+  (let ((type (hue/group-type entry)))
+    (or (nil? type) (= type "Room"))))
+
+(defun hue/zone? (entry)
+  (= (hue/group-type entry) "Zone"))
+
+(defun hue/group-type? (entry type)
+  (= (hue/group-type entry) type))
+
+(defun hue/hex-char (value)
+  (nth value (list "0" "1" "2" "3" "4" "5" "6" "7" "8"
+                   "9" "a" "b" "c" "d" "e" "f")))
+
+(defun hue/byte (value)
+  (max 0 (min 255 (int (round value)))))
+
+(defun hue/hex2 (value)
+  (let ((value (hue/byte value)))
+    (str (hue/hex-char (int (/ value 16)))
+         (hue/hex-char (- value (* 16 (int (/ value 16))))))))
+
+(defun hue/rgb-hex (rgb)
+  (str "#" (hue/hex2 (nth 0 rgb)) (hue/hex2 (nth 1 rgb)) (hue/hex2 (nth 2 rgb))))
+
+(defun hue/encode-gamma (value)
+  (if (> value 0.0031308)
+      (- (* 1.055 (pow value (/ 1.0 2.4))) 0.055)
+      (* 12.92 value)))
+
+(defun hue/xy-color (xy bri)
+  (let ((x (nth 0 xy))
+        (y (nth 1 xy)))
+    (if (or (nil? x) (nil? y) (= y 0.0))
+        "#ffb36b"
+        (let ((luma (/ (hue/or-default bri 254) 254.0)))
+          (let ((X (* luma (/ x y)))
+                (Y luma)
+                (Z (* luma (/ (- 1.0 x y) y))))
+            (hue/rgb-hex
+              (list
+                (hue/encode-gamma (+ (* 3.2406 X) (* -1.5372 Y) (* -0.4986 Z)))
+                (hue/encode-gamma (+ (* -0.9689 X) (* 1.8758 Y) (* 0.0415 Z)))
+                (hue/encode-gamma (+ (* 0.0557 X) (* -0.2040 Y) (* 1.0570 Z))))))))))
+
+(defun hue/state-color (state)
+  (let ((hue (field state :hue))
+        (sat (field state :sat))
+        (bri (hue/or-default (field state :bri) 254)))
+    (cond
+      ((and (not (nil? hue)) (not (nil? sat)))
+        (hue/rgb-hex
+          (hue/hsl->rgb
+            (* 360.0 (/ hue 65535.0))
+            (/ sat 254.0)
+            (/ bri 254.0))))
+      ((not (nil? (field state :xy)))
+        (hue/xy-color (field state :xy) bri))
+      (else "#ffb36b"))))
+
+(defun hue/power-form (kind id on)
+  (str
+    "<form method=\"post\" action=\"/power\" class=\"power-form\" data-live=\"power\" data-on=\""
+    (if on "true" "false") "\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input type=\"hidden\" name=\"action\" value=\"toggle\">"
+    "<button class=\"switch " (if on "is-on" "is-off") "\" aria-pressed=\""
+    (if on "true" "false") "\" aria-label=\"Toggle " (attr-escape kind) "\">"
+    "<span class=\"switch-track\"><span class=\"switch-thumb\"></span></span>"
+    "<span class=\"switch-label\">" (if on "On" "Off") "</span>"
+    "</button></form>"))
+
+(defun hue/bri-form (kind id state)
+  (let ((bri (hue/or-default (field state :bri) 1)))
+    (str
+      "<form method=\"post\" action=\"/brightness\" class=\"control\" data-live=\"brightness\">"
+      "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+      "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+      "<div class=\"control-head\"><label>Brightness</label><output>"
+      (hue/pct bri) "%</output></div>"
+      "<input type=\"range\" name=\"value\" min=\"1\" max=\"254\" value=\"" (str bri)
+      "\" data-range>"
+      "<button class=\"mini\" type=\"submit\">Set</button></form>")))
+
+(defun hue/color-form (kind id state)
+  (let ((color (hue/state-color state)))
+    (str
+      "<form method=\"post\" action=\"/colour\" class=\"control colour\" data-live=\"colour\">"
+      "<input type=\"hidden\" name=\"kind\" value=\"" (attr-escape kind) "\">"
+      "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+      "<div class=\"control-head\"><label>Colour</label><output>"
+      (hue/fill color) "</output></div>"
+      "<div class=\"colour-row\"><input type=\"color\" name=\"value\" value=\""
+      (attr-escape color) "\" data-color>"
+      "<button class=\"mini\" type=\"submit\">Set</button></div></form>")))
+
+(defun hue/mood-chip (mood id)
+  (str
+    "<form method=\"post\" action=\"/mood\" class=\"mood-chip\" data-live=\"mood\">"
+    "<input type=\"hidden\" name=\"kind\" value=\"group\">"
+    "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+    "<input type=\"hidden\" name=\"value\" value=\"" (attr-escape mood) "\">"
+    "<button class=\"chip\" type=\"submit\">" (hue/fill mood) "</button></form>"))
+
+(defun hue/mood-chips (id)
+  (str
+    "<div class=\"mood-block\"><span class=\"micro-label\">Atmosphere</span>"
+    "<div class=\"mood-chips\">"
+    (string-join
+      (map-with 'hue/mood-chip id
+        (list "aurora" "sunset" "ocean" "ember" "nebula" "focus"))
+      "")
+    "</div></div>"))
+
+(defun hue/scene-in-group? (entry group)
+  (let ((body (nth 1 entry)))
+    (and (= (field body :group) group)
+         (not (field body :recycle)))))
+
+(defun hue/scene-chip (entry group)
+  (let ((id (hue/key-text (first entry)))
+        (name (field (nth 1 entry) :name)))
+    (str
+      "<form method=\"post\" action=\"/scene-id\" class=\"scene-chip\" data-live=\"scene\">"
+      "<input type=\"hidden\" name=\"kind\" value=\"group\">"
+      "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape group) "\">"
+      "<input type=\"hidden\" name=\"value\" value=\"" (attr-escape id) "\">"
+      "<button class=\"scene-button\" type=\"submit\">" (hue/fill name)
+      "</button></form>")))
+
+(defun hue/scene-strip (group scenes)
+  (let ((entries (filter-with 'hue/scene-in-group? group (or-empty scenes))))
+    (if (nil? entries)
+        ""
+        (str
+          "<div class=\"scene-strip\"><span class=\"micro-label\">Scenes</span>"
+          "<div class=\"scene-chips\">"
+          (string-join (map-with 'hue/scene-chip group entries) "")
+          "</div></div>"))))
+
+(defun hue/group-card (entry scenes)
+  (let ((id (hue/key-text (first entry)))
+        (body (nth 1 entry)))
+    (let ((action (field body :action)))
+      (let ((on (hue/on? action))
+            (bri (hue/or-default (field action :bri) 0))
+            (color (hue/state-color action)))
+        (str
+          "<article class=\"card group-card " (if on "is-on" "is-off")
+          "\" data-kind=\"group\" data-id=\"" (attr-escape id) "\" data-on=\""
+          (if on "true" "false") "\" style=\"--accent:" (attr-escape color) "\">"
+          "<header class=\"card-head\"><div class=\"card-title\"><span class=\"room-dot\"></span>"
+          "<div><h3>" (hue/fill (hue/name-or body "?")) "</h3>"
+          "<p>" (hue/fill (length (or-empty (field body :lights)))) " lights · "
+          (hue/pct bri) " / 254 · " (hue/fill color) "</p></div></div>"
+          (hue/power-form "group" id on)
+          "</header>"
+          "<div class=\"card-controls\">"
+          (hue/bri-form "group" id action)
+          (hue/color-form "group" id action)
+          "</div>"
+          (hue/mood-chips id)
+          (hue/scene-strip id (or-empty scenes))
+          "</article>")))))
+
+(defun hue/light-card (entry)
+  (let ((id (hue/key-text (first entry)))
+        (body (nth 1 entry)))
+    (let ((state (field body :state)))
+      (let ((on (hue/on? state))
+            (bri (hue/or-default (field state :bri) 0))
+            (color (hue/state-color state)))
+        (str
+          "<article class=\"card light-card " (if on "is-on" "is-off")
+          "\" data-kind=\"light\" data-id=\"" (attr-escape id) "\" data-on=\""
+          (if on "true" "false") "\" style=\"--accent:" (attr-escape color) "\">"
+          "<header class=\"card-head\"><div class=\"card-title\"><span class=\"lamp-dot\"></span>"
+          "<div><h3>" (hue/fill (hue/name-or body "?")) "</h3>"
+          "<p>" (if on (str "On · " (hue/pct bri) " / 254") "Off") " · "
+          (hue/fill (hue/or-default (field state :colormode) "colour")) "</p></div></div>"
+          (hue/power-form "light" id on)
+          "</header>"
+          "<div class=\"card-controls\">"
+          (hue/bri-form "light" id state)
+          (hue/color-form "light" id state)
+          "</div></article>")))))
+
+(defun hue/group-section (title subtitle entries scenes)
+  (str "<section class=\"section\"><div class=\"section-head\"><h2>" (hue/fill title)
+       "</h2><p>" (hue/fill subtitle) "</p></div><div class=\"grid rooms\">"
+       (if (nil? entries)
+           "<div class=\"empty\">Nothing here.</div>"
+           (string-join (map-with 'hue/group-card scenes entries) ""))
+       "</div></section>"))
+
+(defun hue/scene-entries (result)
+  (if (ok? result) (or-empty (value result)) nil))
+
+(defun hue/rooms-panel (result scenes)
+  (if (not (ok? result))
+      (str "<div class=\"notice error\">bridge: " (hue/fill (value result)) "</div>")
+      (let ((entries (filter 'hue/room? (or-empty (value result)))))
+        (hue/group-section "Rooms" "Whole-room controls" entries (hue/scene-entries scenes)))))
+
+(defun hue/zones-panel (result scenes)
+  (if (not (ok? result))
+      ""
+      (let ((entries (filter 'hue/zone? (or-empty (value result)))))
+        (if (nil? entries) ""
+            (hue/group-section "Zones" "Areas across rooms" entries (hue/scene-entries scenes))))))
+
+(defun hue/lights-panel (result)
+  (if (not (ok? result))
+      (str "<div class=\"notice error\">bridge: " (hue/fill (value result)) "</div>")
+      (let ((entries (value result)))
+        (str "<section class=\"section\"><div class=\"section-head\"><h2>Lamps</h2>"
+             "<p>Individual lights</p></div><div class=\"grid lamps\">"
+             (if (nil? entries)
+                 "<div class=\"empty\">No lights.</div>"
+                 (string-join (map 'hue/light-card entries) ""))
+             "</div></section>"))))
+
+(defun hue/saved-card (scene)
+  (let ((id (field scene :id))
+        (name (field scene :name))
+        (kind (field scene :target_kind))
+        (target (field scene :target_id))
+        (lights (length (or-empty (field scene :lights)))))
+    (str
+      "<div class=\"saved-card\"><div class=\"saved-title\"><strong>" (hue/fill name)
+      "</strong><span>" (hue/fill kind) " " (hue/fill target) " · "
+      (str lights) " lamps</span></div><div class=\"saved-actions\">"
+      "<form method=\"post\" action=\"/saved/apply\" data-reload=\"true\">"
+      "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+      "<button class=\"mini\" type=\"submit\">Apply</button></form>"
+      "<form method=\"post\" action=\"/saved/delete\" data-reload=\"true\">"
+      "<input type=\"hidden\" name=\"id\" value=\"" (attr-escape id) "\">"
+      "<button class=\"mini danger\" type=\"submit\">Delete</button></form>"
+      "</div></div>")))
+
+(defun hue/saved-panel (saved)
+  (str "<section class=\"section saved\"><div class=\"section-head\"><h2>Your scenes</h2>"
+       "<p>Captured from a room or lamp</p></div><div class=\"saved-list\">"
+       (if (nil? saved)
+           "<div class=\"empty\">Save a room to make it yours.</div>"
+           (string-join (map 'hue/saved-card saved) ""))
+       "</div></section>"))
+
+(defun hue/target-radio (kind id name)
+  (str "<label class=\"target-pill\"><input type=\"radio\" name=\"target\" value=\""
+       (attr-escape (str kind ":" id)) "\"><span>" (hue/fill name) "</span></label>"))
+
+(defun hue/group-target (entry)
+  (hue/target-radio "group" (hue/key-text (first entry))
+    (hue/name-or (nth 1 entry) "?")))
+
+(defun hue/light-target (entry)
+  (hue/target-radio "light" (hue/key-text (first entry))
+    (hue/name-or (nth 1 entry) "?")))
+
+(defun hue/target-groups (result)
+  (if (not (ok? result)) ""
+      (string-join
+        (map 'hue/group-target
+          (filter 'hue/group-real? (or-empty (value result))))
+        "")))
+
+(defun hue/group-real? (entry)
+  (or (hue/room? entry) (hue/zone? entry)))
+
+(defun hue/target-lights (result)
+  (if (not (ok? result)) ""
+      (string-join (map 'hue/light-target (or-empty (value result))) "")))
+
+(defun hue/save-panel (groups lights)
+  (str
+    "<details class=\"save-panel\"><summary><span>Save current look</span>"
+    "<span class=\"plus\">+</span></summary>"
+    "<form method=\"post\" action=\"/saved/save\" class=\"save-form\" data-reload=\"true\">"
+    "<label class=\"save-name\">Name<input name=\"name\" placeholder=\"Evening, Movie night…\" required></label>"
+    "<fieldset class=\"targets\"><legend>Room, zone or lamp</legend><div class=\"target-grid\">"
+    (hue/target-groups groups) (hue/target-lights lights)
+    "</div></fieldset>"
+    "<button class=\"primary\" type=\"submit\">Save scene</button></form></details>"))
+
+(defun hue/stat (value label)
+  (str "<div class=\"stat\"><strong>" (str value) "</strong><span>" (hue/fill label) "</span></div>"))
+
+(defun hue/entry-on? (entry key)
+  (field (field (nth 1 entry) key) :on))
+
+(defun hue/count-on (result key)
+  (if (not (ok? result)) 0
+      (length (or-empty (filter-with 'hue/entry-on? key (or-empty (value result)))))))
+
+(defun hue/count-on-type (result key type)
+  (if (not (ok? result)) 0
+      (length
+        (or-empty
+          (filter-with 'hue/entry-on? key
+            (filter-with 'hue/group-type? type (or-empty (value result))))))))
+
+(defun hue/dashboard-full (groups lights scenes saved)
+  (hue/page
+    (str
+      "<header class=\"topbar\"><a class=\"brand\" href=\"/\"><span class=\"brand-mark\"></span>"
+      "<span><strong>Hue</strong><small>local bridge</small></span></a>"
+      "<nav class=\"top-actions\">"
+      "<form method=\"post\" action=\"/power\" data-live=\"power\">"
+      "<input type=\"hidden\" name=\"kind\" value=\"group\"><input type=\"hidden\" name=\"id\" value=\"0\">"
+      "<input type=\"hidden\" name=\"action\" value=\"on\">"
+      "<button class=\"ghost\" type=\"submit\">All on</button></form>"
+      "<form method=\"post\" action=\"/power\" data-live=\"power\">"
+      "<input type=\"hidden\" name=\"kind\" value=\"group\"><input type=\"hidden\" name=\"id\" value=\"0\">"
+      "<input type=\"hidden\" name=\"action\" value=\"off\">"
+      "<button class=\"ghost\" type=\"submit\">All off</button></form>"
+      "<a class=\"ghost\" href=\"/\">Refresh</a></nav></header>"
+      "<main class=\"page\"><section class=\"hero\"><div>"
+      "<p class=\"eyebrow\">Lighting control</p><h1>Set the room.</h1>"
+      "<p class=\"lede\">Live rooms, individual lamps, colour, atmosphere and your own captured scenes.</p>"
+      "</div><div class=\"stats\">"
+      (hue/stat (hue/count-on-type groups :action "Room") "rooms on")
+      (hue/stat (hue/count-on lights :state) "lamps on")
+      (hue/stat (length (or-empty saved)) "saved scenes")
+      "</div></section>"
+      (hue/save-panel groups lights)
+      (hue/rooms-panel groups scenes)
+      (hue/zones-panel groups scenes)
+      (hue/lights-panel lights)
+      (hue/saved-panel saved)
+      "</main>")))
+
+(defun hue/dashboard (groups lights scenes)
+  (hue/dashboard-full groups lights scenes nil))

@@ -1,0 +1,86 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Hue CLI over a real socket, against `tests/fake_bridge.py`.
+;
+; `tests/socket.sh` starts the stub, exports HUE_BRIDGE, and runs this file
+; with `soil-lang --allow $HUE_BRIDGE --http-credential test-key`. The stub
+; only accepts the key the host leased, so a passing test also proves the
+; `__CREDENTIAL__` substitution happened outside the guest.
+;
+; The bridge logs every request; `socket.sh` asserts the scene write and that
+; no `__CREDENTIAL__` ever reached it.
+
+(defun socket/cli (words)
+  (hue/cli (append (list "--bridge" (getenv "HUE_BRIDGE")
+                         "--credential" "default")
+                   words)))
+
+(defun test/socket-status ()
+  (let ((result (socket/cli (list "status"))))
+    (and
+      (ok? result)
+      (= (value result)
+         "Fake Bridge\nlights: 2\ngroups: 2\nall: off bri: 0"))))
+
+(defun test/socket-lists-lights-in-id-order ()
+  (let ((result (socket/cli (list "lights"))))
+    (and
+      (ok? result)
+      (= (value result) "1\tDesk\toff\tbri 0\n3\tWindow Lamp\toff\tbri 0"))))
+
+(defun test/socket-on ()
+  (let ((result (socket/cli (list "--light" "3" "on"))))
+    (and
+      (ok? result)
+      (= (value result) "light 3: on"))))
+
+(defun test/socket-brightness-and-colour ()
+  (let ((bri (socket/cli (list "--light" "3" "bri" "180")))
+        (color (socket/cli (list "--light" "3" "color" "#ff8800"))))
+    (and
+      (ok? bri)
+      (= (value bri) "light 3: brightness 180")
+      (ok? color)
+      (= (value color) "light 3: #ff8800 -> xy (0.601, 0.3837)"))))
+
+(defun test/socket-toggle-inverts-the-state ()
+  (let ((result (socket/cli (list "--light" "3" "toggle"))))
+    (and
+      (ok? result)
+      (or (= (value result) "light 3: on")
+          (= (value result) "light 3: off")))))
+
+(defun test/socket-scene-is-case-insensitive ()
+  (let ((result (socket/cli (list "--group" "1" "scene" "relax"))))
+    (and
+      (ok? result)
+      (= (value result) "group 1: scene Relax"))))
+
+(defun test/socket-missing-scene ()
+  (let ((result (socket/cli (list "--group" "1" "scene" "nope"))))
+    (and
+      (not (ok? result))
+      (= (value result) "scene: no scene named \"nope\""))))
+
+(defun test/socket-in-band-error-reaches-the-cli ()
+  (let ((result (socket/cli (list "--light" "999" "on"))))
+    (and
+      (not (ok? result))
+      (= (value result) "bridge: invalid value, 999, for parameter, light"))))
+
+(defun test/socket-json-is-compact ()
+  (let ((result (socket/cli (list "--json" "--light" "3" "on"))))
+    (and
+      (ok? result)
+      (string-contains? (value result) "\"success\""))))
+
+(defun test/socket-pair-mints-a-key ()
+  (let ((result
+          (hue/cli (list "--bridge" (getenv "HUE_BRIDGE") "pair" "tests#hue"))))
+    (and
+      (ok? result)
+      (= (value result)
+         (str "paired tests#hue\n"
+              "application key: test-key\n"
+              "store it as geode://home/hue/bridge")))))

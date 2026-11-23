@@ -1,0 +1,50 @@
+interface lights {
+  record light {
+    id: string,
+    name: string,
+    on: bool,
+    brightness: option<u8>,
+    reachable: bool,
+    room: option<string>,
+  }
+
+  record group {
+    id: string,
+    name: string,
+    kind: string,
+    on: bool,
+    brightness: option<u8>,
+    lights: list<string>,
+  }
+
+  record scene {
+    id: string,
+    name: string,
+    group: option<string>,
+  }
+
+  record snapshot {
+    bridge: string,
+    lights: list<light>,
+    groups: list<group>,
+    scenes: list<scene>,
+  }
+
+  variant target {
+    group(string),
+    light(string),
+  }
+
+  variant error {
+    denied(string),
+    unavailable(string),
+    invalid(string),
+    bridge(string),
+  }
+
+  state: func(base: string, credential: string) -> result<snapshot, error>;
+  set-power: func(base: string, credential: string, target: target, on: bool) -> result<_, error>;
+  set-brightness: func(base: string, credential: string, target: target, value: u8) -> result<_, error>;
+  set-colour: func(base: string, credential: string, target: target, hex: string) -> result<_, error>;
+  set-scene: func(base: string, credential: string, group: string, scene: string) -> result<_, error>;
+}
