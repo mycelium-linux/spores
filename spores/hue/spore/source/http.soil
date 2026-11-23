@@ -62,6 +62,11 @@
       (list 'ok nil)
       (hue/scene (hue/http-bridge bridge) (hue/http-target kind id) value)))
 
+(defun hue/http-scene-id (bridge kind id value)
+  (if (= value "")
+      (list 'ok nil)
+      (hue/scene-id (hue/http-bridge bridge) (hue/http-target kind id) value)))
+
 (defun hue/http-mood (bridge kind id value)
   (if (= value "")
       (list 'ok nil)
@@ -223,6 +228,12 @@
       ((and (= method "POST") (= path "/scene"))
         (hue/http-ok
           (hue/http-scene bridge
+            (hue/http-form body "kind")
+            (hue/http-form body "id")
+            (hue/http-form body "value"))))
+      ((and (= method "POST") (= path "/scene-id"))
+        (hue/http-ok
+          (hue/http-scene-id bridge
             (hue/http-form body "kind")
             (hue/http-form body "id")
             (hue/http-form body "value"))))
