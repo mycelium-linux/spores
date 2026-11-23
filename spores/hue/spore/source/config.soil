@@ -1,0 +1,13 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Bridge base URL. A Spore cannot discover Hue; the host workspace names it.
+; The app key is not here: the host substitutes the `default` credential.
+
+(defun hue/config-base ()
+  (let ((chunk (soil:vfs/read "hue/bridge" 0 256)))
+    (if (ok? chunk)
+        (let ((text (string-trim (bytes->string (field (value chunk) :data)))))
+          (if (= text "") "http://127.0.0.1:8000" text))
+        "http://127.0.0.1:8000")))
+
+(defun hue/config-home ()
+  (hue/bridge (hue/config-base) "default"))
