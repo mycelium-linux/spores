@@ -1,0 +1,6 @@
+spore-lock 1
+spore dev.fungos.agents
+version 0.1.0
+file 57b98fb69c40fbcbf7321ccfd6e074273c34163ee71a23ba9eccb4386ee1605c 145889 module.wasm
+file 65f60e9ae53ae88c2ea035fcdf707e015b84cb944443033378d3d831229862af 544 spore.toml
+digest 37f5cb994fd488da0471a5557a1dc5fa717cbcb51c6dd93a2aba7eb4ca3ce8ae

@@ -1,0 +1,8 @@
+package fungos:agents-cli@0.1.0;
+
+world agents-cli {
+  import fungos:agents/cli@0.1.0;
+  import wasi:cli/environment@0.2.12;
+
+  export wasi:cli/run@0.2.12;
+}

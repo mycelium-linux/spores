@@ -1,0 +1,29 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.theseus-agents"
+name = "theseus-agents"
+version = "0.1.0"
+license = "MIT"
+summary = "Theseus agent records as a soil:agents adapter"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+# The adapter is a provider: it exports theseus:agents and imports only the
+# records book Theseus already writes.
+[grants]
+"fungos:theseus-agents" = "the adapter exports these interfaces"
+"soil:records" = "read Theseus turns and usage records"
+
+[denied]
+"wasi:filesystem" = ["records are the interface, not the filesystem"]
+host = ["process", "secrets", "environment"]

@@ -1,0 +1,30 @@
+schema = 1
+
+[spore]
+id = "dev.fungos.agents-cli"
+name = "agents-cli"
+version = "0.1.0"
+license = "MIT"
+summary = "WASI command wrapper for the soil:agents aggregator probe"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[[commands]]
+name = "agents"
+summary = "print the normalized agent list"
+module = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"fungos:agents" = "compose the agents aggregator"
+
+[denied]
+host = ["process", "secrets", "environment"]
