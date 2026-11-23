@@ -65,6 +65,27 @@ Native tests use a fake transport and need no bridge:
 cargo test -p spore-hue
 ```
 
+
+## WIT surface
+
+`module.wasm` exports `fungos:hue/lights@0.1.0` alongside the CLI `run`
+function. Other Spores can hold a `bridge` resource and read rooms, lamps and
+scenes without scraping the CLI:
+
+```wit
+let br = hue/lights.bridge.connect("http://hue.local", "default");
+let snap = br.snapshot();
+br.set-power(hue/lights.target.group("81"), true);
+br.set-brightness(hue/lights.target.light("3"), 180);
+br.set-colour(hue/lights.target.light("3"), "#ff8800");
+br.set-scene("81", "qRFrxxoQ9xCWxv1h");
+```
+
+The resource never receives a bridge key. `credential` is a host handle such as
+`default` or `geode://home/hue/bridge`; the host leases it and substitutes it
+into the v1 URL path. `snapshot` returns the bridge's all-lights group even on
+firmware that omits it from `/groups`.
+
 ## Soil library
 
 `lib/hue.soil` is the Spore's Hue domain layer in Soil: bridge URL

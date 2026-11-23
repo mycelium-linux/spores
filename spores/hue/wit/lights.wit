@@ -1,0 +1,58 @@
+interface lights {
+  record light {
+    id: string,
+    name: string,
+    on: bool,
+    brightness: option<u8>,
+    reachable: bool,
+    room: option<string>,
+  }
+
+  record group {
+    id: string,
+    name: string,
+    kind: string,
+    on: bool,
+    brightness: option<u8>,
+    lights: list<string>,
+  }
+
+  record scene {
+    id: string,
+    name: string,
+    group: option<string>,
+  }
+
+  record snapshot {
+    bridge: string,
+    lights: list<light>,
+    groups: list<group>,
+    scenes: list<scene>,
+  }
+
+  variant target {
+    group(string),
+    light(string),
+  }
+
+  variant error {
+    denied(string),
+    unavailable(string),
+    invalid(string),
+    bridge(string),
+  }
+
+  resource bridge {
+    /// Connect through the host's `soil:http` grant. `credential` is an opaque
+    /// host handle such as `default` or `geode://home/hue/bridge`.
+    connect: static func(base: string, credential: string) -> result<bridge, error>;
+
+    /// The full room/lamp/scene view, including the bridge's all-lights group.
+    snapshot: func() -> result<snapshot, error>;
+
+    set-power: func(target: target, on: bool) -> result<_, error>;
+    set-brightness: func(target: target, value: u8) -> result<_, error>;
+    set-colour: func(target: target, hex: string) -> result<_, error>;
+    set-scene: func(group: string, scene: string) -> result<_, error>;
+  }
+}
