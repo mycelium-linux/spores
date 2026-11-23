@@ -6,4 +6,11 @@
   (id "dev.fungos.hue")
   (version "0.1.0")
   (distribution "source")
-  (source "source/"))
+  (source "source/")
+  (anycast
+    (name "hue")
+    (kind "hue")
+    (alpns ("soil/http/1"))
+    (ttl_secs 240))
+  (surfaces
+    (surface "hue" (kind "web"))))
