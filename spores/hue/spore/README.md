@@ -53,3 +53,23 @@ SOIL=/path/to/soil ./tests/run.sh
 
 The suite is pure: fixture JSON, no bridge and no socket. It checks the page
 shell, all control forms, and escaping.
+
+## Static web surface
+
+`spore.toml` declares the deployable web surface:
+
+```toml
+[[surfaces]]
+name = "hue"
+kind = "web"
+
+[anycast]
+name = "hue"
+kind = "hue"
+alpns = ["soil/http/1"]
+ttl_secs = 240
+```
+
+`web/index.html` is the static render. `loam install` accepts the package, and
+`loamd` can discover it and publish `hue.myc`. The static page is read-only; the
+interactive controller is the Soil source in this package.
