@@ -25,7 +25,7 @@ keywords = ["convert", "files", "radial", "media"]
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { canvas = "1.0.0", "vfs" = "1.0.0", "vfs-mut" = "0.1.0" }
+abi = { surface = "1.1.0", "vfs" = "1.0.0", "vfs-mut" = "0.1.0" }
 
 [module]
 # Produced by the Soil guest build. Not built yet: this pass lands the operation
@@ -42,11 +42,13 @@ jit = true
 hot_reload = true
 
 [launch]
+# `canvas` is the host launch target, not the contract: the guest imports
+# soil:surface and the host decides which window/browser adapter presents it.
 default = "canvas"
 surfaces = ["canvas", "native"]
 
 [grants]
-"soil:canvas" = "present the radial menu and the tool surfaces"
+"soil:surface" = "present the radial menu and the tool surfaces"
 "soil:vfs" = "read the dropped source by workspace path"
 "soil:vfs-mut" = "write the result beside it"
 "soil:notify" = "report what changed and offer Undo"
