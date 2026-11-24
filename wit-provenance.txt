@@ -190,3 +190,7 @@ spores/mush/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f61844122
 spores/scribe-ui/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/scribe/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/sfx/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+=======
+
+spores/factory-ui/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+>>>>>>> 9f92d1f (spores: record factory-ui vfs-mut provenance)
