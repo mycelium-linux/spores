@@ -11,6 +11,10 @@ world agents {
   import fungos:theseus-agents/metrics@0.1.0;
   import fungos:theseus-agents/dispatch@0.1.0;
   import fungos:theseus-agents/cli@0.1.0;
+  import fungos:acp-agents/observe@0.1.0;
+  import fungos:acp-agents/control@0.1.0;
+  import fungos:acp-agents/metrics@0.1.0;
+  import fungos:acp-agents/dispatch@0.1.0;
 
   export soil:agents/types@0.2.0;
   export soil:agents/observe@0.2.0;

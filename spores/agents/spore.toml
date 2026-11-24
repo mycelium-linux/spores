@@ -26,6 +26,9 @@ surfaces = ["native"]
 # The aggregator imports adapter Spores; it does not read records itself.
 [grants]
 "fungos:theseus-agents" = "compose the Theseus adapter Spore"
+"fungos:acp-agents" = "compose the ACP-over-HTTP adapter Spore"
+"soil:http" = "the ACP adapter reaches its allowlisted endpoint"
+"soil:vfs" = "the ACP adapter reads agents/acp.json"
 
 [denied]
 "soil:records" = ["the adapter owns the records book"]

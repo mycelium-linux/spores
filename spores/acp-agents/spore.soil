@@ -10,7 +10,8 @@
   (grants
     ("fungos:acp-agents" "the adapter exports these interfaces")
     ("soil:http" "reach the ACP endpoint the host allowlists")
-    ("soil:vfs" "read agents/acp.json for the endpoint"))
+    ("soil:vfs" "read agents/acp.json for the endpoint")
+    ("soil:vfs-mut" "write canonical ACP thread events"))
   (http-client
     (origin "http://127.0.0.1:8791")
     (credential "default")))

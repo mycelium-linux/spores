@@ -24,7 +24,7 @@ default = "native"
 surfaces = ["native"]
 
 [grants]
-"fungos:theseus-agents" = "compose the Theseus adapter for the probe"
+"fungos:agents" = "compose the aggregator for the probe"
 
 [denied]
 host = ["process", "secrets", "environment"]
