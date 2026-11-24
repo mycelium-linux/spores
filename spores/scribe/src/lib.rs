@@ -45,6 +45,9 @@ struct Args {
     deep_model: String,
     deep_after_chars: usize,
     force: bool,
+    limit: usize,
+    gap_ms: u64,
+    retry_failed: bool,
 }
 
 impl Default for Args {
@@ -66,6 +69,9 @@ impl Default for Args {
             deep_model: "beam-free".to_string(),
             deep_after_chars: 80_000,
             force: false,
+            limit: 0,
+            gap_ms: 10_000,
+            retry_failed: false,
         }
     }
 }
@@ -119,6 +125,17 @@ impl Args {
                         .map_err(|_| "--deep-after-chars must be a number".to_string())?
                 }
                 "--force" => args.force = true,
+                "--limit" => {
+                    args.limit = value()?
+                        .parse()
+                        .map_err(|_| "--limit must be a number".to_string())?
+                }
+                "--gap-ms" => {
+                    args.gap_ms = value()?
+                        .parse()
+                        .map_err(|_| "--gap-ms must be a number".to_string())?
+                }
+                "--retry-failed" => args.retry_failed = true,
                 "--help" | "-h" => {
                     return Err(
                         "scribe commands: watch [--hold-ms N] [--once] | receive [--once] | enrich [--hold-ms N] [--once] | voiceprint --templates-json JSON | voiceprint --path PATH | voicefix --path PATH | names --path PATH | learn | ingest --event JSON [--model ALIAS] [--no-enrich]"
@@ -175,6 +192,7 @@ fn run_inner(raw: &[String]) -> Result<(), String> {
         "watch" => watch(args),
         "receive" => receive(args),
         "enrich" => enrich_watch(args),
+        "backfill" => backfill(args),
         "voiceprint" => voiceprint(args),
         "voicefix" => voicefix(args),
         "restyle" => restyle(args),
@@ -494,6 +512,124 @@ fn enrich_watch(args: Args) -> Result<(), String> {
         "failed": failed,
     }));
     Ok(())
+}
+
+fn backfill(args: Args) -> Result<(), String> {
+    let roots = capture_roots()?;
+    let state_path = "scribe/backfill-state.json";
+    let mut state = read_json(state_path).unwrap_or_else(|_| json!({}));
+    if !state.is_object() {
+        state = json!({});
+    }
+    let mut seen = 0_u64;
+    let mut work = 0_u64;
+    let mut enriched = 0_u64;
+    let mut skipped = 0_u64;
+    let mut failed = 0_u64;
+    for root in roots {
+        seen += 1;
+        let summary = read_text(&format!("{root}/summary.md")).unwrap_or_default();
+        if !summary.trim().is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let attempts = state
+            .get(&root)
+            .and_then(|value| value.get("attempts"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if attempts >= 3 && !args.retry_failed {
+            skipped += 1;
+            continue;
+        }
+        if args.limit > 0 && work >= args.limit as u64 {
+            break;
+        }
+        work += 1;
+        let id = root.rsplit('/').next().unwrap_or("capture").to_string();
+        let source = root.split('/').nth(1).unwrap_or("omi").to_string();
+        let meta = read_json(&format!("{root}/capture.json")).unwrap_or_else(|_| json!({}));
+        let stored = json!({
+            "capture_id": id,
+            "source": source,
+            "bundle": root,
+            "started_at_ms": meta.get("started_at_ms").cloned().unwrap_or(Value::Null),
+            "ended_at_ms": meta.get("ended_at_ms").cloned().unwrap_or(Value::Null),
+        });
+        match load_bundle_event(&stored, &root).and_then(|mut event| {
+            event["checkpoint"] = Value::Bool(false);
+            process_event(
+                &event,
+                &args.model,
+                true,
+                false,
+                &args.deep_model,
+                args.deep_after_chars,
+            )
+        }) {
+            Ok(_) => {
+                if let Some(fields) = state.as_object_mut() {
+                    fields.remove(&root);
+                }
+                enriched += 1;
+                eprintln!("scribe: backfilled {root}");
+            }
+            Err(error) => {
+                failed += 1;
+                if let Some(fields) = state.as_object_mut() {
+                    fields.insert(root.clone(), json!({
+                        "attempts": attempts + 1,
+                        "last_error": error,
+                    }));
+                }
+                eprintln!("scribe: backfill {root}: {error}");
+            }
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&state).map_err(|error| error.to_string())?;
+    vfs_mut::write(state_path, &bytes, "application/json", None, None)
+        .map_err(|error| format!("write backfill state: {error:?}"))?;
+    finish(json!({
+        "ok": true,
+        "command": "backfill",
+        "seen": seen,
+        "enriched": enriched,
+        "skipped": skipped,
+        "failed": failed,
+    }));
+    Ok(())
+}
+
+
+fn capture_roots() -> Result<Vec<String>, String> {
+    let mut roots = Vec::new();
+    for source in list_dirs("captures")? {
+        for date in list_dirs(&source)? {
+            for capture in list_dirs(&date)? {
+                roots.push(capture);
+            }
+        }
+    }
+    roots.sort();
+    Ok(roots)
+}
+
+fn list_dirs(parent: &str) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let page = vfs::ls(parent, offset, 256).map_err(|error| format!("vfs ls {parent}: {error:?}"))?;
+        for entry in page.entries {
+            if entry.kind == vfs::Kind::Directory {
+                paths.push(entry.path);
+            }
+        }
+        match page.next {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    Ok(paths)
 }
 
 fn load_bundle_event(stored: &Value, bundle: &str) -> Result<Value, String> {
@@ -1684,8 +1820,10 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
     let mut sources = Vec::new();
     for path in paths.iter() {
         let meta = read_json(&format!("{path}/capture.json")).unwrap_or_else(|_| json!({}));
-        if meta.get("merged_into").and_then(Value::as_str).is_some() {
-            return Err(format!("{path} is already merged into another capture"));
+        if meta.get("merged_into").and_then(Value::as_str).is_some()
+            || meta.get("merged_from").is_some()
+        {
+            return Err(format!("{path} is already merged"));
         }
         let transcript = read_json(&format!("{path}/transcript.json"))?;
         let speakers = read_json(&format!("{path}/speakers.json")).unwrap_or_else(|_| json!({}));
@@ -1962,7 +2100,6 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
         &args.deep_model,
         args.deep_after_chars,
     )?;
-
     if let Some(audio) = merge_audio(&sources, earliest) {
         write_file(&format!("{root}/audio.wav"), &audio, "audio/wav")?;
     }
@@ -2018,7 +2155,7 @@ fn merge_captures(paths: &[String], args: &Args) -> Result<Value, String> {
 fn valid_capture_path(path: &str) -> bool {
     path.starts_with("captures/")
         && !path.contains("..")
-        && path.split('/').count() >= 5
+        && path.split('/').count() >= 4
         && !path.ends_with('/')
 }
 
@@ -2388,7 +2525,6 @@ fn process_event(
     } else {
         "empty"
     };
-
     let transcript_bytes = serde_json::to_vec_pretty(&event.transcript)
         .map_err(|error| format!("transcript JSON: {error}"))?;
     let summary_bytes = event.summary.as_bytes().to_vec();
@@ -2398,7 +2534,6 @@ fn process_event(
         .map_err(|error| format!("questions JSON: {error}"))?;
     let calendar_bytes = serde_json::to_vec_pretty(&event.calendar)
         .map_err(|error| format!("calendar JSON: {error}"))?;
-
     let transcript = write_file(
         &format!("{root}/transcript.json"),
         &transcript_bytes,

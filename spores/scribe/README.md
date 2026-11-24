@@ -45,6 +45,8 @@ audio and event through VFS, then runs the same ingest/enrichment path.
 `watch` polls `omi.capture.v1`, processes each frame, and advances the Unibus
 cursor. `--once` processes one page and exits; this is the test/dev path.
 
+`backfill` scans existing capture bundles with no summary and runs the same enrichment path. Use it after a bus outage; it does not depend on retained Unibus events.
+
 ## Output
 
 ```
