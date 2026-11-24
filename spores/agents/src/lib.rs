@@ -9,15 +9,15 @@ wit_bindgen::generate!({
     generate_all,
 });
 
-use exports::fungos::agents::cli;
+use exports::mycelium::agents::cli;
 use exports::soil::agents::types as p;
 use exports::soil::agents::{control, dispatch, metrics, observe};
-use fungos::acp_agents::observe as a;
-use fungos::acp_agents::{control as a_control, dispatch as a_dispatch};
-use fungos::acp_agents::{metrics as a_metrics, observe as a_observe};
-use fungos::theseus_agents::observe as t;
-use fungos::theseus_agents::{cli as t_cli, control as t_control, dispatch as t_dispatch};
-use fungos::theseus_agents::{metrics as t_metrics, observe as t_observe};
+use mycelium::acp_agents::observe as a;
+use mycelium::acp_agents::{control as a_control, dispatch as a_dispatch};
+use mycelium::acp_agents::{metrics as a_metrics, observe as a_observe};
+use mycelium::theseus_agents::observe as t;
+use mycelium::theseus_agents::{cli as t_cli, control as t_control, dispatch as t_dispatch};
+use mycelium::theseus_agents::{metrics as t_metrics, observe as t_observe};
 
 struct Component;
 

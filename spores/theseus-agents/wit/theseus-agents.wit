@@ -1,6 +1,6 @@
 // Theseus adapter. Each exported interface carries the records it uses, so a
 // composing host does not need a separate type-only provider.
-package fungos:theseus-agents@0.1.0;
+package mycelium:theseus-agents@0.1.0;
 
 interface observe {
 

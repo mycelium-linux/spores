@@ -16,7 +16,7 @@ use soil::records::records;
 use soil::vfs::vfs;
 use soil::vfs_mut::vfs_mut;
 
-use exports::fungos::theseus_agents::{control, dispatch, metrics, observe};
+use exports::mycelium::theseus_agents::{control, dispatch, metrics, observe};
 mod types {
     pub use super::observe::{
         Activity, ActivityKind, Agent, Binding, Device, Error, Escalation, Goal, Phase, Role,
@@ -735,7 +735,7 @@ impl dispatch::Guest for Component {
     }
 }
 
-impl exports::fungos::theseus_agents::cli::Guest for Component {
+impl exports::mycelium::theseus_agents::cli::Guest for Component {
     fn run(args: Vec<String>) -> Result<String, String> {
         let loaded = load().map_err(|error| format!("{error:?}"))?;
         let action = args.first().map(String::as_str).unwrap_or("agents");

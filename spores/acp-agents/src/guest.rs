@@ -11,7 +11,7 @@ use soil::http::http;
 use soil::vfs::vfs;
 use soil::vfs_mut::vfs_mut;
 
-use exports::fungos::acp_agents::{control, dispatch, metrics, observe};
+use exports::mycelium::acp_agents::{control, dispatch, metrics, observe};
 use observe::Guest as _;
 mod types {
     pub use super::observe::{
@@ -318,7 +318,7 @@ impl dispatch::Guest for Component {
     }
 }
 
-impl exports::fungos::acp_agents::cli::Guest for Component {
+impl exports::mycelium::acp_agents::cli::Guest for Component {
     fn run(args: Vec<String>) -> Result<String, String> {
         let mut endpoint = None;
         let mut words = Vec::new();

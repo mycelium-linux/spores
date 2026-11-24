@@ -1,7 +1,7 @@
 schema = 1
 
 [spore]
-id = "dev.fungos.agents-cli"
+id = "dev.mycelium.agents-cli"
 name = "agents-cli"
 version = "0.1.0"
 license = "MIT"
@@ -24,7 +24,11 @@ default = "native"
 surfaces = ["native"]
 
 [grants]
-"fungos:agents" = "compose the aggregator for the probe"
+"mycelium:agents" = "compose the aggregator for the probe"
+
+"wasi:cli" = "WASI runtime imports emitted by the component target"
+"wasi:clocks" = "WASI runtime imports emitted by the component target"
+"wasi:io" = "WASI runtime imports emitted by the component target"
 
 [denied]
 host = ["process", "secrets", "environment"]

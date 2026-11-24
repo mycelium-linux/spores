@@ -1,20 +1,20 @@
 // The aggregator Spore: one public soil:agents surface over every adapter.
-package fungos:agents@0.1.0;
+package mycelium:agents@0.1.0;
 
 interface cli {
   run: func(args: list<string>) -> result<string, string>;
 }
 
 world agents {
-  import fungos:theseus-agents/observe@0.1.0;
-  import fungos:theseus-agents/control@0.1.0;
-  import fungos:theseus-agents/metrics@0.1.0;
-  import fungos:theseus-agents/dispatch@0.1.0;
-  import fungos:theseus-agents/cli@0.1.0;
-  import fungos:acp-agents/observe@0.1.0;
-  import fungos:acp-agents/control@0.1.0;
-  import fungos:acp-agents/metrics@0.1.0;
-  import fungos:acp-agents/dispatch@0.1.0;
+  import mycelium:theseus-agents/observe@0.1.0;
+  import mycelium:theseus-agents/control@0.1.0;
+  import mycelium:theseus-agents/metrics@0.1.0;
+  import mycelium:theseus-agents/dispatch@0.1.0;
+  import mycelium:theseus-agents/cli@0.1.0;
+  import mycelium:acp-agents/observe@0.1.0;
+  import mycelium:acp-agents/control@0.1.0;
+  import mycelium:acp-agents/metrics@0.1.0;
+  import mycelium:acp-agents/dispatch@0.1.0;
   import wasi:cli/environment@0.2.12;
 
   export wasi:cli/run@0.2.12;
