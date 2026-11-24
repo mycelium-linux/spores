@@ -522,13 +522,11 @@ fn backfill(args: Args) -> Result<(), String> {
         state = json!({});
     }
     let mut seen = 0_u64;
+    let mut work = 0_u64;
     let mut enriched = 0_u64;
     let mut skipped = 0_u64;
     let mut failed = 0_u64;
     for root in roots {
-        if args.limit > 0 && seen >= args.limit as u64 {
-            break;
-        }
         seen += 1;
         let summary = read_text(&format!("{root}/summary.md")).unwrap_or_default();
         if !summary.trim().is_empty() {
@@ -544,6 +542,10 @@ fn backfill(args: Args) -> Result<(), String> {
             skipped += 1;
             continue;
         }
+        if args.limit > 0 && work >= args.limit as u64 {
+            break;
+        }
+        work += 1;
         let id = root.rsplit('/').next().unwrap_or("capture").to_string();
         let source = root.split('/').nth(1).unwrap_or("omi").to_string();
         let meta = read_json(&format!("{root}/capture.json")).unwrap_or_else(|_| json!({}));
