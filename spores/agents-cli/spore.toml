@@ -25,6 +25,9 @@ surfaces = ["native"]
 
 [grants]
 "mycelium:agents" = "compose the aggregator for the probe"
+"soil:records" = "the Theseus provider reads turn records"
+"soil:vfs" = "the ACP provider reads agents/acp.json"
+"soil:http" = "the ACP provider reaches its allowlisted endpoint"
 
 "wasi:cli" = "WASI runtime imports emitted by the component target"
 "wasi:clocks" = "WASI runtime imports emitted by the component target"

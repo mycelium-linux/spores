@@ -15,7 +15,8 @@ use exports::mycelium::acp_agents::{control, dispatch, metrics, observe};
 use observe::Guest as _;
 mod types {
     pub use super::observe::{
-        Agent, Binding, Device, Error, Escalation, Page, Phase, Scope, ScopeKind, Usage,
+        Agent, Binding, Device, Error, Escalation, Page, Phase, Role, Scope, ScopeKind, Turn,
+        Usage,
     };
 }
 
@@ -216,15 +217,40 @@ impl observe::Guest for Component {
     }
 
     fn transcript(
-        _id: String,
-        _before: Option<u64>,
-        _limit: u32,
+        id: String,
+        before: Option<u64>,
+        limit: u32,
     ) -> Result<types::Page, types::Error> {
-        // ACP's portable surface is a live session, not a transcript archive.
-        // The thread store owns history; this adapter does not invent one.
+        let client = Client::open()?;
+        let mut params = json!({"sessionId": id, "limit": limit.clamp(1, 500)});
+        if let Some(before) = before {
+            params["before"] = json!(before);
+        }
+        let result = client.rpc("session/transcript", params)?;
+        let turns = result
+            .get("turns")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .map(|row| types::Turn {
+                        role: match row.get("role").and_then(Value::as_str) {
+                            Some("user") => types::Role::User,
+                            Some("tool") => types::Role::Tool,
+                            _ => types::Role::Assistant,
+                        },
+                        text: row
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        at_ms: row.get("atMs").and_then(Value::as_u64).unwrap_or_default(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         Ok(types::Page {
-            turns: Vec::new(),
-            before: None,
+            turns,
+            before: result.get("before").and_then(Value::as_u64),
         })
     }
 }
@@ -401,6 +427,37 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
             Some("prompt") if words.len() >= 3 => {
                 prompt(&client, &words[1], &words[2..].join(" ")).map_err(describe)?;
                 Ok("ok".into())
+            }
+            Some("interrupt") if words.len() >= 2 => {
+                client
+                    .rpc("session/cancel", json!({"sessionId": words[1]}))
+                    .map_err(describe)?;
+                Ok(json!({"status": "queued"}).to_string())
+            }
+            Some("transcript") if words.len() >= 2 => {
+                let page = <Component as observe::Guest>::transcript(
+                    words[1].clone(),
+                    None,
+                    words.get(2).and_then(|value| value.parse().ok()).unwrap_or(50),
+                )
+                .map_err(describe)?;
+                let turns: Vec<Value> = page
+                    .turns
+                    .iter()
+                    .map(|turn| {
+                        json!({
+                            "role": match turn.role {
+                                types::Role::User => "user",
+                                types::Role::Tool => "tool",
+                                types::Role::Assistant => "assistant",
+                            },
+                            "text": turn.text,
+                            "atMs": turn.at_ms,
+                        })
+                    })
+                    .collect();
+                serde_json::to_string(&json!({"turns": turns, "before": page.before}))
+                    .map_err(|error| error.to_string())
             }
             Some(other) => Err(format!("unknown command: {other}")),
         }

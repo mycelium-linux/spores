@@ -1,6 +1,6 @@
 spore-lock 1
 spore dev.mycelium.acp-agents
 version 0.1.0
-file 9952bf8e04b3f1df6f7129b8b354ad5a550b0621e283ecfa46ca4f066b471766 294095 module.wasm
+file 4579af5032b9b2fac9c864cf9a70f4c94b67c2649d40f6bf678902dc857da482 313324 module.wasm
 file f7440daccf22a7a77ec191c2f35954da695f31e1b7d7a90274d6e81b1755ceae 813 spore.toml
-digest e42a01c1d870718a8f09903051de1652b8c2fe3349e59a511d298c94ddb399e3
+digest 59bb4acb10cfab6e0bd9a5f4889aed61e24bceae6883bcf3e9e71c690ab43048

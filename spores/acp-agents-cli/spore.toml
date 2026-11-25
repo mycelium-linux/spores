@@ -25,6 +25,8 @@ surfaces = ["native"]
 
 [grants]
 "mycelium:acp-agents" = "compose the ACP adapter for the probe"
+"soil:http" = "the ACP adapter reaches its allowlisted endpoint"
+"soil:vfs" = "the ACP adapter reads agents/acp.json"
 
 "wasi:cli" = "WASI runtime imports emitted by the component target"
 "wasi:clocks" = "WASI runtime imports emitted by the component target"
