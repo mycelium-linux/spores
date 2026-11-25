@@ -1,0 +1,33 @@
+schema = 1
+
+[spore]
+id = "dev.mycelium.acp-agents"
+name = "acp-agents"
+version = "0.1.0"
+license = "MIT"
+summary = "ACP over HTTP as a soil:agents adapter"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+abi = { http = "0.2.0" }
+
+[module]
+path = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"mycelium:acp-agents" = "the adapter exports these interfaces"
+"soil:http" = "reach the ACP endpoint the host allowlists"
+"soil:vfs" = "read agents/acp.json for the endpoint"
+"soil:vfs-mut" = "write canonical ACP thread events"
+
+"wasi:cli" = "WASI runtime imports emitted by the component target"
+"wasi:clocks" = "WASI runtime imports emitted by the component target"
+"wasi:io" = "WASI runtime imports emitted by the component target"
+
+[denied]
+host = ["process", "secrets", "environment"]

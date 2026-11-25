@@ -1,0 +1,37 @@
+schema = 1
+
+[spore]
+id = "dev.mycelium.agents-cli"
+name = "agents-cli"
+version = "0.1.0"
+license = "MIT"
+summary = "WASI command wrapper for the soil:agents aggregator probe"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[[commands]]
+name = "agents"
+summary = "print the normalized agent list"
+module = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"mycelium:agents" = "compose the aggregator for the probe"
+"soil:records" = "the Theseus provider reads turn records"
+"soil:vfs" = "the ACP provider reads agents/acp.json"
+"soil:http" = "the ACP provider reaches its allowlisted endpoint"
+
+"wasi:cli" = "WASI runtime imports emitted by the component target"
+"wasi:clocks" = "WASI runtime imports emitted by the component target"
+"wasi:io" = "WASI runtime imports emitted by the component target"
+
+[denied]
+host = ["process", "secrets", "environment"]
