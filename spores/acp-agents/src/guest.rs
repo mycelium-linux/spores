@@ -385,6 +385,8 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
                                 .or_else(|| session.get("id")),
                             "harness": client.harness,
                             "title": session.get("title").or_else(|| session.get("name")),
+                            "workspace": session.get("cwd"),
+                            "model": session.get("model").or_else(|| session.get("currentModel")),
                         })
                     })
                     .collect();
