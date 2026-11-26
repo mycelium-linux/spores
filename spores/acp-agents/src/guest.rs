@@ -275,7 +275,7 @@ impl control::Guest for Component {
 
     fn send(id: String, text: String) -> Result<(), control::Error> {
         let client = Client::open().map_err(control_error)?;
-        prompt(&client, &id, &text)
+        prompt(&client, &id, &text, None, None, None)
             .map(|_| ())
             .map_err(control_error)
     }
@@ -458,7 +458,7 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
                     .and_then(Value::as_str)
                     .ok_or_else(|| "session/new returned no id".to_string())?
                     .to_string();
-                prompt(&client, &id, &task).map_err(describe)?;
+                prompt(&client, &id, &task, None, None, None).map_err(describe)?;
                 serde_json::to_string(&json!({
                     "status": "accepted",
                     "agentId": id,
@@ -501,8 +501,42 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
                 .map_err(|error| error.to_string())
             }
             Some("prompt") if words.len() >= 3 => {
-                prompt(&client, &words[1], &words[2..].join(" ")).map_err(describe)?;
-                Ok("ok".into())
+                let id = words[1].clone();
+                let mut delivery = None;
+                let mut dispatch_id = None;
+                let mut authorized_by = None;
+                let mut text_parts = Vec::new();
+                let mut at = 2;
+                while at < words.len() {
+                    match words[at].as_str() {
+                        "--deliver" if at + 1 < words.len() => {
+                            delivery = Some(words[at + 1].clone());
+                            at += 2;
+                        }
+                        "--dispatch-id" if at + 1 < words.len() => {
+                            dispatch_id = Some(words[at + 1].clone());
+                            at += 2;
+                        }
+                        "--authorized-by" if at + 1 < words.len() => {
+                            authorized_by = Some(words[at + 1].clone());
+                            at += 2;
+                        }
+                        other => {
+                            text_parts.push(other.to_string());
+                            at += 1;
+                        }
+                    }
+                }
+                let value = prompt(
+                    &client,
+                    &id,
+                    &text_parts.join(" "),
+                    delivery.as_deref(),
+                    dispatch_id.as_deref(),
+                    authorized_by.as_deref(),
+                )
+                .map_err(describe)?;
+                serde_json::to_string(&value).map_err(|error| error.to_string())
             }
             Some("interrupt") if words.len() >= 2 => {
                 client
@@ -577,14 +611,28 @@ fn phase_name(value: types::Phase) -> &'static str {
     }
 }
 
-fn prompt(client: &Client, id: &str, text: &str) -> Result<Value, types::Error> {
-    client.rpc(
-        "session/prompt",
-        json!({
-            "sessionId": id,
-            "prompt": [{"type": "text", "text": text}],
-        }),
-    )
+fn prompt(
+    client: &Client,
+    id: &str,
+    text: &str,
+    delivery: Option<&str>,
+    dispatch_id: Option<&str>,
+    authorized_by: Option<&str>,
+) -> Result<Value, types::Error> {
+    let mut params = json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": text}],
+    });
+    if let Some(delivery) = delivery {
+        params["delivery"] = json!(delivery);
+    }
+    if let Some(dispatch_id) = dispatch_id {
+        params["dispatch_id"] = json!(dispatch_id);
+    }
+    if let Some(authorized_by) = authorized_by {
+        params["authorized_by"] = json!(authorized_by);
+    }
+    client.rpc("session/prompt", params)
 }
 
 fn config() -> Config {
@@ -633,7 +681,7 @@ fn stream_prompt(client: &Client, id: &str, text: &str) -> Result<String, types:
         timeout_ms: 8_000,
     })
     .map_err(map_http)?;
-    let response = prompt(client, id, text)?;
+    let response = prompt(client, id, text, None, None, None)?;
     let mut reply = String::new();
     if let Some(content) = response.get("content").and_then(Value::as_array) {
         for part in content {
