@@ -84,3 +84,80 @@ composes the provider, then run `STRICT=1` on the host.
 - No live install, reload, or MCP restart was performed.
 - The `agents` and `acp-agents` versions remain `0.1.0`; this is a composition
   and host-link refresh, not a semantic version change.
+
+## Second blocker: transitive composition (`agents-cli`)
+
+`agents-cli` imports only `mycelium:agents/cli`. Its provider, `agents`, imports
+`theseus-agents` and `acp-agents`. A scratch install of `agents-cli` produced a
+`runtime.json` that contains only the direct provider:
+
+```text
+dev.mycelium.agents
+```
+
+`tools/check-agents-transitive.sh` is the regression:
+
+```sh
+./tools/check-agents-transitive.sh
+# TRANSITIVE-MISSING: dev.mycelium.theseus-agents dev.mycelium.acp-agents
+# exit 1
+```
+
+This is a Loam composer issue, not a cache issue: the `compose` loop iterates
+the imports of the original module, then composes a provider and advances
+`current`. Imports introduced by that provider are not walked. The direct
+`agents` package has theseus/acp as direct imports, so its own composition is
+fine; the wrapper is not.
+
+The host also fails at runtime on the live wrapper:
+
+```text
+$ loam run agents
+loam: component imports instance `mycelium:theseus-agents/observe@0.1.0`,
+but a matching implementation was not found in the linker:
+instance export `agents` has the wrong type: function implementation is missing
+```
+
+## Third blocker: provider grant namespace and records identity
+
+The current `loam` source build rejects the packages before composition:
+
+```text
+soil: agents: invalid spore: grant "mycelium:acp-agents" is not a
+  soil:/wasi:/fungos:/loam: capability
+```
+
+The `mycelium:` names are provider exports/imports, not host capabilities. The
+installed `loam` binary accepts them (it installed the packages), but then
+fails to link the native Theseus adapter:
+
+```text
+$ loam run agents-core
+loam: component imports instance `soil:records/records@0.1.0`,
+but a matching implementation was not found in the linker:
+instance export `scan` has the wrong type: function implementation is missing
+```
+
+The `soil:records` WIT files in `theseus-agents/wit/deps` and `loam/wit` are
+currently identical, so this is an identity/version question between the
+installed `loam` host and the adapter module, not a source diff we can paper
+over. Do not change the grant or records contract without the Loam owner.
+
+## Native Theseus and Pi coverage
+
+- Native Theseus harness: `./theseus director --bot ...` loads and runs; the
+  final reply was empty in this environment, so it is not evidence of a working
+  model turn.
+- `theseus-agents` adapter: blocked by the `soil:records` link error above.
+- Pi / ACP: `~/.local/share/theseus/vfs/agents/acp.json` is absent, so there is
+  no configured ACP endpoint to test. The ACP adapter coverage is **unverified**,
+  not passed.
+- `agents-core` list/get/dispatch/transcript cannot be claimed until the
+  adapter links. No fabricated provider coverage.
+
+## Live restore is blocked
+
+The live MCP deployment is owned by singularity. Do not run the live reinstall
+or restart until the Loam owner decides the composer/transitive and
+grant/records issues above. The scratch evidence is ready; the live change is
+not.

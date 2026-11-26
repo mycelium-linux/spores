@@ -197,3 +197,43 @@ curl -fsS 'https://mm.fpl.dev/api/v4/config/client?format=old'
    to adopt a signed release before onboarding more machines.
 9. **Gatekeeper notarization warning** on the Mycelium binary; release builds
    should be signed and notarized.
+
+## Signed distribution and day-one Spores
+
+Do not build a second installer. Use the existing surfaces:
+
+```sh
+# signed Mycelium update path (the doctor reports when the running binary is a
+# local build; this is the intended release path)
+mycelium update apply --write
+
+# packaged / claimed setup
+mycelium setup --packaged --claim-file PATH
+mycelium setup --repair --site SITE
+
+# identity and repository bootstrap
+fpl login --bootstrap
+fpl init
+```
+
+`fpl install <artifact>` is the manifest-driven install path, but artifact
+hosting is still a known gap (`fpl.dev/releases/latest.json`); do not invent a
+parallel downloader. `loam` is a local build on both Macs and is not notarized;
+there is no signed/notarized `loam` artifact verified here.
+
+Day-one Spore dependencies for a new Mac:
+
+| Need | Status |
+|---|---|
+| `loam` + `loamd` | present, local build |
+| `theseus` harness | source at `~/src/singularity`; needs `soil-lang` |
+| `agents` / `agents-cli` | installed, but transitive composition and grant/records blockers |
+| `theseus-agents` | installed, blocked on `soil:records` link |
+| `acp-agents` | installed, no Pi/ACP endpoint configured |
+| `colony`, `scribe`, `terminal`, `weeper`, `xplorer` | studio links present |
+| `records-iroh` | launchd service present on studio; verify on neo |
+| `iroh-tun` | binary present; neo tunnel not publishing |
+
+The onboarding dependency graph is not complete until the agents stack links.
+Run `tools/check-agents-composition.sh` and `tools/check-agents-transitive.sh`
+on the new host before calling the Spore set ready.
