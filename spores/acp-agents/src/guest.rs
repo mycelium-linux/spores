@@ -15,7 +15,7 @@ use exports::mycelium::acp_agents::{control, dispatch, metrics, observe};
 use observe::Guest as _;
 mod types {
     pub use super::observe::{
-        Agent, Binding, Device, Error, Escalation, Page, Phase, Role, Scope, ScopeKind, Turn,
+        Agent, Binding, Device, Error, Escalation, Goal, Page, Phase, Role, Scope, ScopeKind, Turn,
         Usage,
     };
 }
@@ -120,32 +120,41 @@ impl Client {
             .or_else(|| session.get("currentModel"))
             .and_then(Value::as_str)
             .map(str::to_string);
+        let usage = session.get("usage");
+        let usage_num = |name: &str| usage.and_then(|value| value.get(name)).and_then(Value::as_u64).unwrap_or_default();
+        let goal = session.get("goal").and_then(|value| {
+            let text = value.get("text").and_then(Value::as_str)?;
+            Some(types::Goal {
+                text: text.to_string(),
+                set_at_ms: value.get("setAtMs").or_else(|| value.get("set_at_ms")).and_then(Value::as_u64).unwrap_or_default(),
+            })
+        });
         types::Agent {
             id,
             harness: self.harness.clone(),
             title,
             workspace,
             model,
-            device: None,
+            device: session.get("device").and_then(Value::as_str).map(str::to_string),
             avatar: None,
-            phase: types::Phase::Idle,
-            goal: None,
+            phase: agent_phase(session.get("phase").and_then(Value::as_str)),
+            goal,
             owner: None,
             activity: Vec::new(),
             prompts: Vec::new(),
             usage: types::Usage {
-                context_tokens: 0,
-                context_window: 0,
-                input_tokens: 0,
-                output_tokens: 0,
-                turns: 0,
-                tool_calls: 0,
-                tool_errors: 0,
-                model_time_ms: 0,
+                context_tokens: usage_num("contextTokens"),
+                context_window: usage_num("contextWindow"),
+                input_tokens: usage_num("inputTokens"),
+                output_tokens: usage_num("outputTokens"),
+                turns: usage_num("turns") as u32,
+                tool_calls: usage_num("toolCalls"),
+                tool_errors: usage_num("toolErrors"),
+                model_time_ms: usage_num("modelTimeMs"),
             },
-            revision: 0,
-            started_at_ms: 0,
-            updated_at_ms: 0,
+            revision: session.get("revision").and_then(Value::as_u64).unwrap_or_default(),
+            started_at_ms: session.get("startedAtMs").or_else(|| session.get("started_at_ms")).and_then(Value::as_u64).unwrap_or_default(),
+            updated_at_ms: session.get("updatedAtMs").or_else(|| session.get("updated_at")).and_then(Value::as_u64).unwrap_or_default(),
         }
     }
 
@@ -317,7 +326,8 @@ impl dispatch::Guest for Component {
             .rpc(
                 "session/new",
                 json!({
-                    "cwd": "/",
+                    "cwd": if client.workspace == "/" { "/Users/ajmwagar/src/singularity" } else { &client.workspace },
+                    "name": "theseus-dispatch",
                     "mcpServers": [],
                 }),
             )
@@ -426,6 +436,70 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
                 serde_json::to_string(&json!({"agentId": id, "reply": reply}))
                     .map_err(|error| error.to_string())
             }
+            Some("create") if words.len() >= 4 => {
+                let cwd = words[1].clone();
+                let name = words[2].clone();
+                let mut at = 3;
+                let mut model = None;
+                if words[at] == "--model" && words.len() > at + 1 {
+                    model = Some(words[at + 1].clone());
+                    at += 2;
+                }
+                let task = words[at..].join(" ");
+                let mut create = json!({"cwd": cwd, "name": name, "provider": "pi"});
+                if let Some(model) = model {
+                    create["model"] = json!(model);
+                }
+                let created = client
+                    .rpc("session/new", create)
+                    .map_err(describe)?;
+                let id = created
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "session/new returned no id".to_string())?
+                    .to_string();
+                prompt(&client, &id, &task).map_err(describe)?;
+                serde_json::to_string(&json!({
+                    "status": "accepted",
+                    "agentId": id,
+                    "sessionId": id,
+                    "created": created,
+                }))
+                .map_err(|error| error.to_string())
+            }
+            Some("status") if words.len() >= 2 => {
+                let id = words[1].clone();
+                let value = client
+                    .rpc("session/status", json!({"sessionId": id}))
+                    .map_err(describe)?;
+                let phase = agent_phase(value.get("phase").and_then(Value::as_str));
+                let usage = value.get("usage");
+                let usage_num = |name: &str| usage.and_then(|value| value.get(name)).and_then(Value::as_u64).unwrap_or_default();
+                serde_json::to_string(&json!({
+                    "id": value.get("id").or_else(|| value.get("agentId")).and_then(Value::as_str).unwrap_or(&id),
+                    "harness": value.get("harness"),
+                    "title": value.get("title"),
+                    "workspace": value.get("workspace"),
+                    "model": value.get("model"),
+                    "phase": phase_name(phase),
+                    "goal": value.get("goal"),
+                    "usage": {
+                        "contextTokens": usage_num("contextTokens"),
+                        "inputTokens": usage_num("inputTokens"),
+                        "outputTokens": usage_num("outputTokens"),
+                        "turns": usage_num("turns"),
+                        "toolCalls": usage_num("toolCalls"),
+                        "toolErrors": usage_num("toolErrors"),
+                        "modelTimeMs": usage_num("modelTimeMs"),
+                    },
+                    "revision": value.get("revision"),
+                    "startedAtMs": value.get("startedAtMs"),
+                    "updatedAtMs": value.get("updatedAtMs"),
+                    "lastTurn": null,
+                    "terminal": matches!(phase, types::Phase::Finished | types::Phase::Failed | types::Phase::Paused),
+                }))
+                .map_err(|error| error.to_string())
+            }
             Some("prompt") if words.len() >= 3 => {
                 prompt(&client, &words[1], &words[2..].join(" ")).map_err(describe)?;
                 Ok("ok".into())
@@ -463,6 +537,43 @@ impl exports::mycelium::acp_agents::cli::Guest for Component {
             }
             Some(other) => Err(format!("unknown command: {other}")),
         }
+    }
+}
+
+fn truncate(text: &str, max: usize) -> String {
+    let mut out = String::new();
+    for ch in text.chars() {
+        if out.len() + ch.len_utf8() > max {
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn agent_phase(value: Option<&str>) -> types::Phase {
+    match value.unwrap_or("idle") {
+        "connecting" => types::Phase::Connecting,
+        "thinking" => types::Phase::Thinking,
+        "working" => types::Phase::Working,
+        "needs-you" => types::Phase::NeedsYou,
+        "finished" => types::Phase::Finished,
+        "failed" => types::Phase::Failed,
+        "paused" => types::Phase::Paused,
+        _ => types::Phase::Idle,
+    }
+}
+
+fn phase_name(value: types::Phase) -> &'static str {
+    match value {
+        types::Phase::Connecting => "connecting",
+        types::Phase::Idle => "idle",
+        types::Phase::Thinking => "thinking",
+        types::Phase::Working => "working",
+        types::Phase::NeedsYou => "needs-you",
+        types::Phase::Finished => "finished",
+        types::Phase::Failed => "failed",
+        types::Phase::Paused => "paused",
     }
 }
 
