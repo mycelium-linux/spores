@@ -25,7 +25,7 @@ mkdir -p "$TMP/.loam"
 "$LOAM" install "$SPORES/agents" --root "$TMP" --provider-root "$ROOT" --allow-unsigned-dev >/dev/null
 "$LOAM" install "$SPORES/agents-cli" --root "$TMP" --provider-root "$TMP" --provider-root "$ROOT" --allow-unsigned-dev >/dev/null
 
-providers=$(jq -r '.providers[].id' "$TMP/agents-cli/runtime.json" | sort -u)
+providers=$(jq -r '.providers[] | select(.id != null) | .id' "$TMP/agents-cli/runtime.json" | sort -u)
 echo "agents-cli runtime providers:"
 printf '%s\n' "$providers" | sed 's/^/  /'
 

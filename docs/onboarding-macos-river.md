@@ -203,8 +203,11 @@ curl -fsS 'https://mm.fpl.dev/api/v4/config/client?format=old'
 Do not build a second installer. Use the existing surfaces:
 
 ```sh
-# signed Mycelium update path (the doctor reports when the running binary is a
-# local build; this is the intended release path)
+# signed Mycelium update path. Verified read-only:
+mycelium update status
+#   release 0.2.4 channel=canary target=aarch64-apple-darwin artifact=ready
+#   installed=eba879e8... activation=active error=none
+# The apply is a live update; run it deliberately, not from onboarding:
 mycelium update apply --write
 
 # packaged / claimed setup
