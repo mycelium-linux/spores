@@ -1,0 +1,50 @@
+schema = 1
+
+[spore]
+id = "fpl.shopfloor"
+name = "shopfloor"
+title = "Shopfloor"
+version = "0.1.0"
+license = "MIT"
+summary = "RFQ-to-quote command Spore over a host-selected records book"
+description = "RFQ and draft quote records for Shopfloor. The host owns Desktop, tenancy, grants, identity and the records book; this Spore has no bespoke auth or network path."
+
+[docs]
+usage = ["shopfloor list", "shopfloor rfq create TITLE CUSTOMER [ID]", "shopfloor quote create RFQ AMOUNT LEAD_DAYS [ID]"]
+man = "README.md"
+
+[catalog]
+categories = ["productivity", "utilities"]
+keywords = ["shopfloor", "rfq", "quote", "manufacturing"]
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[[commands]]
+name = "shopfloor"
+summary = "RFQ-to-quote over the granted shopfloor records collection"
+module = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[anycast]
+name = "shopfloor"
+kind = "shopfloor"
+alpns = ["soil/http/1"]
+ttl_secs = 240
+
+[grants]
+"soil:records" = "read/write the host-selected shopfloor collection"
+"wasi:cli" = "WASI command environment and stdio"
+"wasi:clocks" = "WASI clock imported by the Rust standard library"
+"wasi:io" = "WASI stdio streams"
+
+[denied]
+host = ["process", "secrets", "environment", "raw-filesystem"]
+"soil:http" = ["the Shopfloor Spore has no network path of its own"]

@@ -1,0 +1,14 @@
+// The component shape for an installed Soil command.
+//
+// A command is a WASI command component: the host supplies argv, an allowlisted
+// environment, stdio and a records book; the guest exports `wasi:cli/run` and
+// calls `main`. No filesystem, network or clock authority is implied by this
+// world. Those remain Soil grants (`soil:vfs`, `soil:http`, `soil:time`).
+package soil:command@0.1.0;
+
+world command {
+  import wasi:cli/environment@0.2.4;
+  import wasi:cli/exit@0.2.4;
+  import soil:records/records@0.1.0;
+  export wasi:cli/run@0.2.4;
+}
