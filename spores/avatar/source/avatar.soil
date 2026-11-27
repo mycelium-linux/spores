@@ -1,0 +1,78 @@
+; Deterministic synthetic geometric identity marks.
+;
+; Pure Soil: no randomness, network, image model, or clock. A seed and a style
+; version are the whole input. The output is one self-contained SVG string.
+
+(defun avatar/style-version () "v1")
+
+; Small positive modulo without a builtin. Hash values stay below 65521, so the
+; subtraction loop is bounded and cheap.
+(defun avatar/mod (n m)
+  (if (< n m) n (avatar/mod (- n m) m)))
+
+; FNV-style bounded hash over UTF-8 bytes. 131 and 65521 are intentional
+; constants: changing them changes every identity, so they live here, not in a
+; caller.
+(defun avatar/hash-bytes (bytes acc)
+  (if (nil? bytes)
+      acc
+      (avatar/hash-bytes (rest bytes)
+                         (avatar/mod (+ (* acc 131) (first bytes)) 65521))))
+
+(defun avatar/seed (identity style)
+  (avatar/hash-bytes
+    (string->bytes (str identity "|" style "|" (avatar/style-version)))
+    216613))
+
+(defun avatar/palette (index)
+  (cond
+    ((= index 0) (list "#0E1116" "#F2EBDD" "#D08B5B" "#6B7F76"))
+    ((= index 1) (list "#F2EBDD" "#14171C" "#B65C3A" "#566B62"))
+    ((= index 2) (list "#14231F" "#EDE6D6" "#C6A15B" "#7E9B8E"))
+    ((= index 3) (list "#19151A" "#F0E8DA" "#A8795A" "#76808B"))
+    ((= index 4) (list "#E8E2D6" "#1A1D22" "#A94F3F" "#5A746B"))
+    (else (list "#0D1014" "#F1E9D9" "#B8875B" "#647A72"))))
+
+(defun avatar/pick (palette index)
+  (nth index palette))
+
+; Fold: a restrained aperture/fold. Deliberately not a logo and not a face.
+(defun avatar/fold (seed style)
+  (let ((p (avatar/palette (avatar/mod seed 6)))
+        (bar (avatar/pick (avatar/palette (avatar/mod seed 6)) 2))
+        (ink (avatar/pick (avatar/palette (avatar/mod seed 6)) 1))
+        (paper (avatar/pick (avatar/palette (avatar/mod seed 6)) 0))
+        (muted (avatar/pick (avatar/palette (avatar/mod seed 6)) 3))
+        (turn (- (avatar/mod (* seed 7) 24) 12))
+        (notch (+ 28 (avatar/mod seed 36))))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Synthetic identity mark</title><rect width='256' height='256' rx='64' fill='" paper "'/><g transform='rotate(" (str turn) " 128 128)'><path d='M72 62 L184 62 L210 128 L184 194 L72 194 L46 128 Z' fill='" bar "'/><path d='M96 86 L160 86 L180 128 L160 170 L96 170 L76 128 Z' fill='" ink "'/><rect x='" (str notch) "' y='104' width='" (str (- 256 (* 2 notch))) "' height='48' rx='24' fill='" paper "'/><circle cx='128' cy='128' r='10' fill='" bar "'/><circle cx='128' cy='128' r='4' fill='" paper "'/></g><path d='M32 224 H224' stroke='" muted "' stroke-width='2' opacity='.55'/></svg>" )))
+
+; Orbit: nested rings with one notch; a second visual family for comparison.
+(defun avatar/orbit (seed style)
+  (let ((p (avatar/palette (avatar/mod (+ seed 3) 6)))
+        (bg (avatar/pick p 0))
+        (ink (avatar/pick p 1))
+        (accent (avatar/pick p 2))
+        (muted (avatar/pick p 3))
+        (a (+ 54 (avatar/mod seed 36)))
+        (b (+ 30 (avatar/mod (* seed 3) 28)))
+        (turn (- (avatar/mod (* seed 11) 40) 20)))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Synthetic identity orbit</title><rect width='256' height='256' rx='64' fill='" bg "'/><g transform='rotate(" (str turn) " 128 128)'><circle cx='128' cy='128' r='" (str a) "' fill='none' stroke='" accent "' stroke-width='18'/><circle cx='128' cy='128' r='" (str b) "' fill='" ink "'/><path d='M128 22 A106 106 0 0 1 234 128' fill='none' stroke='" muted "' stroke-width='5'/><circle cx='128' cy='128' r='12' fill='" accent "'/></g></svg>" )))
+
+; Signal: stacked bars and one offset block; a quieter editorial direction.
+(defun avatar/signal (seed style)
+  (let ((p (avatar/palette (avatar/mod (+ seed 5) 6)))
+        (bg (avatar/pick p 0))
+        (ink (avatar/pick p 1))
+        (accent (avatar/pick p 2))
+        (muted (avatar/pick p 3))
+        (shift (+ 20 (avatar/mod seed 48)))
+        (gap (+ 8 (avatar/mod (* seed 5) 18))))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Synthetic identity signal</title><rect width='256' height='256' rx='64' fill='" bg "'/><rect x='" (str shift) "' y='44' width='54' height='168' rx='27' fill='" accent "'/><rect x='" (str (+ shift 72)) "' y='" (str gap) "' width='112' height='48' rx='24' fill='" ink "'/><rect x='" (str (+ shift 72)) "' y='" (str (+ gap 64)) "' width='86' height='48' rx='24' fill='" muted "'/><rect x='" (str (+ shift 72)) "' y='" (str (+ gap 128)) "' width='134' height='48' rx='24' fill='" ink "'/></svg>" )))
+
+(defun avatar/render (identity style)
+  (cond
+    ((= style "fold") (avatar/fold (avatar/seed identity style) style))
+    ((= style "orbit") (avatar/orbit (avatar/seed identity style) style))
+    ((= style "signal") (avatar/signal (avatar/seed identity style) style))
+    (else (avatar/fold (avatar/seed identity style) "fold"))))
