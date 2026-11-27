@@ -1,0 +1,162 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; The Hue HTTP session loop and form actions.
+
+(defun server/read-more (session buffer)
+  (let ((next (soil:streams/[method]session.read session 65536)))
+    (if (not (ok? next))
+        buffer
+        (let ((data (value next)))
+          (if (nil? data)
+              buffer
+              (server/read-request session (str buffer (bytes->string data))))))))
+
+(defun server/find-content-length (lines)
+  (if (nil? lines)
+      0
+      (let ((line (string-replace (first lines) "Content-Length" "content-length")))
+        (if (string-contains? line "content-length:")
+            (let ((parts (string-split line ":")))
+              (server/number (string-chars (string-trim (string-join (rest parts) ":"))) 0))
+            (server/find-content-length (rest lines))))))
+
+(defun server/content-length (request)
+  (server/find-content-length (string-split request "\r\n")))
+
+(defun server/read-request (session buffer)
+  (if (not (string-contains? buffer "\r\n\r\n"))
+      (server/read-more session buffer)
+      (let ((length (server/content-length buffer)))
+        (if (< (length (string->bytes (server/body buffer))) length)
+            (server/read-more session buffer)
+            buffer))))
+
+(defun server/write (session text)
+  (ok? (soil:streams/[method]session.write session (string->bytes text))))
+
+(defun server/close (session)
+  (soil:streams/[method]session.close session))
+
+(defun server/response (session status content-type body)
+  (server/write session
+    (str "HTTP/1.1 " status "\r\n"
+         "Content-Type: " content-type "\r\n"
+         "Content-Length: " (length (string->bytes body)) "\r\n"
+         "Cache-Control: no-store\r\n"
+         "Connection: close\r\n\r\n"
+         body))
+  (server/close session))
+
+(defun server/redirect (session location)
+  (server/write session
+    (str "HTTP/1.1 303 See Other\r\n"
+         "Location: " location "\r\n"
+         "Content-Length: 0\r\n"
+         "Cache-Control: no-store\r\n"
+         "Connection: close\r\n\r\n"))
+  (server/close session))
+
+(defun server/request-line (request)
+  (first (string-split request "\r\n")))
+
+(defun server/request-parts (request)
+  (string-split (server/request-line request) " "))
+
+(defun server/method (request)
+  (nth 0 (server/request-parts request)))
+
+(defun server/target (request)
+  (nth 1 (server/request-parts request)))
+
+(defun server/path (request)
+  (first (string-split (server/target request) "?")))
+
+(defun server/query-value (request key)
+  (let ((parts (string-split (server/target request) "?")))
+    (if (<= (length parts) 1)
+        ""
+        (url/query-value (nth 1 parts) key))))
+
+(defun server/body (request)
+  (let ((parts (string-split request "\r\n\r\n")))
+    (if (<= (length parts) 1)
+        ""
+        (string-join (rest parts) "\r\n\r\n"))))
+
+(defun server/body-value (request key)
+  (url/query-value (server/body request) key))
+
+(defun server/number (characters fallback)
+  (let ((text (string-join characters "")))
+    (if (= text "") fallback (json-decode text))))
+
+(defun server/target-resource (kind id)
+  (if (= kind "light") (hue/light id) (hue/group id)))
+
+(defun route/power (session request)
+  (let ((kind (server/body-value request "kind"))
+        (id (server/body-value request "id"))
+        (action (server/body-value request "action"))
+        (home (hue/config-home))
+        (target (server/target-resource (server/body-value request "kind")
+                                         (server/body-value request "id"))))
+    (cond
+      ((= action "on") (hue/on home target))
+      ((= action "off") (hue/off home target))
+      ((= action "toggle") (hue/toggle home target))
+      (else 'err "unknown power action"))
+    (server/redirect session "/")))
+
+(defun route/brightness (session request)
+  (let ((home (hue/config-home))
+        (target (server/target-resource (server/body-value request "kind")
+                                         (server/body-value request "id")))
+        (value (server/body-value request "value")))
+    (if (= value "")
+        nil
+        (hue/bri home target (json-decode value)))
+    (server/redirect session "/")))
+
+(defun route/colour (session request)
+  (let ((home (hue/config-home))
+        (target (server/target-resource (server/body-value request "kind")
+                                         (server/body-value request "id")))
+        (value (server/body-value request "value")))
+    (if (= value "")
+        nil
+        (hue/color-hex home target value))
+    (server/redirect session "/")))
+
+(defun route/scene (session request)
+  (let ((home (hue/config-home))
+        (target (server/target-resource (server/body-value request "kind")
+                                         (server/body-value request "id")))
+        (value (server/body-value request "value")))
+    (if (= value "")
+        nil
+        (hue/scene home target value))
+    (server/redirect session "/")))
+
+(defun server/route (session request)
+  (let ((method (server/method request))
+        (path (server/path request)))
+    (cond
+      ((and (= method "GET") (= path "/"))
+        (let ((home (hue/config-home)))
+          (server/response session "200 OK" "text/html; charset=utf-8"
+            (hue/dashboard (hue/groups home) (hue/lights home) (hue/scenes home)))))
+      ((and (= method "GET") (= path "/healthz"))
+        (server/response session "200 OK" "text/plain; charset=utf-8" "ok\n"))
+      ((and (= method "POST") (= path "/power")) (route/power session request))
+      ((and (= method "POST") (= path "/brightness")) (route/brightness session request))
+      ((and (= method "POST") (= path "/colour")) (route/colour session request))
+      ((and (= method "POST") (= path "/scene")) (route/scene session request))
+      (else (server/response session "404 Not Found" "text/plain; charset=utf-8" "not found\n")))))
+
+(defun server/main ()
+  (let ((accepted (soil:streams/accept "http")))
+    (if (not (ok? accepted))
+        nil
+        (let ((session (value accepted)))
+          (if (nil? session)
+              nil
+              (server/route session (server/read-request session "")))))))

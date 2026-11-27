@@ -1,0 +1,777 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Philips Hue v1 local-bridge semantics in Soil.
+;
+; The bridge key is not written here. The guest names the host handle
+; `default`, puts `__CREDENTIAL__` where Hue expects the key, and the host
+; substitutes the real value. See examples/hue/README.md.
+;
+; Load the prelude and bindings first:
+;   (defun home () (hue/bridge "http://192.168.1.10" "default"))
+;   (hue/status (home))
+;   (hue/on (home) (hue/group "0"))
+;   (hue/bri (home) (hue/light "3") 180)
+;   (hue/scene (home) (hue/group "1") "Relax")
+
+(defun hue/bridge (base credential)
+  (list
+    (list :base (hue/trim-slash base))
+    (list :credential credential)))
+
+(defun hue/slash? (character)
+  (= character "/"))
+
+(defun hue/trim-slash (text)
+  (string-join
+    (reverse (drop-while 'hue/slash? (reverse (string-chars text))))
+    ""))
+
+(defun hue/url (bridge path)
+  (str (field bridge :base) "/api/__CREDENTIAL__" path))
+
+(defun hue/pair-url (bridge)
+  (str (field bridge :base) "/api"))
+
+(defun hue/header (name value)
+  (list (list :name name) (list :value value)))
+
+(defun hue/headers (body)
+  (if (nil? body)
+      (list (hue/header "accept" "application/json"))
+      (list
+        (hue/header "accept" "application/json")
+        (hue/header "content-type" "application/json"))))
+
+(defun hue/request (bridge method path body)
+  (list
+    (list :url (hue/url bridge path))
+    (list :method method)
+    (list :headers (hue/headers body))
+    (list :body (if (nil? body) nil (json-encode body)))
+    (list :credential (field bridge :credential))
+    (list :max-bytes 1048576)
+    (list :timeout-ms 10000)))
+
+(defun hue/check (response)
+  (let ((status (field response :status)))
+    (if (and (>= status 200) (< status 300))
+        (let ((value (json-decode (field response :body))))
+          (let ((error (hue/error-description value)))
+            (if (nil? error)
+                (list 'ok value)
+                (list 'err (str "bridge: " error)))))
+        (list 'err (str "bridge: HTTP " status)))))
+
+(defun hue/error-description (value)
+  (if (atom value)
+      nil
+      (let ((item (first value)))
+        (if (atom item)
+            nil
+            (let ((error (field item :error)))
+              (if (nil? error)
+                  nil
+                  (field error :description)))))))
+
+(defun hue/fetch (bridge method path body)
+  (let ((response (soil:http/fetch (hue/request bridge method path body))))
+    (if (ok? response)
+        (hue/check (value response))
+        response)))
+
+(defun hue/get (bridge path)
+  (hue/fetch bridge "get" path nil))
+
+(defun hue/put (bridge path body)
+  (hue/fetch bridge "put" path body))
+
+(defun hue/post (bridge path body)
+  (hue/fetch bridge "post" path body))
+
+(defun hue/status (bridge)
+  (hue/get bridge ""))
+
+(defun hue/lights (bridge)
+  (hue/get bridge "/lights"))
+
+(defun hue/groups (bridge)
+  (hue/get bridge "/groups"))
+
+(defun hue/scenes (bridge)
+  (hue/get bridge "/scenes"))
+
+(defun hue/group (id)
+  (list (list :kind "group") (list :id id)))
+
+(defun hue/light (id)
+  (list (list :kind "light") (list :id id)))
+
+(defun hue/action-path (target)
+  (if (= (field target :kind) "group")
+      (str "/groups/" (field target :id) "/action")
+      (str "/lights/" (field target :id) "/state")))
+
+(defun hue/state-path (target)
+  (if (= (field target :kind) "group")
+      (str "/groups/" (field target :id))
+      (str "/lights/" (field target :id))))
+
+(defun hue/set-power (bridge target on)
+  (hue/put bridge (hue/action-path target) (list (list :on on))))
+
+(defun hue/on (bridge target)
+  (hue/set-power bridge target #t))
+
+(defun hue/off (bridge target)
+  (hue/set-power bridge target #f))
+
+(defun hue/toggle (bridge target)
+  (let ((state (hue/get bridge (hue/state-path target))))
+    (if (ok? state)
+        (let ((key (if (= (field target :kind) "group") :action :state)))
+          (let ((on (field (field (value state) key) :on)))
+            (if (nil? on)
+                (list 'err "bridge: no power state")
+                (hue/set-power bridge target (not on)))))
+        state)))
+
+(defun hue/bri (bridge target value)
+  (let ((value (if (> value 254) 254 value)))
+    (let ((value (if (< value 1) 1 value)))
+      (hue/put bridge (hue/action-path target) (list (list :bri value))))))
+
+(defun hue/color-xy (bridge target x y)
+  (hue/put bridge (hue/action-path target) (list (list :xy (list x y)))))
+
+(defun hue/hex-value (character)
+  (cond
+    ((= character "0") 0)
+    ((= character "1") 1)
+    ((= character "2") 2)
+    ((= character "3") 3)
+    ((= character "4") 4)
+    ((= character "5") 5)
+    ((= character "6") 6)
+    ((= character "7") 7)
+    ((= character "8") 8)
+    ((= character "9") 9)
+    ((= character "a") 10)
+    ((= character "b") 11)
+    ((= character "c") 12)
+    ((= character "d") 13)
+    ((= character "e") 14)
+    ((= character "f") 15)
+    ((= character "A") 10)
+    ((= character "B") 11)
+    ((= character "C") 12)
+    ((= character "D") 13)
+    ((= character "E") 14)
+    ((= character "F") 15)
+    (else nil)))
+
+(defun hue/hex-byte (high low)
+  (let ((high (hue/hex-value high)))
+    (let ((low (hue/hex-value low)))
+      (if (or (nil? high) (nil? low))
+          nil
+          (+ (* 16 high) low)))))
+
+(defun hue/parse-hex (text)
+  (let ((chars (string-chars text)))
+    (let ((chars (if (and (not (nil? chars)) (= (first chars) "#"))
+                     (rest chars)
+                     chars)))
+      (if (not (= (length chars) 6))
+          nil
+          (let ((red (hue/hex-byte (nth 0 chars) (nth 1 chars))))
+            (let ((green (hue/hex-byte (nth 2 chars) (nth 3 chars))))
+              (let ((blue (hue/hex-byte (nth 4 chars) (nth 5 chars))))
+                (if (or (nil? red) (nil? green) (nil? blue))
+                    nil
+                    (list red green blue)))))))))
+
+(defun hue/gamma (channel)
+  (let ((value (/ channel 255.0)))
+    (if (> value 0.04045)
+        (pow (/ (+ value 0.055) 1.055) 2.4)
+        (/ value 12.92))))
+
+(defun hue/round-4 (value)
+  (/ (round (* value 10000.0)) 10000.0))
+
+(defun hue/rgb->xy (red green blue)
+  (let ((red (hue/gamma red)))
+    (let ((green (hue/gamma green)))
+      (let ((blue (hue/gamma blue)))
+        (let ((x (+ (* red 0.664511) (* green 0.154324) (* blue 0.162028))))
+          (let ((y (+ (* red 0.283881) (* green 0.668433) (* blue 0.047685))))
+            (let ((z (+ (* red 0.000088) (* green 0.072310) (* blue 0.986039))))
+              (let ((sum (+ x y z)))
+                (if (<= sum 0.0)
+                    (list 0.0 0.0)
+                    (list
+                      (hue/round-4 (/ x sum))
+                      (hue/round-4 (/ y sum))))))))))))
+
+(defun hue/color-hex (bridge target text)
+  (let ((rgb (hue/parse-hex text)))
+    (if (nil? rgb)
+        (list 'err (str "color: " text " is not #RRGGBB"))
+        (let ((xy (hue/rgb->xy (nth 0 rgb) (nth 1 rgb) (nth 2 rgb))))
+          (hue/color-xy bridge target (nth 0 xy) (nth 1 xy))))))
+
+(defun hue/find-scene-id (entries name)
+  (cond
+    ((nil? entries) nil)
+    ((= (field (nth 1 (first entries)) :name) name)
+      (first (first entries)))
+    (else (hue/find-scene-id (rest entries) name))))
+
+(defun hue/scene (bridge target name)
+  (let ((scenes (hue/scenes bridge)))
+    (if (ok? scenes)
+        (let ((id (hue/find-scene-id (value scenes) name)))
+          (if (nil? id)
+              (list 'err (str "scene: no scene named " name))
+              (hue/put bridge (hue/action-path target) (list (list :scene id)))))
+        scenes)))
+
+(defun hue/scene-id (bridge target id)
+  (hue/put bridge (hue/action-path target) (list (list :scene id))))
+
+(defun hue/pair (bridge device)
+  (let ((request
+          (list
+            (list :url (hue/pair-url bridge))
+            (list :method "post")
+            (list :headers (hue/headers (list (list :devicetype device))))
+            (list :body (json-encode (list (list :devicetype device))))
+            (list :credential nil)
+            (list :max-bytes 1048576)
+            (list :timeout-ms 10000))))
+    (let ((response (soil:http/fetch request)))
+      (if (ok? response)
+          (hue/check (value response))
+          response))))
+
+;;; ---------------------------------------------------------------------------
+;;; Color theory, per-lamp gamut, and spatial scenes
+;;; ---------------------------------------------------------------------------
+
+(defun hue/abs (value)
+  (if (< value 0) (- 0 value) value))
+
+(defun hue/clamp (value low high)
+  (if (< value low) low (if (> value high) high value)))
+
+(defun hue/clamp-bri (value)
+  ;; The Hue v1 bridge silently ignores a PUT whose bri is a JSON float, so
+  ;; round and coerce before the value reaches json-encode.
+  (int (round (hue/clamp value 1 254))))
+
+(defun hue/count (xs)
+  (if (nil? xs) 0 (length xs)))
+
+(defun hue/wrap-hue (degrees)
+  (- degrees (* 360.0 (floor (/ degrees 360.0)))))
+
+(defun hue/mod2 (value)
+  (- value (* 2.0 (floor (/ value 2.0)))))
+
+;;; Convert HSL (hue degrees, saturation 0..1, lightness 0..1) to sRGB.
+(defun hue/hsl->rgb (hue saturation lightness)
+  (let ((hue (hue/wrap-hue hue)))
+    (let ((chroma (* (- 1.0 (hue/abs (- (* 2.0 lightness) 1.0))) saturation)))
+      (let ((x (* chroma
+                  (- 1.0
+                     (hue/abs (- (hue/mod2 (/ hue 60.0)) 1.0))))))
+        (let ((m (- lightness (/ chroma 2.0))))
+          (let ((rgb
+                  (cond
+                    ((< hue 60.0) (list chroma x 0.0))
+                    ((< hue 120.0) (list x chroma 0.0))
+                    ((< hue 180.0) (list 0.0 chroma x))
+                    ((< hue 240.0) (list 0.0 x chroma))
+                    ((< hue 300.0) (list x 0.0 chroma))
+                    (else (list chroma 0.0 x)))))
+            (list
+              (round (* (+ (nth 0 rgb) m) 255.0))
+              (round (* (+ (nth 1 rgb) m) 255.0))
+              (round (* (+ (nth 2 rgb) m) 255.0)))))))))
+
+;;; A colour-theory set as HSL triples. Hue is degrees; s/l are 0..1.
+(defun hue/harmony (hue saturation lightness mode)
+  (cond
+    ((= mode "analogous")
+      (list
+        (list (- hue 30.0) saturation lightness)
+        (list hue saturation lightness)
+        (list (+ hue 30.0) saturation lightness)))
+    ((= mode "complementary")
+      (list
+        (list hue saturation lightness)
+        (list (+ hue 180.0) saturation lightness)))
+    ((= mode "split")
+      (list
+        (list hue saturation lightness)
+        (list (+ hue 150.0) saturation lightness)
+        (list (+ hue 210.0) saturation lightness)))
+    ((= mode "triadic")
+      (list
+        (list hue saturation lightness)
+        (list (+ hue 120.0) saturation lightness)
+        (list (+ hue 240.0) saturation lightness)))
+    ((= mode "tetradic")
+      (list
+        (list hue saturation lightness)
+        (list (+ hue 90.0) saturation lightness)
+        (list (+ hue 180.0) saturation lightness)
+        (list (+ hue 270.0) saturation lightness)))
+    ((= mode "mono")
+      (list
+        (list hue saturation (- lightness 0.18))
+        (list hue saturation lightness)
+        (list hue saturation (+ lightness 0.18))))
+    (else (list (list hue saturation lightness)))))
+
+(defun hue/harmony-rgb (hue saturation lightness mode)
+  (map 'hue/hsl->rgb (hue/harmony hue saturation lightness mode)))
+
+(defun hue/lerp (a b t)
+  (+ a (* (- b a) t)))
+
+(defun hue/lerp-rgb (a b t)
+  (list
+    (round (hue/lerp (nth 0 a) (nth 0 b) t))
+    (round (hue/lerp (nth 1 a) (nth 1 b) t))
+    (round (hue/lerp (nth 2 a) (nth 2 b) t))))
+
+;;; Sample a palette at 0..1, interpolating between adjacent swatches.
+(defun hue/palette-at (palette t)
+  (let ((last (- (length palette) 1)))
+    (if (<= last 0)
+        (first palette)
+        (let ((position (* (hue/clamp t 0.0 1.0) last)))
+          (let ((index (floor position)))
+            (if (>= index last)
+                (nth last palette)
+                (hue/lerp-rgb
+                  (nth index palette)
+                  (nth (+ index 1) palette)
+                  (- position index))))))))
+
+;;; The closest point on segment AB to P, in CIE xy.
+(defun hue/closest-segment (p a b)
+  (let ((dx (- (nth 0 b) (nth 0 a)))
+        (dy (- (nth 1 b) (nth 1 a))))
+    (let ((length2 (+ (* dx dx) (* dy dy))))
+      (if (= length2 0.0)
+          a
+          (let ((u (/ (+ (* (- (nth 0 p) (nth 0 a)) dx)
+                         (* (- (nth 1 p) (nth 1 a)) dy))
+                      length2)))
+            (let ((u (hue/clamp u 0.0 1.0)))
+              (list (+ (nth 0 a) (* u dx))
+                    (+ (nth 1 a) (* u dy)))))))))
+
+(defun hue/dist2 (a b)
+  (let ((dx (- (nth 0 a) (nth 0 b)))
+        (dy (- (nth 1 a) (nth 1 b))))
+    (+ (* dx dx) (* dy dy))))
+
+(defun hue/cross (a b p)
+  (- (* (- (nth 0 b) (nth 0 a)) (- (nth 1 p) (nth 1 a)))
+     (* (- (nth 1 b) (nth 1 a)) (- (nth 0 p) (nth 0 a)))))
+
+(defun hue/inside-triangle? (p triangle)
+  (let ((d1 (hue/cross (nth 0 triangle) (nth 1 triangle) p))
+        (d2 (hue/cross (nth 1 triangle) (nth 2 triangle) p))
+        (d3 (hue/cross (nth 2 triangle) (nth 0 triangle) p)))
+    (or
+      (and (>= d1 -0.000000001) (>= d2 -0.000000001) (>= d3 -0.000000001))
+      (and (<= d1 0.000000001) (<= d2 0.000000001) (<= d3 0.000000001)))))
+
+(defun hue/nearest-point (p a b c)
+  (let ((ab (hue/closest-segment p a b))
+        (bc (hue/closest-segment p b c))
+        (ca (hue/closest-segment p c a)))
+    (let ((dab (hue/dist2 p ab))
+          (dbc (hue/dist2 p bc))
+          (dca (hue/dist2 p ca)))
+      (cond
+        ((and (<= dab dbc) (<= dab dca)) ab)
+        ((<= dbc dca) bc)
+        (else ca)))))
+
+;;; Clamp an xy pair into a lamp's colour triangle. A bulb cannot show every
+;;; colour the matrix produces; this turns an out-of-gamut request into the
+;;; nearest colour the lamp can actually render.
+(defun hue/clamp-gamut (xy gamut)
+  (cond
+    ((or (nil? gamut) (< (length gamut) 3)) xy)
+    ((hue/inside-triangle? xy gamut) xy)
+    (else
+      (hue/nearest-point
+        xy
+        (nth 0 gamut)
+        (nth 1 gamut)
+        (nth 2 gamut)))))
+
+(defun hue/light-gamut (light)
+  (field
+    (field (field light :capabilities) :control)
+    :colorgamut))
+
+(defun hue/light-name (light)
+  (field light :name))
+
+(defun hue/load-light (id bridge)
+  (let ((light (hue/get bridge (str "/lights/" id))))
+    (if (ok? light)
+        (list 'ok (cons (list :id id) (value light)))
+        light)))
+
+(defun hue/load-lights (bridge ids)
+  (if (nil? ids)
+      (list 'ok nil)
+      (let ((light (hue/load-light (first ids) bridge)))
+        (if (ok? light)
+            (let ((rest (hue/load-lights bridge (rest ids))))
+              (if (ok? rest)
+                  (list 'ok (cons (value light) (value rest)))
+                  rest))
+            light))))
+
+(defun hue/group-light-ids (bridge group-id)
+  (let ((group (hue/get bridge (str "/groups/" group-id))))
+    (if (ok? group)
+        (list 'ok (field (value group) :lights))
+        group)))
+
+(defun hue/lights-in-group (bridge group-id)
+  (let ((ids (hue/group-light-ids bridge group-id)))
+    (if (ok? ids)
+        (hue/load-lights bridge (value ids))
+        ids)))
+
+(defun hue/layout-entry (layout id)
+  (cond
+    ((nil? layout) nil)
+    ((= (first (first layout)) id) (first layout))
+    (else (hue/layout-entry (rest layout) id))))
+
+;;; A layout is a list of `(light-id x y)` entries in normalized room space.
+;;; Without one, bridge order becomes the gradient.
+(defun hue/layout-t (layout id index total)
+  (if (nil? layout)
+      (if (= total 1) 0.5 (/ index (- total 1)))
+      (let ((entry (hue/layout-entry layout id)))
+        (if (nil? entry)
+            (if (= total 1) 0.5 (/ index (- total 1)))
+            (nth 1 entry)))))
+
+(defun hue/mood-record (palette brightness spread transition)
+  (list
+    (list :palette palette)
+    (list :brightness brightness)
+    (list :spread spread)
+    (list :transition transition)))
+
+(defun hue/mood (name)
+  (cond
+    ((= name "aurora")
+      (hue/mood-record
+        (list (list 20 220 160) (list 30 120 255) (list 130 40 220))
+        190 60 20))
+    ((= name "sunset")
+      (hue/mood-record
+        (list (list 255 90 40) (list 255 40 120) (list 140 30 180))
+        190 60 20))
+    ((= name "ocean")
+      (hue/mood-record
+        (list (list 0 80 180) (list 0 160 200) (list 40 220 180))
+        185 70 20))
+    ((= name "ember")
+      (hue/mood-record
+        (list (list 255 60 0) (list 255 120 0) (list 255 200 40))
+        175 70 20))
+    ((= name "forest")
+      (hue/mood-record
+        (list (list 20 100 40) (list 60 160 60) (list 180 200 80))
+        185 55 20))
+    ((= name "nebula")
+      (hue/mood-record
+        (list (list 80 0 180) (list 200 0 160) (list 0 120 255))
+        185 65 20))
+    ((= name "movie")
+      (hue/mood-record
+        (list (list 10 20 80) (list 40 10 90) (list 255 120 40))
+        120 50 20))
+    ((= name "focus")
+      (hue/mood-record
+        (list (list 255 210 160) (list 255 230 200) (list 220 235 255))
+        230 30 10))
+    ((= name "candle")
+      (hue/mood-record
+        (list (list 255 120 30) (list 255 170 70) (list 255 220 140))
+        120 40 25))
+    ((= name "party")
+      (hue/mood-record
+        (list
+          (list 255 0 60)
+          (list 255 180 0)
+          (list 0 220 120)
+          (list 0 120 255)
+          (list 160 0 255))
+        220 40 5))
+    ((= name "sunrise")
+      (hue/mood-record
+        (list (list 255 80 20) (list 255 150 60) (list 255 220 160))
+        90 130 40))
+    (else
+      (hue/mood-record
+        (list (list 255 180 90) (list 255 90 140) (list 80 120 255))
+        180 70 20))))
+
+(defun hue/plan-light (light palette brightness spread transition layout index total)
+  (let ((t (hue/layout-t layout (field light :id) index total)))
+    (let ((rgb (hue/palette-at palette t)))
+      (let ((xy (hue/clamp-gamut
+                  (hue/rgb->xy (nth 0 rgb) (nth 1 rgb) (nth 2 rgb))
+                  (hue/light-gamut light))))
+        (list
+          (list :id (field light :id))
+          (list :name (field light :name))
+          (list :t t)
+          (list :rgb rgb)
+          (list :xy xy)
+          (list :bri (hue/clamp-bri (+ brightness (* spread (- t 0.5)))))
+          (list :transition transition))))))
+
+(defun hue/plan-lights (lights palette brightness spread transition layout index total)
+  (if (nil? lights)
+      nil
+      (cons
+        (hue/plan-light
+          (first lights) palette brightness spread transition layout index total)
+        (hue/plan-lights
+          (rest lights) palette brightness spread transition layout
+          (+ index 1) total))))
+
+(defun hue/atmosphere-plan (bridge group-id mood-name layout)
+  (let ((mood (hue/mood mood-name)))
+    (let ((lights (hue/lights-in-group bridge group-id)))
+      (if (ok? lights)
+          (let ((lights (value lights)))
+            (list 'ok
+              (hue/plan-lights
+                lights
+                (field mood :palette)
+                (field mood :brightness)
+                (field mood :spread)
+                (field mood :transition)
+                layout
+                0
+                (hue/count lights))))
+          lights))))
+
+(defun hue/apply-plan (bridge plan)
+  (if (nil? plan)
+      nil
+      (let ((entry (first plan)))
+        (cons
+          (hue/put
+            bridge
+            (str "/lights/" (field entry :id) "/state")
+            (list
+              (list :on #t)
+              (list :bri (field entry :bri))
+              (list :xy (field entry :xy))
+              (list :transitiontime (field entry :transition))))
+          (hue/apply-plan bridge (rest plan))))))
+
+;;; Apply a mood across a group. Returns the per-light bridge replies.
+(defun hue/atmosphere (bridge group-id mood-name layout)
+  (let ((plan (hue/atmosphere-plan bridge group-id mood-name layout)))
+    (if (ok? plan)
+        (hue/apply-plan bridge (value plan))
+        plan)))
+
+;;; A palette straight from colour theory instead of a named mood.
+(defun hue/atmosphere-harmony (bridge group-id hue-degrees harmony layout)
+  (let ((mood
+          (hue/mood-record
+            (hue/harmony-rgb hue-degrees 0.68 0.55 harmony)
+            190 65 20)))
+    (let ((lights (hue/lights-in-group bridge group-id)))
+      (if (ok? lights)
+          (let ((lights (value lights)))
+            (hue/apply-plan
+              bridge
+              (hue/plan-lights
+                lights
+                (field mood :palette)
+                (field mood :brightness)
+                (field mood :spread)
+                (field mood :transition)
+                layout
+                0
+                (hue/count lights))))
+          lights))))
+
+;;; ---------------------------------------------------------------------------
+;;; Timed demos
+;;; ---------------------------------------------------------------------------
+
+(defun hue/wrap01 (value)
+  (- value (floor value)))
+
+;;; A 0..1 triangle wave: 0 at the edges, 1 in the middle.
+(defun hue/triangle (phase)
+  (- 1.0 (hue/abs (- (* 2.0 (hue/wrap01 phase)) 1.0))))
+
+;;; A cyclic palette loops from its last colour back to the first, so a moving
+;;; gradient never snaps at the seam.
+(defun hue/cyclic-palette (palette)
+  (append palette (list (first palette))))
+
+(defun hue/plan-light-phase
+  (light palette brightness spread breath transition layout index total phase)
+  (let ((t (hue/layout-t layout (field light :id) index total)))
+    (let ((rgb (hue/palette-at palette (hue/wrap01 (+ t phase)))))
+      (let ((xy (hue/clamp-gamut
+                  (hue/rgb->xy (nth 0 rgb) (nth 1 rgb) (nth 2 rgb))
+                  (hue/light-gamut light))))
+        (let ((wave (hue/triangle (+ phase (* t 0.25))))
+              (bri (+ brightness
+                      (* spread (- t 0.5))
+                      (* breath (- wave 0.5)))))
+          (list
+            (list :id (field light :id))
+            (list :name (field light :name))
+            (list :t t)
+            (list :rgb rgb)
+            (list :xy xy)
+            (list :bri (hue/clamp-bri bri))
+            (list :transition transition)))))))
+
+(defun hue/plan-lights-phase
+  (lights palette brightness spread breath transition layout index total phase)
+  (if (nil? lights)
+      nil
+      (cons
+        (hue/plan-light-phase
+          (first lights) palette brightness spread breath transition layout
+          index total phase)
+        (hue/plan-lights-phase
+          (rest lights) palette brightness spread breath transition layout
+          (+ index 1) total phase))))
+
+(defun hue/animate-frames
+  (bridge lights mood palette layout frames frame-ms index)
+  (if (>= index frames)
+      (list 'ok frames)
+      (begin
+        (hue/apply-plan
+          bridge
+          (hue/plan-lights-phase
+            lights
+            palette
+            (field mood :brightness)
+            (field mood :spread)
+            40
+            (field mood :transition)
+            layout
+            0
+            (hue/count lights)
+            (/ index frames)))
+        (soil:time/tick frame-ms)
+        (hue/animate-frames
+          bridge lights mood palette layout frames frame-ms (+ index 1)))))
+
+(defun hue/animate-lights (bridge lights mood-name layout frames frame-ms)
+  (let ((mood (hue/mood mood-name)))
+    (let ((palette (hue/cyclic-palette (field mood :palette))))
+      (hue/animate-frames bridge lights mood palette layout frames frame-ms 0))))
+
+(defun hue/animate (bridge group-id mood-name layout frames frame-ms)
+  (let ((lights (hue/lights-in-group bridge group-id)))
+    (if (ok? lights)
+        (hue/animate-lights bridge (value lights) mood-name layout frames frame-ms)
+        lights)))
+
+(defun hue/restore-body (state)
+  (let ((body
+          (list
+            (list :on (field state :on))
+            (list :bri (field state :bri)))))
+    (let ((mode (field state :colormode)))
+      (cond
+        ((= mode "xy")
+          (append body (list (list :xy (field state :xy)))))
+        ((= mode "ct")
+          (append body (list (list :ct (field state :ct)))))
+        ((= mode "hs")
+          (append body
+            (list
+              (list :hue (field state :hue))
+              (list :sat (field state :sat)))))
+        (else body)))))
+
+(defun hue/restore-light (bridge light)
+  (hue/put
+    bridge
+    (str "/lights/" (field light :id) "/state")
+    (append
+      (hue/restore-body (field light :state))
+      (list (list :transitiontime 10)))))
+
+(defun hue/restore-lights (bridge lights)
+  (if (nil? lights)
+      nil
+      (cons
+        (hue/restore-light bridge (first lights))
+        (hue/restore-lights bridge (rest lights)))))
+
+;;; Run a timed demo and put the room back the way it was.
+(defun hue/demo (bridge group-id mood-name layout frames frame-ms)
+  (let ((lights (hue/lights-in-group bridge group-id)))
+    (if (ok? lights)
+        (let ((lights (value lights)))
+          (begin
+            (hue/animate-lights bridge lights mood-name layout frames frame-ms)
+            (hue/restore-lights bridge lights)))
+        lights)))
+
+(defun hue/frames-for (duration-ms frame-ms)
+  (let ((frames (round (/ duration-ms frame-ms))))
+    (if (< frames 1) 1 frames)))
+
+(defun hue/demo-for (bridge group-id mood-name layout duration-ms frame-ms)
+  (hue/demo
+    bridge group-id mood-name layout
+    (hue/frames-for duration-ms frame-ms)
+    frame-ms))
+
+(defun hue/demo-aurora (bridge group-id layout)
+  (hue/demo bridge group-id "aurora" layout 24 250))
+
+(defun hue/demo-ocean (bridge group-id layout)
+  (hue/demo bridge group-id "ocean" layout 32 280))
+
+(defun hue/demo-ember (bridge group-id layout)
+  (hue/demo bridge group-id "ember" layout 20 400))
+
+(defun hue/demo-nebula (bridge group-id layout)
+  (hue/demo bridge group-id "nebula" layout 28 300))
+
+(defun hue/demo-party (bridge group-id layout)
+  (hue/demo bridge group-id "party" layout 30 250))
+
+(defun hue/demo-movie (bridge group-id layout)
+  (hue/demo bridge group-id "movie" layout 16 500))
+
+(defun hue/demo-sunrise (bridge group-id layout)
+  (hue/demo-for bridge group-id "sunrise" layout 12000 400))
+
+(defun hue/demo-focus (bridge group-id layout)
+  (hue/demo-for bridge group-id "focus" layout 8000 500))

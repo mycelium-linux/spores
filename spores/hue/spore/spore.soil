@@ -1,0 +1,16 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Hue UI as a Soil Spore. The domain library stays in ../../lib/hue.soil.
+(spore
+  (schema 1)
+  (kind "spore")
+  (id "dev.fungos.hue")
+  (version "0.1.0")
+  (distribution "source")
+  (source "source/")
+  (anycast
+    (name "hue")
+    (kind "hue")
+    (alpns ("soil/http/1"))
+    (ttl_secs 240))
+  (surfaces
+    (surface "hue" (kind "web"))))

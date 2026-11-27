@@ -1,0 +1,11 @@
+# Provenance of lib/hue.soil
+#
+# The Spore's copy is canonical for this tree. This records where it came from
+# so a copy cannot drift quietly: `tests/check-hue-lib.sh` compares the file
+# named by `upstream` against the pin below and fails when upstream has moved
+# past it. Porting an upstream change means editing lib/hue.soil and updating
+# commit and sha256 here in the same commit.
+upstream = "examples/hue/hue.soil"
+commit = "86a1296"
+repo = "https://github.com/fungOS-linux/soil"
+sha256 = "7f386541e97b8d5ca28662e8fc0b1ef9b728c82e752483d5ed79b6a9c4b0040e"

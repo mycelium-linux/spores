@@ -64,3 +64,49 @@ Native tests use a fake transport and need no bridge:
 ```sh
 cargo test -p spore-hue
 ```
+
+## Soil library
+
+`lib/hue.soil` is the Spore's Hue domain layer in Soil: bridge URL
+construction, targets, scenes, brightness that encodes as an integer,
+sRGB→CIE-xy conversion, per-lamp gamut clamping, named moods, spatial plans and
+timed demos. `lib/cli.soil` is the CLI over it — the same flags, verbs,
+rejection messages and summaries as the Rust entry point, so the port can be
+measured instead of guessed. Both own Hue semantics only: the host still owns
+the origin allowlist and the bridge key, which the guest writes as
+`__CREDENTIAL__` and names `default`.
+
+It is the layer other Soil programs call, and the seam `lights-view` and the
+CLI port will use:
+
+```lisp
+(defun home () (hue/bridge "http://192.168.1.10" "default"))
+
+(hue/on (home) (hue/group "0"))
+(hue/bri (home) (hue/light "3") 180)
+(hue/scene (home) (hue/group "1") "Relax")
+(hue/atmosphere (home) "81" "aurora" nil)
+```
+
+The CLI is the same thing with argv in front of it:
+
+```lisp
+(hue/cli (list "--bridge" "http://192.168.1.10" "--credential" "default"
+               "--group" "1" "scene" "Relax"))
+; => (ok "group 1: scene Relax")
+```
+
+Load the prelude and `crates/soil-lang/bindings/soil-http.soil` first, then
+`lib/hue.soil`, then `lib/cli.soil`. The shipped `module.wasm` is still built
+from `src/`, so the Rust CLI and `hue-client` stay until a Spore module can be
+built from Soil; see [`docs/hue-soil-port.md`](../../docs/hue-soil-port.md) for
+the boundary, the two-implementation rule, and the follow-ups.
+
+```sh
+cd spores/hue && ./tests/run.sh             # 41 tests, no bridge, no socket
+cd spores/hue && ./tests/check-hue-lib.sh   # the copy still matches loam at the pin
+cd spores/hue && ./tests/run.sh --socket    # plus the CLI against a fake bridge
+```
+
+`--socket` needs a Soil tree whose host allows the credential-less `pair`
+request (the loam tip does); it says so if the selected tree does not.

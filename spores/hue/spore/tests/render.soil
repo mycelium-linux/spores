@@ -1,0 +1,40 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+(defun scene (id name group)
+  (list :1 (list (list :name name) (list :group group))))
+
+(defun light (id name on bri)
+  (list :1
+        (list (list :name name)
+              (list :state (list (list :on on) (list :bri bri))))))
+
+(defun group (id name on bri lights)
+  (list :1
+        (list (list :name name)
+              (list :action (list (list :on on) (list :bri bri)))
+              (list :lights lights))))
+
+(defun fixture-groups ()
+  (list 'ok (list (group "1" "Living Room" #t 180 (list "1" "3")))))
+(defun fixture-lights ()
+  (list 'ok (list (light "1" "Desk" #t 180) (light "3" "Window Lamp" #f 0))))
+(defun fixture-scenes ()
+  (list 'ok (list (scene "7" "Relax" "1") (scene "8" "Focus" "1"))))
+
+(defun test/page-shell ()
+  (let ((html (hue/dashboard (fixture-groups) (fixture-lights) (fixture-scenes))))
+    (and
+      (string-contains? html "<!doctype html>")
+      (string-contains? html "Living Room")
+      (string-contains? html "Window Lamp")
+      (string-contains? html "Relax")
+      (string-contains? html "action=\"/power\"")
+      (string-contains? html "action=\"/brightness\"")
+      (string-contains? html "action=\"/colour\""))))
+
+(defun test/escape ()
+  (= "&lt;script&gt;" (hue/esc "<script>")))
+
+(defun test/all ()
+  (list
+    (list :page-shell (test/page-shell))
+    (list :escape (test/escape))))
