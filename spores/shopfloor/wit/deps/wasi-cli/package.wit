@@ -1,0 +1,30 @@
+// WASI CLI subset used by Soil command components.
+//
+// Only the interfaces a command actually needs are vendored here. The full
+// wasi:cli package also pulls filesystem, sockets, clocks, random and io; Soil
+// keeps those behind its own grants (soil:vfs, soil:time, ...) instead.
+package wasi:cli@0.2.4;
+
+interface environment {
+  /// POSIX-style environment variables, as name/value pairs.
+  get-environment: func() -> list<tuple<string, string>>;
+
+  /// POSIX-style arguments, including argv[0] when the host provides it.
+  get-arguments: func() -> list<string>;
+
+  /// The initial working directory, if the host has one.
+  initial-cwd: func() -> option<string>;
+}
+
+interface exit {
+  /// Exit the instance with a result.
+  exit: func(status: result);
+
+  /// Exit with a status code. The function does not return.
+  exit-with-code: func(status-code: u8);
+}
+
+interface run {
+  /// Run the command.
+  run: func() -> result;
+}
