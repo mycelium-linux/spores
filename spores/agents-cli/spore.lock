@@ -1,0 +1,6 @@
+spore-lock 1
+spore dev.mycelium.agents-cli
+version 0.1.0
+file a37b04ce16d8746a9907647ec379ee7bfe74d306a5249c1005d8b1c780d46fe2 92030 module.wasm
+file 1c37ae116c1ff281107081f5c016d6031728a4483effe47ccc0683152ed65eaf 914 spore.toml
+digest 8250e17533487009f3a187c6c29d50114c56035dc7c055c3dcab0e08b3d91a25

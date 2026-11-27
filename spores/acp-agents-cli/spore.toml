@@ -1,0 +1,36 @@
+schema = 1
+
+[spore]
+id = "dev.mycelium.acp-agents-cli"
+name = "acp-agents-cli"
+version = "0.1.0"
+license = "MIT"
+summary = "WASI command wrapper for the ACP adapter probe"
+
+[engine]
+soil = ">=0.1"
+target = "wasm32-wasip2"
+
+[module]
+path = "module.wasm"
+
+[[commands]]
+name = "acp-agents"
+summary = "print the normalized agent list"
+module = "module.wasm"
+
+[launch]
+default = "native"
+surfaces = ["native"]
+
+[grants]
+"mycelium:acp-agents" = "compose the ACP adapter for the probe"
+"soil:http" = "the ACP adapter reaches its allowlisted endpoint"
+"soil:vfs" = "the ACP adapter reads agents/acp.json"
+
+"wasi:cli" = "WASI runtime imports emitted by the component target"
+"wasi:clocks" = "WASI runtime imports emitted by the component target"
+"wasi:io" = "WASI runtime imports emitted by the component target"
+
+[denied]
+host = ["process", "secrets", "environment"]

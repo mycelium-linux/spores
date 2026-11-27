@@ -1,0 +1,6 @@
+spore-lock 1
+spore dev.mycelium.theseus-agents
+version 0.1.0
+file 5289ffa0b3b9c358960b7842a7e9d9bfb0760b9eca362f28b721801ca6dc4b0e 353115 module.wasm
+file f5c35988932e0775578ca7018284e5facb0e09b520b12386d3e044369cee3e5b 1099 spore.toml
+digest 3c2743c91e46561c68dae3ad3629cc3a667ce71dcb90109ea19599aa89fcceb3

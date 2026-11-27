@@ -1,0 +1,55 @@
+// Publish metrics from a Spore, scrape them from the host.
+//
+// A Spore cannot open a socket, and a metric is not an action: it is a fact
+// about the work the Spore already did. This is the narrowest surface for that
+// fact — a Spore names a series and a value, the host keeps the registry, and
+// the host's HTTP surface answers `GET /metrics` in Prometheus text format.
+//
+// The host is the one that exposes it, so a Spore never learns a port, a path,
+// or a scraper. Each Spore has its own registry and the host renders it on that
+// Spore's vhost, so one Spore's series can never be attributed to another; a
+// series with two kinds under one name is refused rather than rendered twice.
+//
+// Alerting is not here. A scrape is a sample; an alert is a decision with a
+// person on the other end, and those travel as `soil:unibus` frames (the
+// `fpl.node.health.v1` shape the fleet feed already consumes). Keeping them
+// apart is what lets a dashboard and an alert disagree only about thresholds,
+// never about the numbers.
+package soil:metrics@0.1.0;
+
+interface metrics {
+  enum error {
+    /// A name or label is outside the character or length budget.
+    invalid,
+    /// The caller's series or label budget is exhausted.
+    over-budget,
+    /// The host did not grant this Spore the metrics capability.
+    denied,
+  }
+
+  enum kind {
+    /// Monotonic since the process started.
+    counter,
+    /// A value that may go up or down.
+    gauge,
+  }
+
+  record sample {
+    /// `soil_agents_running` — snake_case, no unit suffix (the host adds
+    /// nothing; the Spore writes the unit it means).
+    name: string,
+    kind: kind,
+    value: f64,
+    help: option<string>,
+    /// `[("phase", "working")]`. Sorted by key by the host, so two calls that
+    /// differ only in label order are one series.
+    labels: list<tuple<string, string>>,
+  }
+
+  /// Record samples. Counters add to the series; gauges replace it.
+  emit: func(samples: list<sample>) -> result<_, error>;
+
+  /// What the registry currently holds, for a Spore that renders its own view
+  /// and for tests. The HTTP surface is the host's, not the Spore's.
+  snapshot: func() -> list<sample>;
+}

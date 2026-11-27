@@ -190,3 +190,21 @@ spores/mush/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f61844122
 spores/scribe-ui/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/scribe/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/sfx/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+
+# --- agent composition WIT vendored copies (2026-11-27) ---
+spores/acp-agents-cli/wit/deps/soil-metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
+spores/acp-agents-cli/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/acp-agents/wit/deps/soil-metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
+spores/acp-agents/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/acp-agents/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/agents-cli/wit/deps/soil-metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
+spores/agents-cli/wit/deps/soil-records.wit 69eca0ac35d8329f8fb288e3b8cb33b05d3d94b0
+spores/agents-cli/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/agents-cli/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/agents/wit/deps/soil-metrics.wit 042306892af9be87ab211b286fb545fb00ec7566
+spores/agents/wit/deps/soil-records.wit 69eca0ac35d8329f8fb288e3b8cb33b05d3d94b0
+spores/agents/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/agents/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+spores/theseus-agents/wit/deps/soil-records.wit 69eca0ac35d8329f8fb288e3b8cb33b05d3d94b0
+spores/theseus-agents/wit/deps/soil-vfs-mut.wit c0e729a1e792db06cb603bba24aafb778935230f
+spores/theseus-agents/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
