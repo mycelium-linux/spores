@@ -190,3 +190,6 @@ spores/mush/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f61844122
 spores/scribe-ui/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/scribe/wit/deps/soil-vfs/package.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
 spores/sfx/wit/deps/soil-vfs.wit 53f42f5f78a2960b78fbaedd33d37f618441225e
+
+# --- shopfloor RFQ vendored copy (2026-11-27) ---
+spores/shopfloor/wit/deps/soil-records/package.wit 69eca0ac35d8329f8fb288e3b8cb33b05d3d94b0
