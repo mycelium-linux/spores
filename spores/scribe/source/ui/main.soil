@@ -1,0 +1,177 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Scribe UI: the routes and the mutations, in Soil.
+;
+; Reads go through `scribe/lib/capture.soil`, writes through
+; `scribe/lib/write.soil`, forms through `soil-lang/stdlib/ui.soil`. This file
+; is the only place that knows an HTTP verb or a URL.
+;
+; The host owns the socket and `soil:streams`; Scribe owns the page and the
+; 303 that follows a POST. There is no client-side JavaScript.
+
+;;; Session ---------------------------------------------------------------
+
+(defun main ()
+  (let ((accepted (soil:streams/accept "http")))
+    (if (not (ok? accepted))
+        nil
+        (let ((session (value accepted)))
+          (if (nil? session)
+              nil
+              (scribe-ui/route session (http/read-request session "")))))))
+
+(defun scribe-ui/route (session request)
+  (let ((method (http/method request))
+        (path (http/path request)))
+    (cond
+      ((and (= method "GET") (= path "/")) (scribe-ui/list session request))
+      ((and (= method "GET") (= path "/settings")) (scribe-ui/settings session request))
+      ((and (= method "GET") (http/starts-with? path "/c/")) (scribe-ui/detail session request path))
+      ((and (= method "POST") (= path "/speaker")) (scribe-ui/set-speaker session request))
+      ((and (= method "POST") (= path "/swap")) (scribe-ui/swap session request))
+      ((and (= method "POST") (= path "/queue")) (scribe-ui/queue session request))
+      ((and (= method "POST") (= path "/vocabulary")) (scribe-ui/save-vocabulary session request))
+      (else (http/not-found session)))))
+
+;;; Reading the request ----------------------------------------------------
+
+(defun scribe-ui/q (request)
+  (http/query-param request "q"))
+
+(defun scribe-ui/from (request)
+  (http/query-param request "from"))
+
+(defun scribe-ui/to (request)
+  (http/query-param request "to"))
+
+(defun scribe-ui/show-hidden (request)
+  (= (http/query-param request "suppressed") "1"))
+
+(defun scribe-ui/form-path (request)
+  (http/form request "path"))
+
+(defun scribe-ui/valid-path? (path)
+  (and (http/starts-with? path "captures/")
+       (not (string-contains? path ".."))))
+
+(defun scribe-ui/capture-url (path)
+  (str "/c/" (capture/drop-prefix "captures/" path)))
+
+;;; Filtering --------------------------------------------------------------
+
+(defun scribe-ui/visible? (card show)
+  (and (not (field card :processing))
+       (= (field card :suppressed) show)))
+
+(defun scribe-ui/visible-cards (cards show)
+  (filter-with 'scribe-ui/visible? show cards))
+
+(defun scribe-ui/count-visible (cards show)
+  (length (scribe-ui/visible-cards cards show)))
+
+(defun scribe-ui/processing? (card)
+  (and (field card :processing) (not (field card :suppressed))))
+
+(defun scribe-ui/count-processing (cards)
+  (length (filter 'scribe-ui/processing? cards)))
+
+(defun scribe-ui/count-hidden (cards show)
+  (let ((total (if (nil? cards) 0 (length cards))))
+    (- total (+ (scribe-ui/count-visible cards show) (scribe-ui/count-processing cards)))))
+
+;;; List ------------------------------------------------------------------
+
+(defun scribe-ui/list (session request)
+  (let ((q (scribe-ui/q request))
+        (from (scribe-ui/from request))
+        (to (scribe-ui/to request))
+        (show (scribe-ui/show-hidden request)))
+    (let ((cards (capture/cards from to)))
+      (let ((cards (if (= q "") cards (capture/search q cards))))
+        (http/html session
+          (views/list-page
+            (scribe-ui/visible-cards cards show)
+            (scribe-ui/count-hidden cards show)
+            (scribe-ui/count-processing cards)
+            q from to show))))))
+
+;;; Detail ----------------------------------------------------------------
+
+(defun scribe-ui/detail (session request path)
+  (let ((bundle (str "captures/" (capture/drop-prefix "/c/" path))))
+    (if (not (scribe-ui/valid-path? bundle))
+        (http/not-found session)
+        (let ((exists (soil:vfs/stat bundle)))
+          (if (not (ok? exists))
+              (http/not-found session)
+              (http/html session
+                (views/detail-page (capture/full bundle) bundle)))))))
+
+;;; Mutations -------------------------------------------------------------
+
+(defun scribe-ui/bad-request (session message)
+  (http/respond session "400 Bad Request" "text/plain; charset=utf-8" (str message "\n")))
+
+(defun scribe-ui/slug (name)
+  (let ((slug (string-replace (string-trim name) " " "-")))
+    (capture/take-chars 64 slug)))
+
+(defun scribe-ui/set-speaker (session request)
+  (let ((path (scribe-ui/form-path request))
+        (label (http/form request "speaker"))
+        (name (string-trim (http/form request "name"))))
+    (cond
+      ((not (scribe-ui/valid-path? path)) (scribe-ui/bad-request session "invalid capture path"))
+      ((or (= label "") (= name "") (> (length name) 80))
+       (scribe-ui/bad-request session "invalid speaker name"))
+      (else
+       (let ((_ (write/set-speaker path label name (scribe-ui/slug name))))
+         (http/redirect session (scribe-ui/capture-url path)))))))
+
+(defun scribe-ui/swap (session request)
+  (let ((path (scribe-ui/form-path request))
+        (a (http/form request "a"))
+        (b (http/form request "b")))
+    (if (or (not (scribe-ui/valid-path? path)) (= a "") (= b "") (= a b))
+        (scribe-ui/bad-request session "invalid swap")
+        (begin
+          (write/swap-speakers path a b)
+          (http/redirect session (scribe-ui/capture-url path))))))
+
+(defun scribe-ui/queue (session request)
+  (let ((path (scribe-ui/form-path request))
+        (kind (http/form request "kind")))
+    (if (not (scribe-ui/valid-path? path))
+        (scribe-ui/bad-request session "invalid capture path")
+        (begin
+          (scribe-ui/enqueue path kind)
+          (http/redirect session (scribe-ui/capture-url path))))))
+
+(defun scribe-ui/enqueue (path kind)
+  (cond
+    ((= kind "clean")
+     (write/queue-add "scribe/clean.json" (list (list :path path)) :path path))
+    ((= kind "voicefix")
+     (write/queue-add "voiceprints/voicefix.json"
+       (list (list :path path) (list :source "scribe-ui")) :path path))
+    ((= kind "restyle")
+     (write/queue-add "voiceprints/restyle.json"
+       (list (list :path path) (list :style "design")) :path path))
+    ((= kind "relearn")
+     (write/queue-relearn path))
+    (else #f)))
+
+;;; Settings --------------------------------------------------------------
+
+(defun scribe-ui/settings (session request)
+  (let ((vocabulary (capture/read-text "scribe/vocabulary.txt")))
+    (http/html session (views/settings-page vocabulary))))
+
+(defun scribe-ui/save-vocabulary (session request)
+  (let ((text (http/form request "text")))
+    (if (> (length (string->bytes text)) 65536)
+        (scribe-ui/bad-request session "vocabulary is too large")
+        (begin
+          (write/vocabulary text)
+          (http/redirect session "/settings")))))

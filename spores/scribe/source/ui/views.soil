@@ -1,0 +1,300 @@
+
+
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Scribe UI as Soil forms. The host serializes; it does not decide layout,
+; copy, or which capture becomes which card.
+
+;;; Small form helpers -----------------------------------------------------
+
+(defun views/hidden (name value)
+  (el "input" (list (attr :type "hidden") (attr :name name) (attr :value value)) nil))
+
+(defun views/text-input (name value placeholder)
+  (el "input" (list (attr :type "text") (attr :name name) (attr :value value)
+                    (attr :placeholder placeholder)) nil))
+
+(defun views/dot ()
+  (el "span" (list (attr :class "dot")) (list (txt "·"))))
+
+(defun views/link-to (path label)
+  (el "a" (list (attr :href path)) (list (txt label))))
+
+(defun views/capture-link (card)
+  (str "/c/" (capture/drop-prefix "captures/" (field card :path))))
+
+(defun views/count-noun (count singular plural)
+  (str count " " (if (= count 1) singular plural)))
+
+;;; Shell -----------------------------------------------------------------
+
+(defun views/shell (title content)
+  (render-page title (views/styles)
+    (list
+      (el "header" nil
+        (list
+          (el "a" (list (attr :href "/")) (list (el "span" (list (attr :class "brand")) (list (txt "Scribe") (el "b" nil (list (txt ".")))))))
+          (el "span" (list (attr :class "tag")) (list (txt "captures")))
+          (el "span" (list (attr :class "spacer")) nil)
+          (el "a" (list (attr :class "link") (attr :href "/settings")) (list (txt "Vocabulary")))))
+      content)))
+
+;;; List ------------------------------------------------------------------
+
+(defun views/filter-form (q from to show hidden)
+  (el "form" (list (attr :class "filters") (attr :method "get") (attr :action "/"))
+    (list
+      (el "input" (list (attr :type "search") (attr :name "q")
+                        (attr :placeholder "Search captures…") (attr :value q)) nil)
+      (el "div" (list (attr :class "dates"))
+        (list
+          (el "input" (list (attr :type "date") (attr :name "from") (attr :value from)) nil)
+          (el "span" nil (list (txt "–")))
+          (el "input" (list (attr :type "date") (attr :name "to") (attr :value to)) nil)))
+      (el "div" (list (attr :class "row"))
+        (list
+          (el "button" (list (attr :class "primary") (attr :type "submit")) (list (txt "Filter")))
+          (el "span" (list (attr :class "spacer")) nil)
+          (if (= hidden 0)
+              (el "span" (list (attr :class "link")) (list (txt "no hidden")))
+              (el "label" (list (attr :class "link"))
+                (list
+                  (el "input" (list (attr :type "checkbox") (attr :name "suppressed")
+                                    (attr :value "1") (attr :checked show)) nil)
+                  (txt (str " hidden (" hidden ")"))))))))))
+
+(defun views/card (card)
+  (el "a" (list (attr :class "capture") (attr :href (views/capture-link card)))
+    (list
+      (el "div" (list (attr :class "title"))
+        (list (txt (str (field card :emoji) (if (= (field card :emoji) "") "" " ")
+                        (field card :title)))))
+      (el "div" (list (attr :class "when"))
+        (list (txt (str (field card :date) " · " (field card :source)
+                        " · " (field card :words) " words"))))
+      (el "div" (list (attr :class "preview"))
+        (list (txt (field card :preview)))))))
+
+(defun views/card-list (cards)
+  (if (nil? cards)
+      (el "div" (list (attr :class "empty"))
+        (list (txt "No captures in this range.")))
+      (map 'views/card cards)))
+
+(defun views/processing-note (processing)
+  (if (= processing 0)
+      nil
+      (el "div" (list (attr :class "section-title"))
+        (list (txt (str processing " processing"))))))
+
+(defun views/list-page (cards hidden processing q from to show)
+  (let ((title (if (= q "") "Scribe" (str q " · Scribe"))))
+    (views/shell title
+      (list
+        (el "main" nil
+          (list
+            (el "aside" nil
+              (list
+                (views/filter-form q from to show hidden)
+                (views/processing-note processing)
+                (el "div" (list (attr :class "section-title"))
+                  (list (txt (views/count-noun (if (nil? cards) 0 (length cards)) "capture" "captures"))))
+                (views/card-list cards)))
+            (el "section" (list (attr :class "center"))
+              (list
+                (el "div" (list (attr :class "empty"))
+                  (list (txt "Choose a capture.")))))))))))
+
+;;; Markdown --------------------------------------------------------------
+
+(defun views/heading (line prefix tag)
+  (el tag nil (list (txt (string-trim (capture/drop-prefix prefix line))))))
+
+(defun views/block-tag (line)
+  (cond
+    ((capture/prefix? "### " line) "h3")
+    ((capture/prefix? "## " line) "h3")
+    ((capture/prefix? "# " line) "h2")
+    (else nil)))
+
+(defun views/block-prefix (line)
+  (cond
+    ((capture/prefix? "### " line) "### ")
+    ((capture/prefix? "## " line) "## ")
+    (else "# ")))
+
+(defun views/list-items (lines)
+  (map 'views/list-item lines))
+
+(defun views/list-item (line)
+  (el "li" nil (list (txt (string-trim (capture/drop-prefix "- " (string-trim line)))))))
+
+(defun views/block (block)
+  (let ((line (first (capture/lines block))))
+    (let ((tag (views/block-tag (string-trim line))))
+      (cond
+        ((not (nil? tag))
+         (views/heading (string-trim line) (views/block-prefix (string-trim line)) tag))
+        ((capture/prefix? "- " (string-trim block))
+         (el "ul" nil (views/list-items (capture/lines block))))
+        (else
+         (el "p" nil (list (txt (string-replace (string-trim block) "\n" " ")))))))))
+
+(defun views/markdown (text)
+  (map 'views/block (string-split (string-trim text) "\n\n")))
+
+;;; Detail ----------------------------------------------------------------
+
+(defun views/label-value (name value)
+  (el "div" (list (attr :class "row"))
+    (list
+      (el "label" (list (attr :class "grow")) (list (txt name)))
+      (el "span" (list (attr :class "link")) (list (txt (str value)))))))
+
+(defun views/speaker-control (path label speakers)
+  (let ((name (write/speaker-name speakers label)))
+    (el "form" (list (attr :method "post") (attr :action "/speaker"))
+      (list
+        (views/hidden "path" path)
+        (views/hidden "speaker" label)
+        (el "label" nil (list (txt label)))
+        (views/text-input "name" (if (= name label) "" name) "Name")
+        (el "button" (list (attr :type "submit")) (list (txt "Save")))))))
+
+(defun views/speakers-panel (full path)
+  (let ((speakers (field full :speakers))
+        (labels (capture/unique
+                  (filter 'capture/nonempty
+                    (map 'capture/speaker-label (field (field full :transcript) :segments))))))
+    (el "div" (list (attr :class "panel"))
+      (list
+        (el "h3" nil (list (txt "Speakers")))
+        (if (nil? labels)
+            (el "div" (list (attr :class "link")) (list (txt "No diarized speakers.")))
+            (map-with 'views/speaker-form
+              (list (list :path path) (list :speakers speakers))
+              labels))
+        (el "form" (list (attr :method "post") (attr :action "/swap"))
+          (list
+            (views/hidden "path" path)
+            (el "label" nil (list (txt "Swap two speakers")))
+            (el "div" (list (attr :class "row"))
+              (list
+                (views/text-input "a" "" "A")
+                (views/text-input "b" "" "B")
+                (el "button" (list (attr :type "submit")) (list (txt "Swap")))))))))))
+
+(defun views/speaker-form (label ctx)
+  (views/speaker-control (field ctx :path) label (field ctx :speakers)))
+
+(defun views/queue-form (path kind label)
+  (el "form" (list (attr :method "post") (attr :action "/queue"))
+    (list (views/hidden "path" path) (views/hidden "kind" kind)
+          (el "button" (list (attr :type "submit")) (list (txt label))))))
+
+(defun views/tools-panel (path)
+  (el "div" (list (attr :class "panel"))
+    (list
+      (el "h3" nil (list (txt "Fix up")))
+      (el "div" (list (attr :class "row"))
+        (list
+          (views/queue-form path "clean" "Clean transcript")
+          (views/queue-form path "voicefix" "Voice fix")
+          (views/queue-form path "restyle" "Restyle")))
+      (el "div" (list (attr :class "row"))
+        (list
+          (views/queue-form path "relearn" "Relearn voices"))))))
+
+(defun views/action-item (action)
+  (el "div" (list (attr :class "action"))
+    (list
+      (el "div" (list (attr :class "title")) (list (txt (field action :title))))
+      (let ((quote (field action :quote)))
+        (if (nil? quote) nil (el "div" (list (attr :class "quote")) (list (txt quote)))))
+      (let ((owner (field action :owner)))
+        (if (nil? owner) nil (el "div" (list (attr :class "who")) (list (txt owner))))))))
+
+(defun views/actions-panel (actions)
+  (el "div" (list (attr :class "panel"))
+    (list
+      (el "h3" nil (list (txt "Action items")))
+      (if (nil? actions)
+          (el "div" (list (attr :class "link")) (list (txt "None extracted.")))
+          (map 'views/action-item actions)))))
+
+(defun views/turn (segment speakers)
+  (let ((label (capture/speaker-label segment)))
+    (el "div" (list (attr :class "turn"))
+      (list
+        (if (= label "")
+            nil
+            (el "div" (list (attr :class "speaker"))
+              (list (txt (write/speaker-name speakers label)))))
+        (el "div" (list (attr :class "text"))
+          (list (txt (field segment :text))))))))
+
+(defun views/transcript (full)
+  (let ((segments (field (field full :transcript) :segments))
+        (speakers (field full :speakers)))
+    (if (capture/empty? segments)
+        (el "div" (list (attr :class "text"))
+          (list (txt (capture/transcript-text (field full :transcript)))))
+        (map-with 'views/turn speakers segments))))
+
+(defun views/meta-line (card)
+  (el "div" (list (attr :class "meta"))
+    (list
+      (txt (field card :source))
+      (views/dot)
+      (txt (field card :date))
+      (views/dot)
+      (txt (views/count-noun (field card :words) "word" "words"))
+      (views/dot)
+      (txt (views/count-noun (field card :speakers) "speaker" "speakers"))
+      (views/dot)
+      (txt (views/count-noun (field card :actions) "action" "actions")))))
+
+(defun views/detail-page (full path)
+  (let ((card (field full :card)))
+    (views/shell (field card :title)
+      (list
+        (el "main" nil
+          (list
+            (el "aside" nil
+              (list
+                (el "div" (list (attr :class "section-title")) (list (txt "Capture")))
+                (views/speakers-panel full path)
+                (views/tools-panel path)
+                (views/actions-panel (field full :actions))))
+            (el "section" (list (attr :class "center"))
+              (list
+                (el "h1" nil (list (txt (str (field card :emoji) " " (field card :title)))))
+                (views/meta-line card)
+                (el "div" (list (attr :class "summary"))
+                  (views/markdown (field card :summary)))
+                (el "h2" (list (attr :class "block"))
+                  (list (txt "Transcript")))
+                (views/transcript full)))))))))
+
+;;; Settings ---------------------------------------------------------------
+
+(defun views/settings-page (vocabulary)
+  (views/shell "Vocabulary · Scribe"
+    (list
+      (el "main" nil
+        (list
+          (el "aside" nil
+            (list
+              (el "div" (list (attr :class "section-title")) (list (txt "Scribe")))
+              (views/link-to "/" "← Captures")))
+          (el "section" (list (attr :class "center"))
+            (list
+              (el "h1" nil (list (txt "Known vocabulary")))
+              (el "p" (list (attr :class "meta"))
+                (list (txt "Names, products, acronyms, and terms the transcript cleaner should preserve.")))
+              (el "form" (list (attr :method "post") (attr :action "/vocabulary"))
+                (list
+                  (el "div" (list (attr :class "panel"))
+                    (list
+                      (el "textarea" (list (attr :name "text")) (list (txt vocabulary)))))
+                  (el "button" (list (attr :class "primary") (attr :type "submit"))
+                    (list (txt "Save"))))))))))))

@@ -1,7 +1,49 @@
 # Scribe Spore
 
 Consumes capture events and writes the durable bundle: VFS files, the
-`fungos.transcript/capture@1` record, and an index refresh.
+`fungos.transcript/capture@1` record, and an index refresh. It also serves the
+browser view over those bundles.
+
+Scribe is the reference Soil port: one Spore, two surfaces (`cli` and `web`),
+one shared domain library, and no duplicated capture logic.
+
+## Layout
+
+```text
+spore.soil          Spore v0 manifest (source-distributed)
+spore.lock          package identity and file digests
+wit/world.wit       the cli and web worlds
+source/lib/         capture.soil (read) and write.soil (mutate)
+source/ui/          http, styles, views, main
+tests/              nine Soil tests and a disposable-VFS runner
+src/, Cargo.toml    the previous Rust module (legacy, until ingest is ported)
+spore.toml          the previous manifest (superseded by spore.soil)
+```
+
+`source/lib/capture.soil` reads bundles and never writes.
+`source/lib/write.soil` writes and never parses. A spore that only presents
+needs `soil:vfs`; an editing spore adds `soil:vfs-mut`. That split is what lets
+ingest and the UI share one reader without sharing grants.
+
+`module.wasm` in this tree is the Rust build. It is not the implementation
+`spore.soil` describes, and it is deleted with `src/` when the ingest port
+lands.
+
+## Reading and writing
+
+```text
+GET  /                          list, search, date filter, hidden toggle
+GET  /c/<source>/<date>/<id>    summary, actions, speakers, transcript
+GET  /settings                  vocabulary
+POST /speaker                   set a speaker name
+POST /swap                      swap two speakers
+POST /queue                     clean | voicefix | restyle | relearn
+POST /vocabulary                save vocabulary
+```
+
+Pages are server-rendered from `el`/`attr`/`txt` in `source/ui/`. There is no
+client JavaScript. HTTP is parsed in Soil (`source/ui/http.soil`), which keeps
+the host to a byte pump.
 
 ## Input
 
@@ -50,7 +92,6 @@ cursor. `--once` processes one page and exits; this is the test/dev path.
 ```
 captures/<source>/<date>/<capture_id>/
   transcript.json
-  summary.md
   summary.md          # display: Scribe's when available, else Omi's
   summary.omi.md      # Omi's supplied summary, preserved when present
   summary.scribe.md   # Scribe's generated summary, when enrichment ran
@@ -96,12 +137,26 @@ time zones, recurrence, and ICS status.
 
 ## Grants
 
-`soil:vfs` (stat), `soil:vfs-mut` (write/mkdir), `soil:index` (refresh),
-`soil:records` (upsert), `soil:unibus` (poll/publish), `soil:inference`
-(summaries and action extraction), `soil:time` (tick), plus the WASI std
-runtime. No socket, process, secret, raw filesystem, or wall clock.
+`soil:vfs` (read), `soil:vfs-mut` (write), `soil:streams` (UI sessions and
+capture receive), `soil:index` (refresh), `soil:records` (upsert),
+`soil:unibus` (poll/publish), `soil:inference` (summaries and action
+extraction), `soil:time` (tick), plus the WASI std runtime. No socket, process,
+secret, raw filesystem, or wall clock.
+
+## Tests
+
+```sh
+SOIL=/path/to/soil ./tests/run.sh
+```
+
+The runner builds a disposable VFS and records book and runs every `test/*`
+function: URL decoding, date ranges, title derivation, word/label helpers, view
+shape, bundle round-trip, speaker writes, queue de-duplication, and prefix
+handling.
 
 ## Build
+
+The legacy module:
 
 ```sh
 cargo test
@@ -109,9 +164,20 @@ cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/scribe_spore.wasm module.wasm
 ```
 
+The manifest and lock:
+
+```sh
+spores/../soil/scripts/spore-pack.sh lock spores/scribe
+```
+
 The default model alias is `scribe/summarize`. Map it in the host/Bifrost catalog
 to the 9B for routine captures and add `scribe/deep` for the 65B escalation.
 
-The pure event/path/count/transcript mapping is unit-tested. End-to-end execution needs a
-host composition that links VFS, VFS mutation, index, records, and Unibus;
-`soil-dev-host` currently links records and Unibus but not VFS.
+The pure event/path/count/transcript mapping is unit-tested. End-to-end execution
+needs a host composition that links VFS, VFS mutation, index, records, and
+Unibus; the previous `soil-dev-host` links records and Unibus but not VFS.
+
+## Port
+
+`docs/scribe-soil-port.md` records the boundary, the host gap, the ingest plan,
+and why `omi-rs` is now only useful as a decoder.

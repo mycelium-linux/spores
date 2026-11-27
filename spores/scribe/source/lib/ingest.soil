@@ -1,0 +1,256 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Scribe ingest: the pure half of the Rust `process_event`/`enrich_capture`.
+;
+; Nothing here touches a host. Each function turns one input into one value, so
+; the bundle writer (`write.soil`) and the Unibus loop stay thin and the tests
+; can run without a VFS. Mirrors `src/lib.rs` deliberately, including the paths
+; and the "Omi summary is never overwritten" rule.
+;
+; Port order: this file, then the Unibus watch loop, then enrichment
+; (soil:inference), then the audio tools (voicefix/restyle/merge), which need
+; byte buffers the runtime does not have yet.
+
+;;; Identifiers and paths --------------------------------------------------
+;;; Available string builtins here are string-chars, string-join, string-split,
+;;; string-contains?, string-replace and string-trim, so membership tests go
+;;; through `string-contains?` on a character rather than char codes.
+
+;;; `defconst` is not in the native interpreter, so these are functions.
+(defun ingest/allowed ()
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+(defun ingest/digits () "0123456789")
+
+(defun ingest/safe-char? (character)
+  (string-contains? (ingest/allowed) (str character)))
+
+(defun ingest/safe-chars? (characters)
+  (cond
+    ((nil? characters) #t)
+    ((ingest/safe-char? (first characters)) (ingest/safe-chars? (rest characters)))
+    (else #f)))
+
+;;; Returns the id, or nil when it is empty, too long, or has a character that
+;;; would escape the bundle path. The Rust version errors; nil is the Soil-side
+;;; convention and the caller decides how to report it.
+(defun ingest/sanitize (text)
+  (let ((text (string-trim (str text))))
+    (if (or (= text "") (> (length text) 128) (not (ingest/safe-chars? (string-chars text))))
+        nil
+        text)))
+
+(defun ingest/date-digit? (character)
+  (string-contains? (ingest/digits) (str character)))
+
+(defun ingest/date-shape? (characters index)
+  (cond
+    ((nil? characters) #t)
+    ((or (= index 4) (= index 7)) (ingest/date-shape? (rest characters) (+ index 1)))
+    ((ingest/date-digit? (first characters)) (ingest/date-shape? (rest characters) (+ index 1)))
+    (else #f)))
+
+(defun ingest/date (date)
+  (if (nil? date)
+      "undated"
+      (let ((characters (string-chars (str date))))
+        (if (and (= (length characters) 10)
+                 (= (nth 4 characters) "-")
+                 (= (nth 7 characters) "-")
+                 (ingest/date-shape? characters 0))
+            (str date)
+            "undated"))))
+
+(defun ingest/bundle-path (source date id)
+  (capture/bundle source date id))
+
+;;; Title and emoji --------------------------------------------------------
+
+(defun ingest/short-title (text max-chars)
+  (let ((trimmed (string-trim (str text))))
+    (if (<= (length trimmed) max-chars)
+        trimmed
+        (string-trim (capture/take-chars max-chars trimmed)))))
+
+(defun ingest/title (summary title)
+  (let ((candidate
+          (cond
+            ((not (nil? (capture/summary-title summary))) (capture/summary-title summary))
+            ((not (nil? title)) title)
+            (else "Untitled capture"))))
+    (ingest/short-title candidate 40)))
+
+(defun ingest/emoji-table ()
+  (list
+    (list "standup" "🗓")
+    (list "sync" "🗓")
+    (list "design" "📐")
+    (list "review" "🔍")
+    (list "bug" "🐛")
+    (list "incident" "🚨")
+    (list "budget" "💸")
+    (list "hiring" "👥")
+    (list "interview" "👥")
+    (list "release" "🚀")
+    (list "launch" "🚀")
+    (list "sales" "📈")
+    (list "customer" "📈")
+    (list "plan" "🗺")
+    (list "retro" "🔁")))
+
+(defun ingest/lower-pairs ()
+  (list (list "A" "a") (list "B" "b") (list "C" "c") (list "D" "d") (list "E" "e")
+        (list "F" "f") (list "G" "g") (list "H" "h") (list "I" "i") (list "J" "j")
+        (list "K" "k") (list "L" "l") (list "M" "m") (list "N" "n") (list "O" "o")
+        (list "P" "p") (list "Q" "q") (list "R" "r") (list "S" "s") (list "T" "t")
+        (list "U" "u") (list "V" "v") (list "W" "w") (list "X" "x") (list "Y" "y")
+        (list "Z" "z")))
+
+(defun ingest/lower-into (text pairs)
+  (if (nil? pairs)
+      text
+      (ingest/lower-into (string-replace text (first (first pairs)) (nth 1 (first pairs)))
+        (rest pairs))))
+
+(defun ingest/lower (text)
+  (ingest/lower-into (str text) (ingest/lower-pairs)))
+
+(defun ingest/emoji-lookup (text table)
+  (cond
+    ((nil? table) nil)
+    ((string-contains? (ingest/lower (str text)) (first (first table))) (nth 1 (first table)))
+    (else (ingest/emoji-lookup text (rest table)))))
+
+(defun ingest/emoji-for (title summary)
+  (let ((found (ingest/emoji-lookup (str title " " summary) (ingest/emoji-table))))
+    (if (nil? found) "📝" found)))
+
+;;; Transcript text --------------------------------------------------------
+;;; The text the model sees. Segments win over words, matching the Rust path,
+;;; because they carry speaker labels and timings already.
+
+(defun ingest/segment-line (segment)
+  (str "[" (field segment :start) "-" (field segment :end) "] "
+       (capture/speaker-label (field segment :speaker)) ": "
+       (field segment :text)))
+
+(defun ingest/segments-text (transcript)
+  (let ((segments (field transcript :segments)))
+    (if (capture/empty? segments)
+        nil
+        (string-join (map 'ingest/segment-line segments) "\n"))))
+
+(defun ingest/words-text (transcript)
+  (let ((words (field transcript :words)))
+    (if (capture/empty? words)
+        nil
+        (string-join (map 'ingest/word-text words) " "))))
+
+(defun ingest/word-text (word)
+  (field word :word))
+
+(defun ingest/transcript-text (transcript)
+  (let ((text (field transcript :text)))
+    (let ((segments (ingest/segments-text transcript)))
+      (cond
+        ((not (nil? segments)) segments)
+        ((not (nil? text)) (str text))
+        (else (or (ingest/words-text transcript) ""))))))
+
+(defun ingest/segment-count (transcript)
+  (let ((segments (field transcript :segments)))
+    (if (capture/empty? segments) 0 (length segments))))
+
+;;; Chunking ---------------------------------------------------------------
+;;; min/max are prelude in the canonical tree but not in the fork runtime the
+;;; spore runs on, so they are local here.
+
+(defun ingest/min (a b) (if (< a b) a b))
+(defun ingest/max (a b) (if (> a b) a b))
+;;; Split on a newline in the back half of the window when one exists, then
+;;; overlap so a sentence cut at the boundary still has context.
+
+(defun ingest/drop-chars (n text)
+  (string-join (drop n (string-chars text)) ""))
+
+(defun ingest/chunk-at (text start end)
+  (capture/take-chars (- end start) (ingest/drop-chars start text)))
+
+;;; Offset of the last newline in `slice`, or nil. Walked by hand because the
+;;; installed native runtime lacks `string-split` and there is no last-index-of.
+(defun ingest/last-newline-in (characters index found)
+  (cond
+    ((nil? characters) found)
+    ((= (first characters) "\n") (ingest/last-newline-in (rest characters) (+ index 1) index))
+    (else (ingest/last-newline-in (rest characters) (+ index 1) found))))
+
+(defun ingest/last-newline (slice)
+  (ingest/last-newline-in (string-chars slice) 0 nil))
+
+(defun ingest/break-at-newline (text start end max-chars)
+  (let ((slice (ingest/chunk-at text start end)))
+    (let ((last-newline (ingest/last-newline slice)))
+      (if (and (not (nil? last-newline)) (> (* last-newline 2) max-chars))
+          (+ start last-newline)
+          end))))
+
+(defun ingest/overlap-start (start end overlap)
+  (if (<= end start) end (ingest/max start (- end overlap))))
+
+(defun ingest/chunks-into (text max-chars overlap start acc)
+  (let ((total (length text)))
+    (if (>= start total)
+        (reverse acc)
+        (let ((end (ingest/min (+ start max-chars) total)))
+          (let ((end (ingest/break-at-newline text start end max-chars)))
+            (let ((chunk (ingest/chunk-at text start end)))
+              (if (>= end total)
+                  (reverse (cons chunk acc))
+                  (ingest/chunks-into text max-chars overlap
+                    (ingest/overlap-start start end overlap)
+                    (cons chunk acc)))))))))
+
+(defun ingest/split-chunks (text max-chars overlap)
+  (if (<= (length text) max-chars)
+      (list text)
+      (ingest/chunks-into text max-chars overlap 0 nil)))
+
+;;; Provenance -------------------------------------------------------------
+
+;;; `scribe` when enrichment ran, `omi` when only the capture carried a summary,
+;;; `empty` when neither did. The display copy follows this, and the Omi text is
+;;; never overwritten.
+(defun ingest/summary-source (generated? supplied)
+  (cond
+    (generated? "scribe")
+    ((and (not (nil? supplied)) (> (length (string-trim (str supplied))) 0)) "omi")
+    (else "empty")))
+
+(defun ingest/enrichment-status (generated? supplied)
+  (cond
+    (generated? "complete")
+    ((and (not (nil? supplied)) (> (length (string-trim (str supplied))) 0)) "provided")
+    (else "pending")))
+
+;;; Event normalization ----------------------------------------------------
+
+(defun ingest/field-or (event key fallback)
+  (let ((value (field event key)))
+    (if (nil? value) fallback value)))
+
+(defun ingest/event (event)
+  (let ((source (ingest/sanitize (ingest/field-or event :source "omi")))
+        (id (ingest/sanitize (ingest/field-or event :capture_id ""))))
+    (if (or (nil? source) (nil? id))
+        nil
+        (let ((date (ingest/date (field event :date))))
+          (list
+            (list :source source)
+            (list :capture_id id)
+            (list :date date)
+            (list :bundle (ingest/bundle-path source date id))
+            (list :started_at_ms (ingest/field-or event :started_at_ms 0))
+            (list :ended_at_ms (ingest/field-or event :ended_at_ms 0))
+            (list :transcript (ingest/field-or event :transcript nil))
+            (list :summary (ingest/field-or event :summary ""))
+            (list :actions (ingest/field-or event :actions (list)))
+            (list :audio_content_id (ingest/field-or event :audio_content_id nil)))))))

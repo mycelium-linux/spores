@@ -1,0 +1,79 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
+; Ingest: the pure half of process_event/enrich_capture.
+
+(defun ingest/test-long-into (n acc)
+  (if (<= n 0) acc (ingest/test-long-into (- n 1) (str acc "x"))))
+
+(defun ingest/test-long ()
+  (ingest/test-long-into 129 ""))
+
+(defun ingest/test-repeated (text times)
+  (if (<= times 0) "" (str text (ingest/test-repeated text (- times 1)))))
+
+(defun test/sanitize ()
+  (and (= (ingest/sanitize "omi-123") "omi-123")
+       (= (ingest/sanitize "  a.b_c  ") "a.b_c")
+       (nil? (ingest/sanitize ""))
+       (nil? (ingest/sanitize "../etc/passwd"))
+       (nil? (ingest/sanitize "a b"))
+       (nil? (ingest/sanitize (ingest/test-long)))))
+
+(defun test/date ()
+  (and (= (ingest/date "2026-11-19") "2026-11-19")
+       (= (ingest/date nil) "undated")
+       (= (ingest/date "2026-1-9") "undated")
+       (= (ingest/date "19-11-2026") "undated")
+       (= (ingest/date "2026-11-19x") "undated")))
+
+(defun test/bundle-path ()
+  (= (ingest/bundle-path "omi" "2026-11-19" "omi-1")
+     "captures/omi/2026-11-19/omi-1"))
+
+(defun test/title ()
+  (and (= (ingest/title "# Weekly sync\n\nBody" nil) "Weekly sync")
+       (= (ingest/title "" "Given title") "Given title")
+       (= (ingest/title "" nil) "Untitled capture")
+       (= (ingest/short-title "abcdef" 3) "abc")))
+
+(defun test/emoji ()
+  (and (= (ingest/emoji-for "Design review" "") "📐")
+       (= (ingest/emoji-for "Weekly standup" "") "🗓")
+       (= (ingest/emoji-for "Something" "") "📝")))
+
+(defun test/transcript-text ()
+  (let ((segments (json-decode "{\"segments\":[{\"start\":0.5,\"end\":1.5,\"speaker\":\"A\",\"text\":\"hello\"}]}")))
+    (and (= (ingest/transcript-text segments) "[0.5-1.5] A: hello")
+         (= (ingest/transcript-text (json-decode "{\"text\":\"plain\"}")) "plain")
+         (= (ingest/transcript-text (json-decode "{\"words\":[{\"word\":\"hi\"},{\"word\":\"there\"}]}"))
+            "hi there"))))
+
+(defun test/segment-count ()
+  (and (= (ingest/segment-count (json-decode "{\"segments\":[{\"text\":\"a\"},{\"text\":\"b\"}]}")) 2)
+       (= (ingest/segment-count (json-decode "{}")) 0)))
+
+(defun test/chunks ()
+  (let ((short (ingest/split-chunks "small" 100 10)))
+    (and (= (length short) 1)
+         (= (first short) "small")))
+  (let ((chunks (ingest/split-chunks
+                  (ingest/test-repeated "abcdefghij" 30) 40 5)))
+    (and (> (length chunks) 1)
+         (= (length (filter 'capture/nonempty chunks)) (length chunks))
+         (<= (length (first chunks)) 40))))
+
+(defun test/summary-source ()
+  (and (= (ingest/summary-source #t "omi") "scribe")
+       (= (ingest/summary-source #f "omi") "omi")
+       (= (ingest/summary-source #f "  ") "empty")
+       (= (ingest/enrichment-status #t "") "complete")
+       (= (ingest/enrichment-status #f "omi") "provided")
+       (= (ingest/enrichment-status #f "") "pending")))
+
+(defun test/event ()
+  (let ((event (ingest/event
+                 (json-decode "{\"capture_id\":\"omi-1\",\"source\":\"omi\",\"date\":\"2026-11-19\",\"started_at_ms\":10,\"ended_at_ms\":20,\"transcript\":{\"text\":\"hi\"},\"summary\":\"# T\",\"actions\":[]}"))))
+    (and (= (field event :capture_id) "omi-1")
+         (= (field event :date) "2026-11-19")
+         (= (field event :bundle) "captures/omi/2026-11-19/omi-1")
+         (= (field event :started_at_ms) 10)
+         (nil? (ingest/event (json-decode "{\"capture_id\":\"../x\",\"source\":\"omi\"}"))))))
