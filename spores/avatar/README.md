@@ -106,3 +106,53 @@ requires a new style version, not silently changing `v1`.
 `tests/run.sh` checks same-seed determinism, seed separation, style separation,
 style version, self-containment (no external image reference), and all three
 families. License notes are in [`LICENSE-NOTES.md`](LICENSE-NOTES.md).
+
+## v2 — founder review second pass
+
+v1 is intentionally preserved unchanged: its source, tests, 16 SVGs, 48 PNGs,
+contact sheets, manifest, preview, and `v1` contract remain in place. v2 is a
+separate style version and artifact tree.
+
+```text
+source/avatar-v2.soil       pure Soil geometry + six deterministic frames
+artifacts/v2/svg/           12 × 6 SVG frames
+artifacts/v2/png/           static 256/32/24 PNGs (+ 128 review thumbnails)
+artifacts/v2/gif/           one 96×96, 6-frame GIF per candidate + frame PNGs
+artifacts/v2/manifest.json  seed hash, style v2, content IDs, frame/GIF metadata
+artifacts/v2/contact-sheet-light-12.png
+artifacts/v2/contact-sheet-dark-12.png
+artifacts/v2/comparison-v1-v2.png
+artifacts/v2/legibility-24-32.png
+preview-v2.html             static-first review page with opt-in motion
+```
+
+The v2 contract keeps the v1 authority shape but versions the style:
+
+```text
+identity tuple (issuer, subject) -> caller-proposed canonical seed
+style_version                    -> "v2"
+seed + family + variant + frame  -> pure Soil SVG
+static frame 0                   -> rsvg-convert -> PNG 256/32/24
+frames 0..5                      -> rsvg-convert 96 + Pillow GIF
+Record: mycelium.avatar/identity@1
+VFS:    avatars/<seed_hash>/v2/avatar.svg
+```
+
+The reference is visual grammar only — high-contrast abstract bot faces, expressive eyes, negative space, orb/organic forms — not a copied logo or character. Four families, three distinct bodies each — no rotation or palette-only variants:
+
+- **orb**: full slit orb, crescent, twin orb
+- **visor**: shard, split jaw, oval
+- **organic**: leaf, seed, tendril
+- **sentinel**: monolith, gate, antenna
+
+Only the first frame is the default. Motion is opt-in, and the static PNG is the
+fallback. See [`docs/ANIMATION.md`](docs/ANIMATION.md) for the verification and
+the explicit non-claim about Mattermost/GitHub animation.
+
+```sh
+python3 tools/generate-v2.py
+python3 tools/make-legibility-v2.py
+python3 tools/make-preview-v2.py
+python3 tools/verify-v2.py
+tests/run-v2.sh
+```

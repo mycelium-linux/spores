@@ -1,0 +1,1173 @@
+{
+  "schema": "mycelium.avatar/v2",
+  "style_version": "v2",
+  "frame_count": 6,
+  "gif": {
+    "size": 96,
+    "duration_ms": 140,
+    "loop": 0,
+    "colors": 32,
+    "fallback": "png/avatar-256.png"
+  },
+  "canonical": {
+    "vfs_root": "avatars/<seed_hash>/<style_version>/",
+    "record_schema": "mycelium.avatar/identity@1",
+    "seed": "production: SHA-256 of canonical (issuer, subject); synthetic labels below",
+    "no_private_identity_id_in_filename": true
+  },
+  "platform_animation": "animated GIF verified locally; Mattermost/GitHub profile surfaces use the static PNG fallback unless separately verified.",
+  "candidates": [
+    {
+      "id": "orb-brass",
+      "name": "Brass Orb",
+      "family": "orb",
+      "variant": 0,
+      "identity": "v2/orb/brass",
+      "motion": "breathe + orbit + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:3bb7d74fcfcc9854f21aaf5486cdbc18ccd303dd5f5c25e6940cb31ab9ff0d70",
+      "proposed_vfs_path": "avatars/3bb7d74fcfcc9854f21aaf5486cdbc18ccd303dd5f5c25e6940cb31ab9ff0d70/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/orb-brass-f0.svg",
+        "bytes": 526,
+        "sha256": "d30d22ac0f85d1919396aa5d64d7c87940721f4a10546f8eb4f945a7b9e38b30"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/orb-brass-f0.svg",
+          "bytes": 526,
+          "sha256": "d30d22ac0f85d1919396aa5d64d7c87940721f4a10546f8eb4f945a7b9e38b30"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-brass-f1.svg",
+          "bytes": 526,
+          "sha256": "b94acfeb9f3a2d7e21652b030aa5e726b2cc85167533c43b54ef48543ae0e1fd"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-brass-f2.svg",
+          "bytes": 527,
+          "sha256": "7a0126f097add484efc84f9536362bd8c967634c5725b7c48f4f1a7aaab64d66"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-brass-f3.svg",
+          "bytes": 522,
+          "sha256": "6a12f75bd2fb6efb7c776c5e0b916be73270cd969d1f509621913453148fb168"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-brass-f4.svg",
+          "bytes": 524,
+          "sha256": "41ebe4c75ac38b07e762db9c3c85e408166e3c64c6afdcd960bb83473b7be0e5"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-brass-f5.svg",
+          "bytes": 526,
+          "sha256": "85b23897b28f1ccb3ff6fe2001a19af685d9f47f13016d78f69a9d70b458170d"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/orb-brass-256.png",
+        "bytes": 6449,
+        "sha256": "98326160eba8f09545168a00bb84b0ecc3280a7ed6bae6da45f621cceac195c6"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/orb-brass-128.png",
+        "bytes": 5409,
+        "sha256": "2534d4d80853f1dbbd3bc3c9d0918d2e21c28a458143d0392bf3bf5e07055a2a"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/orb-brass-32.png",
+        "bytes": 808,
+        "sha256": "87d513626d8c83b405c8cbb36c339387e520361f4316da624b4f33a2b5601a74"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/orb-brass-24.png",
+        "bytes": 584,
+        "sha256": "92e655326632f7b4a14705b59aca837b9729e9041a27d30009198535943ef48c"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/orb-brass-dark.svg",
+        "bytes": 523,
+        "sha256": "7f9ddf73f0244dfab15d13809d354010ea150dc2118bd0373810b84c1a06b79b"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/orb-brass-256-dark.png",
+        "bytes": 6058,
+        "sha256": "5869e614dd58b1616901ff29d7f56bff3a0a3fec9ed191fa032abd9c38cfb801"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/orb-brass-32-dark.png",
+        "bytes": 762,
+        "sha256": "0463e8ed94ceffad17bed25c5fb69373a940bcbef4cd05e5d2b6bc1ee1a6c94e"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/orb-brass-24-dark.png",
+        "bytes": 543,
+        "sha256": "928d40afd75ed5345c14422b7eaa71747d1cae1d0044e6dd0ea8d625c880382d"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/orb-brass.gif",
+        "bytes": 5520,
+        "sha256": "dd1ec204c97e54c567af6d407e994407f63176a8b042ef64bb5ed885611c5cb9",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "orb-crescent",
+      "name": "Crescent Orb",
+      "family": "orb",
+      "variant": 1,
+      "identity": "v2/orb/crescent",
+      "motion": "breathe + orbit",
+      "style_version": "v2",
+      "seed_hash": "sha256:1c9611973ad7213891f8dff28adb468c5ffabccc1bea5754381b72efbefb1fe3",
+      "proposed_vfs_path": "avatars/1c9611973ad7213891f8dff28adb468c5ffabccc1bea5754381b72efbefb1fe3/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/orb-crescent-f0.svg",
+        "bytes": 571,
+        "sha256": "4b2e69c5a157fe040e2c8684052e52cea74044ea807d5371f1ab06a1292e18d7"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f0.svg",
+          "bytes": 571,
+          "sha256": "4b2e69c5a157fe040e2c8684052e52cea74044ea807d5371f1ab06a1292e18d7"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f1.svg",
+          "bytes": 571,
+          "sha256": "d82520057888ae3961bd4f856ec9ec497d4be68ed6dc5ea5d3da3ea05d15e300"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f2.svg",
+          "bytes": 570,
+          "sha256": "ec72b5c4ba4630c69d4b4ce90ce67748b08f877367bf9367a8b8dbd68c9ea85d"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f3.svg",
+          "bytes": 569,
+          "sha256": "2c9109488ecb9e4359dd57b8b51d79332bf472bbd0c3ba3a936e651499210872"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f4.svg",
+          "bytes": 570,
+          "sha256": "896d885157adad1ffde2344a2741ef57c0fb9260c184cd1c107550009f86d607"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-crescent-f5.svg",
+          "bytes": 571,
+          "sha256": "37573f39beb9eb5316a06269eff13f6e465f435b964b99983f2673ea4bd1a1b9"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/orb-crescent-256.png",
+        "bytes": 6953,
+        "sha256": "2b636b934b952f8fe44fb1e687a6ebc48f71806af7023c83f1279f2101d8751a"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/orb-crescent-128.png",
+        "bytes": 5632,
+        "sha256": "11a694cb13dcc26bed60ea425fe5caa30a64778be71a3cb9954fa7f03b93f44c"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/orb-crescent-32.png",
+        "bytes": 841,
+        "sha256": "ca1d9c64e07a206421350ea731202b3a23092c8b213b4d7a11df206c4422ee16"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/orb-crescent-24.png",
+        "bytes": 592,
+        "sha256": "db64a6d61e1e1b0e3dd691567d0af085808b01fdcc9a5c5894cd0cf5e108db55"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/orb-crescent-dark.svg",
+        "bytes": 568,
+        "sha256": "0720f1937fe7d42635aa078c286ddd84afb8fccfb855faa3a55947a947a2890f"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/orb-crescent-256-dark.png",
+        "bytes": 6713,
+        "sha256": "6ebe4b15b462ee31ecd62d5b3b57b9cff35d04ee314b08ebf2151f62d8573b32"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/orb-crescent-32-dark.png",
+        "bytes": 777,
+        "sha256": "5e8268d86ab599f62f18871455424991847e5fd6759c24c2a4fa7078d8063234"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/orb-crescent-24-dark.png",
+        "bytes": 554,
+        "sha256": "71061d47bc7ab7373cf02a3d990900e307991ec7e8a23093119117b92a8a9e1c"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/orb-crescent.gif",
+        "bytes": 5648,
+        "sha256": "e47ea014e401e171eab2f9ff7c9e1da7a51d5a571d7fc16b0bae8c5fa3556470",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "orb-twin",
+      "name": "Twin Orb",
+      "family": "orb",
+      "variant": 2,
+      "identity": "v2/orb/twin",
+      "motion": "blink + orbit",
+      "style_version": "v2",
+      "seed_hash": "sha256:b5e63f3927f71bf256cbbffe4b9e8ef4237f5239e21bfad012040e33d3f25364",
+      "proposed_vfs_path": "avatars/b5e63f3927f71bf256cbbffe4b9e8ef4237f5239e21bfad012040e33d3f25364/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/orb-twin-f0.svg",
+        "bytes": 553,
+        "sha256": "46ecc8a90bf4b338bd191a1c47064b0bbbc45ba8517f487d50d4a7816a7ea2cb"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/orb-twin-f0.svg",
+          "bytes": 553,
+          "sha256": "46ecc8a90bf4b338bd191a1c47064b0bbbc45ba8517f487d50d4a7816a7ea2cb"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-twin-f1.svg",
+          "bytes": 553,
+          "sha256": "df5e2363da66913cc6b29101faa445895e9ff4dbdc17dfcefdd80799ca95c63c"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-twin-f2.svg",
+          "bytes": 551,
+          "sha256": "d2af033e0058bcb02077053f521b9933c1a9a22904a02aaf07b74b874a8909e7"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-twin-f3.svg",
+          "bytes": 550,
+          "sha256": "a20f9f03f410943ae3dd882042979044b8db86b50aeabd3829223db0920f9380"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-twin-f4.svg",
+          "bytes": 551,
+          "sha256": "caa80b3bb566290f2a1ed701dcb9870afb08666ffb9eb17988f95c56f54b382b"
+        },
+        {
+          "path": "artifacts/v2/svg/orb-twin-f5.svg",
+          "bytes": 553,
+          "sha256": "7878742564dee63b538783c9e0c5ed91b06a54fc19fa940211c1747bf13c0804"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/orb-twin-256.png",
+        "bytes": 5787,
+        "sha256": "7d2af7fc268d46da360636e5d5705ffe30f2b0930f92a4e26ef61e92aaaeb389"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/orb-twin-128.png",
+        "bytes": 4796,
+        "sha256": "568a1e35814ed52ea6544ccf25290c54b79757b859fa96964fc15d885cd003d9"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/orb-twin-32.png",
+        "bytes": 727,
+        "sha256": "0e4a05deb8dde0d53655e93a08ce7dddb377a76405b4cee6472cc6c19e16389d"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/orb-twin-24.png",
+        "bytes": 501,
+        "sha256": "0e75ccd30d54808fdd1a8c7f4f7c304ce0669642237fda05f1cfb399ef9f6750"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/orb-twin-dark.svg",
+        "bytes": 550,
+        "sha256": "05749f3709672964765cda9df78f7898dcb68fec71797b6591dc5f1d54a061b8"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/orb-twin-256-dark.png",
+        "bytes": 5243,
+        "sha256": "d8817a3a778fc4c1584845838eada5aa8667bf3769d73d5cfcee13e152c573a2"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/orb-twin-32-dark.png",
+        "bytes": 629,
+        "sha256": "204cf6f24b2abe83054642d4d8bb4d2e7bd211757df650f2c8f0bff5055414d1"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/orb-twin-24-dark.png",
+        "bytes": 465,
+        "sha256": "309bdd741bfdb4527e891ff95b558a6e4c55b6ab2df73f4fa47ac033671c1049"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/orb-twin.gif",
+        "bytes": 5215,
+        "sha256": "c477538221cc677e343b21cea5faf3e53839f50ed5acd8e82ee7825ea4918aa3",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "visor-shard",
+      "name": "Shard Visor",
+      "family": "visor",
+      "variant": 0,
+      "identity": "v2/visor/shard",
+      "motion": "breathe + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:d36707e1c0b990abb377cde2ca74a45803fff8ea1e633fff20eb3506f15690e6",
+      "proposed_vfs_path": "avatars/d36707e1c0b990abb377cde2ca74a45803fff8ea1e633fff20eb3506f15690e6/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/visor-shard-f0.svg",
+        "bytes": 442,
+        "sha256": "53865160f40bfadf1d67ca63fc4bf39d36d10c1e32e14c06757867d8538a4609"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/visor-shard-f0.svg",
+          "bytes": 442,
+          "sha256": "53865160f40bfadf1d67ca63fc4bf39d36d10c1e32e14c06757867d8538a4609"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-shard-f1.svg",
+          "bytes": 442,
+          "sha256": "5365d38d56a429ea802cba2958692e1a5e682021063c6f794b04738bd784499a"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-shard-f2.svg",
+          "bytes": 443,
+          "sha256": "030ea18ade00e75a4454789184c26703870ac8a4a99507c02e4a1cfa181e6cc3"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-shard-f3.svg",
+          "bytes": 438,
+          "sha256": "abc538a14f0dd99092aed4ff4712c9f041c026433622e56bb3d8d353b19ec59c"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-shard-f4.svg",
+          "bytes": 440,
+          "sha256": "0536ebbfca15f8dcd1e142d43685fb02ff0e0709bc233a17f5732e9c94d86e61"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-shard-f5.svg",
+          "bytes": 442,
+          "sha256": "0550bb07a94248f81be1cb27487d4aa3a06c36cf4bf08654690db9f6fcce3487"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/visor-shard-256.png",
+        "bytes": 3814,
+        "sha256": "e75f1279d6275df4ddcefeae37eb448cb107d43726787c4351ce221c3bc2c1df"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/visor-shard-128.png",
+        "bytes": 3554,
+        "sha256": "cf3d43933defc5ad9bafa0f1b54a1405dc98a5c5280e02465896b9b956e5b3c8"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/visor-shard-32.png",
+        "bytes": 527,
+        "sha256": "35136a53547304b85d1e90f1618cae627d0a5b55bd6934737020524bb11b982d"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/visor-shard-24.png",
+        "bytes": 427,
+        "sha256": "9e336dfa5548b2b6b1a41198af8f2462f180d710d778d442073478570c4773a7"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/visor-shard-dark.svg",
+        "bytes": 439,
+        "sha256": "595a73cf2d520309acb09298755715c2e9a1bebcff2cf186fabc14b1e7d5f49f"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/visor-shard-256-dark.png",
+        "bytes": 3177,
+        "sha256": "72a520a1a7b806ae230139eed9708fa769a914f622184cab5324aa83e1aff2af"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/visor-shard-32-dark.png",
+        "bytes": 487,
+        "sha256": "2559bedd253d63da1de34333b79f32d52e05fdcb064624c0baa2052f7049f8c4"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/visor-shard-24-dark.png",
+        "bytes": 393,
+        "sha256": "85e34f93c572eb7c5f5bad2f882d54d60f522047f0ab18d9a6e18fdf5ad194f0"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/visor-shard.gif",
+        "bytes": 4591,
+        "sha256": "061e451f2e7a80b0d1b7ef79bb3de8bd0ddaf4aa80567dd5862887f96cd6fd3d",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "visor-split",
+      "name": "Split Visor",
+      "family": "visor",
+      "variant": 1,
+      "identity": "v2/visor/split",
+      "motion": "blink + breathe",
+      "style_version": "v2",
+      "seed_hash": "sha256:199d2760a4645a6336a9223434676611f03791114686c95eb6bdc8d582e78ca4",
+      "proposed_vfs_path": "avatars/199d2760a4645a6336a9223434676611f03791114686c95eb6bdc8d582e78ca4/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/visor-split-f0.svg",
+        "bytes": 484,
+        "sha256": "cdedcdf3ba9ea081260af9c07684c509d335f41c7895a6c0d893e8586303b11f"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/visor-split-f0.svg",
+          "bytes": 484,
+          "sha256": "cdedcdf3ba9ea081260af9c07684c509d335f41c7895a6c0d893e8586303b11f"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-split-f1.svg",
+          "bytes": 484,
+          "sha256": "22da4af3fff1f4c1c3bcc7e99ee901a0b134c7976699cbfc1044c81eef625b1d"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-split-f2.svg",
+          "bytes": 483,
+          "sha256": "a901c9b6dd268d38cc5b072e21d578ecc5917fbccdabf05a96f045e14e76cf65"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-split-f3.svg",
+          "bytes": 482,
+          "sha256": "ce9175d95ff6cb8624396e454ac63377ff41283cc4f59f63a7de674a8c9061c8"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-split-f4.svg",
+          "bytes": 483,
+          "sha256": "ae3d99cf994844d8a71e643b5a7025dbe1330d3940ee2b1aef88d8754dd23246"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-split-f5.svg",
+          "bytes": 484,
+          "sha256": "884b55580b17615e448e529e93fe819facd7070529f8a0d28256eef62e8bde10"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/visor-split-256.png",
+        "bytes": 3512,
+        "sha256": "8fd1d652ef2f3b699b21974ac02e4306649c0aad399fd4687fd85d8441bb40ea"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/visor-split-128.png",
+        "bytes": 3371,
+        "sha256": "5a556846c8fc7fd114d103b409f7b591d3655a2dfbfac559a4bc1bf68b72768e"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/visor-split-32.png",
+        "bytes": 727,
+        "sha256": "4c3397768d2bf35963c1b3ce2ef38009efcd59c5d16c93d3b6a0dbb52048978e"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/visor-split-24.png",
+        "bytes": 557,
+        "sha256": "5bb17a7a10edf3bb53773f245bd56c4e7134d9f34720a417f6fb4e3d447550d2"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/visor-split-dark.svg",
+        "bytes": 481,
+        "sha256": "938a9d3a935c3d39017223736ef079c076eea8572114c1bc1122817c7f764950"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/visor-split-256-dark.png",
+        "bytes": 3242,
+        "sha256": "3f54e4f40d6ba4ad181c85a67376ab1e703ba292634fd9c1c42722ee93c25f32"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/visor-split-32-dark.png",
+        "bytes": 701,
+        "sha256": "046fba87bf48d84dca448971a4413fc4c98fdf5535e0814229df42e4f957743a"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/visor-split-24-dark.png",
+        "bytes": 518,
+        "sha256": "1cc4b77746bf210120d5812d626589186e4416c0a5e28c8b5684baec09b33fd8"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/visor-split.gif",
+        "bytes": 5041,
+        "sha256": "9bc397734fb0d379410c9ff95eff1cb8b429bdd4a3f2ae06f74fe104ad5e3a39",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "visor-oval",
+      "name": "Oval Visor",
+      "family": "visor",
+      "variant": 2,
+      "identity": "v2/visor/oval",
+      "motion": "blink + breathe",
+      "style_version": "v2",
+      "seed_hash": "sha256:e5f3ed4db71709dee995e0ffeca76c43c2ce8efd1ac68edaf45fc8b90122d64c",
+      "proposed_vfs_path": "avatars/e5f3ed4db71709dee995e0ffeca76c43c2ce8efd1ac68edaf45fc8b90122d64c/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/visor-oval-f0.svg",
+        "bytes": 454,
+        "sha256": "5c86e9270b6394e2fb4d0ec4ea9c2bb3f8eaefe4acd510ef1afb0071363c435e"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/visor-oval-f0.svg",
+          "bytes": 454,
+          "sha256": "5c86e9270b6394e2fb4d0ec4ea9c2bb3f8eaefe4acd510ef1afb0071363c435e"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-oval-f1.svg",
+          "bytes": 454,
+          "sha256": "73fbd0be7c7c8335c4260bd13908c14f0746d92e595b8b9130ffd088c71490a4"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-oval-f2.svg",
+          "bytes": 455,
+          "sha256": "e12d4d5b0c9056d0474cc2742cd4ed5bd7662dfb3c76effccab953534e23a6df"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-oval-f3.svg",
+          "bytes": 450,
+          "sha256": "d2b6724377735621f0afd28989c85c1ec9d4fd84dac66fff377bc3613aef5922"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-oval-f4.svg",
+          "bytes": 452,
+          "sha256": "c0d3d7c26af55d9253fd676f567ad49c949c86d1aeda9e25df96469959c6747e"
+        },
+        {
+          "path": "artifacts/v2/svg/visor-oval-f5.svg",
+          "bytes": 454,
+          "sha256": "5c030c98da5c882f081fd01e254c3297d34bc67248c44bd49588f98ca8938d1b"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/visor-oval-256.png",
+        "bytes": 4992,
+        "sha256": "704f32b61e076d13c903dffacde6eac1d3d2e607a8e77f82363b5b2206180dcf"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/visor-oval-128.png",
+        "bytes": 3997,
+        "sha256": "1ad2087857d2175b33b85fdd35ece3597fa84e243980bda9459dc0e2a6915362"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/visor-oval-32.png",
+        "bytes": 624,
+        "sha256": "6f7c7d0fd18aec9017d22ad7852272a70b5d83635db1bfee29100d2dbc66cbc2"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/visor-oval-24.png",
+        "bytes": 486,
+        "sha256": "f60fc78cb12ff0c003cfa63e4a9e3e480bf8fa027dac3e71e7c42eabce158517"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/visor-oval-dark.svg",
+        "bytes": 451,
+        "sha256": "34106d57b28d561fc363f2b90179f810cbcd4f77a58d772b704c1f7bc5e2fca1"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/visor-oval-256-dark.png",
+        "bytes": 4365,
+        "sha256": "3dc817bac84ccaad766a66680c45040adcf6190a5bd23cc3290162ccfb3450bc"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/visor-oval-32-dark.png",
+        "bytes": 561,
+        "sha256": "7f20420505080c649cc39d49e36cfeba29393ad8a163aacc554418ebe25d4e4a"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/visor-oval-24-dark.png",
+        "bytes": 428,
+        "sha256": "33730816bba4d576bd7459c8853a0f55977da9013eecafb44eac4264efd565ac"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/visor-oval.gif",
+        "bytes": 4775,
+        "sha256": "39c9138cde454034e4b6d02d7ef613b0b09d6a36fa13e31f2fa1807737858d38",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "spore-leaf",
+      "name": "Leaf Spore",
+      "family": "organic",
+      "variant": 0,
+      "identity": "v2/organic/leaf",
+      "motion": "breathe + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:218267048d9639c48ade75afef965c645c8bf59da9fffbe2b8451eeac762490d",
+      "proposed_vfs_path": "avatars/218267048d9639c48ade75afef965c645c8bf59da9fffbe2b8451eeac762490d/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/spore-leaf-f0.svg",
+        "bytes": 575,
+        "sha256": "f058ea2552a4a5619677247b8af70dea036e47468974246935867699c97dbbd8"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f0.svg",
+          "bytes": 575,
+          "sha256": "f058ea2552a4a5619677247b8af70dea036e47468974246935867699c97dbbd8"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f1.svg",
+          "bytes": 575,
+          "sha256": "05dada74782b449112960d0aac6cbfa814ca1bdbd7e644398365702599ce8c04"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f2.svg",
+          "bytes": 574,
+          "sha256": "91b7cfd43ecbf28b92f230fa001d3ad4fa7ecb46ec78116918a35dd88eb06e4d"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f3.svg",
+          "bytes": 573,
+          "sha256": "cdbf679d99b91bbebf53d6d3295a4abaabe4fba35e81e4f2ae38e473c83c4689"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f4.svg",
+          "bytes": 574,
+          "sha256": "15f185d208819f3177d9934f066c499afc9173fa6de3619ee042568b51e18f58"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-leaf-f5.svg",
+          "bytes": 575,
+          "sha256": "54ec6bd45479ba6315fc2951d3ebd11703b9670434c54e69ab405b260fa4dbc2"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/spore-leaf-256.png",
+        "bytes": 6920,
+        "sha256": "fd03bc9a4dfe1766240663a04e07a172cbbf0f888067afa900aebadca5bdb342"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/spore-leaf-128.png",
+        "bytes": 6058,
+        "sha256": "5a59bd8987c2161ca2ac22202cdb057d84b3673b17d707c417597175a5c0d2e8"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/spore-leaf-32.png",
+        "bytes": 912,
+        "sha256": "dadab666defd9c398acbed0a5b99ef36110b00eba3bd72a8f10cb8206b2583da"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/spore-leaf-24.png",
+        "bytes": 697,
+        "sha256": "5a7168cb4ea0534ef1b260deeb0768eaf830b7aed8dfceb6874da95e2c90ed10"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/spore-leaf-dark.svg",
+        "bytes": 572,
+        "sha256": "77ac41befedffcc5b9ad2c4ceb55c903a9708a857f82fe798e3c68f11b607361"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/spore-leaf-256-dark.png",
+        "bytes": 6544,
+        "sha256": "5251ea5bc796f0dfa6275c057152557909144bcfccf08a81a692df91f1db39c7"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/spore-leaf-32-dark.png",
+        "bytes": 829,
+        "sha256": "65a5333fc44f2cb8d327fe68b6178b5b6708930da1ea900587e8129c7e6f5b18"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/spore-leaf-24-dark.png",
+        "bytes": 635,
+        "sha256": "0186b90cfb451a62d1fbcf4f17b33aac24b92bcc96bd858e220e0e4731df922a"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/spore-leaf.gif",
+        "bytes": 6258,
+        "sha256": "c3922a849b57ff00c8ec348b774087a47b6b7213e13d2a73d6de41cb852885b0",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "spore-seed",
+      "name": "Seed Spore",
+      "family": "organic",
+      "variant": 1,
+      "identity": "v2/organic/seed",
+      "motion": "breathe + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:22f9de56b504c1c5c9bbdd0761da38007bb39da4b0c20b07a18fa038c4d66d9e",
+      "proposed_vfs_path": "avatars/22f9de56b504c1c5c9bbdd0761da38007bb39da4b0c20b07a18fa038c4d66d9e/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/spore-seed-f0.svg",
+        "bytes": 630,
+        "sha256": "be778ad521b94876d6230393e28bcfd7f8bd90569c14482b0a8245ad8112aa07"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/spore-seed-f0.svg",
+          "bytes": 630,
+          "sha256": "be778ad521b94876d6230393e28bcfd7f8bd90569c14482b0a8245ad8112aa07"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-seed-f1.svg",
+          "bytes": 630,
+          "sha256": "68ed437cf24d564bb2c7843d3e2bcd0d32c7c07c82182bd81fe95e3fb91427c1"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-seed-f2.svg",
+          "bytes": 629,
+          "sha256": "d6ab897af3176c4912fe2fb21ea384df3061e3d3998c6c7bd2f89b715f6a1b5f"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-seed-f3.svg",
+          "bytes": 628,
+          "sha256": "9c71dd4a8c093edcdc0be28dbd62948d52d485b227f556d5cfc3323c90811563"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-seed-f4.svg",
+          "bytes": 629,
+          "sha256": "fc1aa8748c9b14bfc7e0b112da1a33cf5bf9e4b7f8fd30263c1914ec929d93a4"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-seed-f5.svg",
+          "bytes": 630,
+          "sha256": "6a58aa58d894c5bc34c4829cc7286eabe661805f4e50a013d7a7fd8dc4e0bd85"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/spore-seed-256.png",
+        "bytes": 8420,
+        "sha256": "1c2462d73ce45813f8b8837ceb858ef1c60b79f2130a8d199d068481de6d1b5f"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/spore-seed-128.png",
+        "bytes": 7309,
+        "sha256": "ec54d3835811a796ec2c2e6c7e372f7cca7ea350e90d709c918f3422e4ccfde6"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/spore-seed-32.png",
+        "bytes": 1032,
+        "sha256": "6e03168778718b9e9c50bc9f052bd7ccb8a6a8fac55de5b3e6a35c9fe4e4c502"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/spore-seed-24.png",
+        "bytes": 812,
+        "sha256": "61dad3759cc401e63ae6b4c5f2d1f359e03a1f419b365cab74a9b0d655ab9809"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/spore-seed-dark.svg",
+        "bytes": 627,
+        "sha256": "aa45ccfdc70bec950a4a6da41db94e502afe2e7af1d7a4a89c6c47efbe8d9c7a"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/spore-seed-256-dark.png",
+        "bytes": 8204,
+        "sha256": "c50e3e80935b9a54fd649501493bcba38101f6674fb4404f8485b8f3966adb0e"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/spore-seed-32-dark.png",
+        "bytes": 1018,
+        "sha256": "0e93472f5316b49a7873037892452632c6d2cb0ebe5640fbe328baa8c9e3b620"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/spore-seed-24-dark.png",
+        "bytes": 748,
+        "sha256": "e2fb143aa3f0708a843778f65c0f9c813f4bd8b87f84d82970e535e9995f1bc7"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/spore-seed.gif",
+        "bytes": 7202,
+        "sha256": "2378f6efa09e8214bde92efcfa56ef97110c0e62eb226361a4ce739917a1ee2d",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "spore-tendril",
+      "name": "Tendril Spore",
+      "family": "organic",
+      "variant": 2,
+      "identity": "v2/organic/tendril",
+      "motion": "morph + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:5e082f11a59a9fef3c58084dd343bc0bc9fefaf87a9f8e5c715e5d0211bf7132",
+      "proposed_vfs_path": "avatars/5e082f11a59a9fef3c58084dd343bc0bc9fefaf87a9f8e5c715e5d0211bf7132/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/spore-tendril-f0.svg",
+        "bytes": 713,
+        "sha256": "02d8194d49290d7a9e94542c9d72b35c8fe14518257a26e779d25e50a730809f"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f0.svg",
+          "bytes": 713,
+          "sha256": "02d8194d49290d7a9e94542c9d72b35c8fe14518257a26e779d25e50a730809f"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f1.svg",
+          "bytes": 713,
+          "sha256": "adaf9ed34c91a4004ee8712d3ae04ed375579ab1b31c04770000a35bbec8823d"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f2.svg",
+          "bytes": 712,
+          "sha256": "565ca673a7eeec4cc09b85128439679b81b5016321d06c4c259d836e089b9e9a"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f3.svg",
+          "bytes": 711,
+          "sha256": "399e38472940d6bc74b52e7b0f815dc7a3df8203a23c20233a6ea7e96d257446"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f4.svg",
+          "bytes": 712,
+          "sha256": "346674a574e77d1d0835e9d1806ba3c0275c21b387645cc8585f7a755213d451"
+        },
+        {
+          "path": "artifacts/v2/svg/spore-tendril-f5.svg",
+          "bytes": 713,
+          "sha256": "7e3b7d83a5e24c6515ea441413e704338f76872d2ddd84a098c3d013dc91db71"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/spore-tendril-256.png",
+        "bytes": 7912,
+        "sha256": "dc0f751ceaf91262a7ab3a7f1f111ebbc470f018604a88b389483a19c5be7f1f"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/spore-tendril-128.png",
+        "bytes": 6834,
+        "sha256": "df16334e531c0027b9e8d546c97b69fcb230e634fefae8f4d6eb5e9c2ac0de81"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/spore-tendril-32.png",
+        "bytes": 1015,
+        "sha256": "d6c3762e73c6a03c3239592da9406927dc105ec77c77a62dd3084e0ab884a70f"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/spore-tendril-24.png",
+        "bytes": 752,
+        "sha256": "99105d0c4edbcf0cc1ab1a1559e1737d010b4a302bf9765f8014e691b5074c87"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/spore-tendril-dark.svg",
+        "bytes": 710,
+        "sha256": "2b43b01bbc169c11999ab3afa5cd9dd938d5d4378a00561b8d0c62cae12291a3"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/spore-tendril-256-dark.png",
+        "bytes": 8034,
+        "sha256": "2fe6703821ff56cfa6c9ebd162d59902dd8f578320f3430a7e0e14e42bf1f687"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/spore-tendril-32-dark.png",
+        "bytes": 1005,
+        "sha256": "a0917ebc40bed4b076b7d4707e8d3135e3aaf381a3ea03da25bd6d3941524768"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/spore-tendril-24-dark.png",
+        "bytes": 751,
+        "sha256": "77359d001f784a6139efaed36169f1e63899cd950dedf23089da20d584308266"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/spore-tendril.gif",
+        "bytes": 6892,
+        "sha256": "9af61379a47d1c36a2e0797056736ae31364e7ac7171852e3e6e538a88ccbe39",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "sentinel-monolith",
+      "name": "Monolith Sentinel",
+      "family": "sentinel",
+      "variant": 0,
+      "identity": "v2/sentinel/monolith",
+      "motion": "pulse + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:cd61c6f6044441d04c69ddd1e26bdb3221c3cdba09aa1aefeba2e9c19e9acb2d",
+      "proposed_vfs_path": "avatars/cd61c6f6044441d04c69ddd1e26bdb3221c3cdba09aa1aefeba2e9c19e9acb2d/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/sentinel-monolith-f0.svg",
+        "bytes": 413,
+        "sha256": "eb561bbeea2c5f542c3abc223e2e70706aa591afc19ec80de6268f09f00da49e"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f0.svg",
+          "bytes": 413,
+          "sha256": "eb561bbeea2c5f542c3abc223e2e70706aa591afc19ec80de6268f09f00da49e"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f1.svg",
+          "bytes": 414,
+          "sha256": "edecdd438acb7620c6cc44359c0987db5bc0fe4154d93f7f27c501044fcb42f1"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f2.svg",
+          "bytes": 415,
+          "sha256": "5001ede2edc52fc93123d37197e0322c65401acbbe9490dd6eb252d814f15679"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f3.svg",
+          "bytes": 411,
+          "sha256": "a3feda9d6700900b6c63f3f543889631296c075eaf64c8f5df4ff7c70199ae34"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f4.svg",
+          "bytes": 412,
+          "sha256": "ee5210f2a69b623f044b7c95216a194a8c965b7e1df42eea73506ec5881c0a43"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-monolith-f5.svg",
+          "bytes": 413,
+          "sha256": "b202da00401e45337b78bbc7f16668701bbdd148bbd6f65d3bacd72062845b6e"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/sentinel-monolith-256.png",
+        "bytes": 4444,
+        "sha256": "8c5c899807d90c092d31944d474c0f1bc47e8e7c020807dc438d978b91712313"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/sentinel-monolith-128.png",
+        "bytes": 3483,
+        "sha256": "cde5578fa52fe4e2eb2ec61c46dde1414f9a27dc54213e2deb1e7b60c873879a"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/sentinel-monolith-32.png",
+        "bytes": 593,
+        "sha256": "2c692c1465e06f5af23f4e7c9dbbe16eac52dfd14fa5155fc705b78b505b52c9"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/sentinel-monolith-24.png",
+        "bytes": 455,
+        "sha256": "eefac40ccb2141f4c028392329e93b04caa04bfa722b6e6a15f3389571351bc3"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/sentinel-monolith-dark.svg",
+        "bytes": 410,
+        "sha256": "abf1120a5e3402485792f070413c0e712282f464a56e3fdc0073909ff255628e"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/sentinel-monolith-256-dark.png",
+        "bytes": 3910,
+        "sha256": "539b7544b0a1b48b0b4785b87756bc0ccb1188840a0925b6e766cd326026040d"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/sentinel-monolith-32-dark.png",
+        "bytes": 501,
+        "sha256": "e8b39934076a8a4ff41550774e91145c17c8b67331d2987620a6a9d7e347e77d"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/sentinel-monolith-24-dark.png",
+        "bytes": 419,
+        "sha256": "791c54ccab5e08fdaa302882d2e76bf0945053213995fa2e44d45107325f5f08"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/sentinel-monolith.gif",
+        "bytes": 5109,
+        "sha256": "ff9c33246d69ce4d23d93b3768f2348a2dbe82a883b789084c72b76717b3d346",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "sentinel-gate",
+      "name": "Gate Sentinel",
+      "family": "sentinel",
+      "variant": 1,
+      "identity": "v2/sentinel/gate",
+      "motion": "blink + pulse",
+      "style_version": "v2",
+      "seed_hash": "sha256:f97cceafeb0633440d2af7c7f9415e932e2752d53525fb6fdeec7dae91b5d263",
+      "proposed_vfs_path": "avatars/f97cceafeb0633440d2af7c7f9415e932e2752d53525fb6fdeec7dae91b5d263/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/sentinel-gate-f0.svg",
+        "bytes": 510,
+        "sha256": "b09dbe2bf1b611c808cdf5d1b34bec0591d90b7dabab2a259456423f23e9afb1"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f0.svg",
+          "bytes": 510,
+          "sha256": "b09dbe2bf1b611c808cdf5d1b34bec0591d90b7dabab2a259456423f23e9afb1"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f1.svg",
+          "bytes": 510,
+          "sha256": "e9ff3efcff0a15750ae24fa82bcb2b2f1550e9fb35a5109a607f991a61ce1cd0"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f2.svg",
+          "bytes": 511,
+          "sha256": "411cc79ae25eee3df35a7648711ad1887fa67b2291b370f4914bcf1ad9f64992"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f3.svg",
+          "bytes": 507,
+          "sha256": "c4bb9f6a7386fe0747e9d5c5dd4be9c47236eccedb271463a1d52e3d83f6ae32"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f4.svg",
+          "bytes": 508,
+          "sha256": "c4e0ae8d9cea08083024635844949513fa6c184b1da84a25740cbc280d5c0baf"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-gate-f5.svg",
+          "bytes": 510,
+          "sha256": "eba122ceb5a00970c3d37782b9f93382735bcc7d28d1e6e8c744087ee4501fd9"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/sentinel-gate-256.png",
+        "bytes": 4677,
+        "sha256": "884535a5c2288c1d1e3c7fe2273bdecf9d48d63884d648e2fe450df63aebcb8b"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/sentinel-gate-128.png",
+        "bytes": 3878,
+        "sha256": "3bbf9357b028759d0d3e0c79976d320e8ee2ab01450a6b0dd7b8900b35a9f4b1"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/sentinel-gate-32.png",
+        "bytes": 623,
+        "sha256": "ed2dc65f9739b5d7603ee83d4c9d19796c98a3216487be3fad31146020813c04"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/sentinel-gate-24.png",
+        "bytes": 539,
+        "sha256": "50837204c32e6dd6dd1d7bc32b5daf552de23a50241ad2028c028f1b80cb6ae0"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/sentinel-gate-dark.svg",
+        "bytes": 507,
+        "sha256": "bf9210a25046635972e97cab326cfcef6fba24204d16af30bdead23d01992746"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/sentinel-gate-256-dark.png",
+        "bytes": 4042,
+        "sha256": "daa3c454dc656d0cb0ca305aa2e431cbdffb7a057d7ee2ce83008ecad11020fa"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/sentinel-gate-32-dark.png",
+        "bytes": 546,
+        "sha256": "b00d4a0133cc74455974c8c7af30c6859f370328ac86506be3986dbb770a3900"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/sentinel-gate-24-dark.png",
+        "bytes": 490,
+        "sha256": "78d5d5c6617b472041e4f3a0da7cc9f209d52b987ab54376ddda9e8cdbbced7e"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/sentinel-gate.gif",
+        "bytes": 5663,
+        "sha256": "a21250b1dda7bfafd97501ee3b9a3112c19d83d25cd2ea1afc61a502fc0ea5e7",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    },
+    {
+      "id": "sentinel-antenna",
+      "name": "Antenna Sentinel",
+      "family": "sentinel",
+      "variant": 2,
+      "identity": "v2/sentinel/antenna",
+      "motion": "pulse + blink",
+      "style_version": "v2",
+      "seed_hash": "sha256:b4f9bb2207161929378f52f504eb40d89ae48fcd59aaa1c0e503ede6b9aa6c0d",
+      "proposed_vfs_path": "avatars/b4f9bb2207161929378f52f504eb40d89ae48fcd59aaa1c0e503ede6b9aa6c0d/v2/avatar.svg",
+      "svg_static": {
+        "path": "artifacts/v2/svg/sentinel-antenna-f0.svg",
+        "bytes": 573,
+        "sha256": "9efe968be7c421709486da8a183e3e090a343568074dbd38f79dbe7715cc7341"
+      },
+      "svg_frames": [
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f0.svg",
+          "bytes": 573,
+          "sha256": "9efe968be7c421709486da8a183e3e090a343568074dbd38f79dbe7715cc7341"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f1.svg",
+          "bytes": 573,
+          "sha256": "aedf925c10fb6d4738fa078c591a09c8ec42e16e2258179a49513577303ca27f"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f2.svg",
+          "bytes": 574,
+          "sha256": "288b16458452f907f170886fce5e8a7a6c3c0c4ee6826c0cd93071c46c33ad1d"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f3.svg",
+          "bytes": 570,
+          "sha256": "4f06c146e8e9337f079ad18d130adba5ea5c4dd42bffa65ce793379817d0f14f"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f4.svg",
+          "bytes": 571,
+          "sha256": "bf86fe1947a49230fdf3ed3c1da894e7017c6f8110a62cad0f831dd7dc5e7c28"
+        },
+        {
+          "path": "artifacts/v2/svg/sentinel-antenna-f5.svg",
+          "bytes": 573,
+          "sha256": "d9a71c856fe8807bf109cc26389b064422e14a893077cdf3eecf417a4cfa02cf"
+        }
+      ],
+      "png256": {
+        "path": "artifacts/v2/png/sentinel-antenna-256.png",
+        "bytes": 4981,
+        "sha256": "e5a6f11d69dcfab9ef6dccde9763338ee542b2ec80da5e32e556f91c16507ee9"
+      },
+      "png128": {
+        "path": "artifacts/v2/png/sentinel-antenna-128.png",
+        "bytes": 3854,
+        "sha256": "84fa83e5278035da61a078514d4ad9d117e3a17e805234859d8c26021e25074a"
+      },
+      "png32": {
+        "path": "artifacts/v2/png/sentinel-antenna-32.png",
+        "bytes": 650,
+        "sha256": "8be5ebb23032d875033121b3c7decccb94188a20efa7c7c1376be12d0441dd2f"
+      },
+      "png24": {
+        "path": "artifacts/v2/png/sentinel-antenna-24.png",
+        "bytes": 512,
+        "sha256": "f12fa9af4c30d3bf3dfdd96b53e590e1f86e2498fd887dac19a89c1dbb2f4214"
+      },
+      "svg_dark": {
+        "path": "artifacts/v2/svg/sentinel-antenna-dark.svg",
+        "bytes": 570,
+        "sha256": "403dd5e84f095c3d16457185811f0677c4f787d54fb060694a1dfc04ad0c00c2"
+      },
+      "png256_dark": {
+        "path": "artifacts/v2/png/sentinel-antenna-256-dark.png",
+        "bytes": 4371,
+        "sha256": "4286564e0e67a9f5f83926ffc0fb66a0c5d0f2b89fb6a782367086855d1e8510"
+      },
+      "png32_dark": {
+        "path": "artifacts/v2/png/sentinel-antenna-32-dark.png",
+        "bytes": 563,
+        "sha256": "cb6bacb0b4607523bb3e0c4e59065df8190c084c4bfe4f58050624e99a7ce72b"
+      },
+      "png24_dark": {
+        "path": "artifacts/v2/png/sentinel-antenna-24-dark.png",
+        "bytes": 457,
+        "sha256": "a6edc546c027d60db6df96b4f7e85280efce9ce2232228a119b438efe08da480"
+      },
+      "gif": {
+        "path": "artifacts/v2/gif/sentinel-antenna.gif",
+        "bytes": 5465,
+        "sha256": "6930a11b3ba8cf59479753afc690aa8a4e847a33ab22b3145fc3466a4864ef46",
+        "frames": 6,
+        "width": 96,
+        "height": 96
+      }
+    }
+  ]
+}

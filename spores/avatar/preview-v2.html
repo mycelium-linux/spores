@@ -1,0 +1,156 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Canonical intelligence avatars v2 · review</title>
+<style>
+:root{--ink:#17181c;--paper:#f5f1e7;--muted:#6b6b66;--line:#d8d0c2;--dark:#111318;--cream:#eee8dc}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1400px;margin:0 auto;padding:36px 28px 72px}h1{font-size:34px;line-height:1.05;margin:0 0 8px;letter-spacing:-.03em}.lede{max-width:880px;color:var(--muted);margin:0 0 8px}.meta{font:12px ui-monospace,SFMono-Regular,monospace;color:var(--muted);margin:0 0 26px}code{font:12px ui-monospace,SFMono-Regular,monospace;background:#e5ded1;padding:1px 5px;border-radius:4px}
+.hero{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:14px;margin:18px 0 30px;background:#faf7f0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}@media(max-width:980px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.grid{grid-template-columns:1fr}}
+.candidate{border-top:1px solid var(--line);padding-top:12px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tile{padding:10px;border-radius:12px;min-height:248px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:inherit;text-decoration:none}.light{background:#faf7f0;border:1px solid #e1d9cc}.dark{background:var(--dark);border:1px solid #282b32}.tile>img{width:196px;height:196px;display:block}.sizes{display:flex;align-items:center;gap:10px;min-height:32px}.candidate h2{font-size:14px;margin:10px 0 2px}.candidate p{font-size:11px;color:var(--muted);margin:0}
+.section{margin-top:44px;padding-top:22px;border-top:1px solid var(--line)}.section h2{font-size:20px;margin:0 0 8px}.note{border-left:3px solid #b8875b;padding:8px 0 8px 14px;color:var(--muted);margin:22px 0;max-width:880px}.v1grid{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}@media(max-width:980px){.v1grid{grid-template-columns:repeat(4,1fr)}}.v1{display:flex;flex-direction:column;gap:5px;align-items:center;background:#faf7f0;border:1px solid #e1d9cc;border-radius:10px;padding:8px;color:var(--ink);text-decoration:none;font-size:10px;text-align:center}.v1 img{width:64px;height:64px;display:block}.motion{margin-top:8px;font-size:11px;color:var(--muted)}.motion summary{cursor:pointer;color:var(--ink)}.motion p{margin:6px 0}.motion img{display:block;margin:6px 0;border-radius:8px;image-rendering:auto}@media(prefers-reduced-motion:reduce){.motion img{display:none}.motion p::after{content:" Motion image hidden by reduced-motion preference.";font-weight:600}}
+</style></head><body><main>
+<h1>Canonical intelligence avatars · v2 review</h1>
+<p class="lede">Second pass for the founder review. v1 is preserved unchanged below. v2 keeps the same deterministic identity contract and adds four silhouette families with three genuinely different bodies each: orb, visor, organic, sentinel. All geometry and animation frames are pure Soil; rasterization uses the existing <code>rsvg-convert</code>, GIF encoding uses the installed Pillow.</p>
+<p class="meta">12 candidates · v2 · 6 frames each · static 256/32/24 PNG · GIF 96×96 · light/dark · source: spores/avatar/source/avatar-v2.soil</p>
+<a href="artifacts/v2/comparison-v1-v2.png"><img class="hero" src="artifacts/v2/comparison-v1-v2.png" alt="Side-by-side contact sheet: v1 baseline (16) and v2 diverse candidates (12)"></a>
+<div class="note"><strong>Static first.</strong> Mattermost profile images and GitHub avatars are treated as static surfaces here; animated GIF support is not claimed. Each card ships a PNG fallback. Motion is opt-in, and <code>prefers-reduced-motion</code> hides the GIF. No profile was changed.</div>
+<div class="grid"><article class="candidate" id="orb-brass">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/orb-brass-256.png"><img src="artifacts/v2/png/orb-brass-256.png" width="196" height="196" alt="Brass Orb static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/orb-brass-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-brass-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/orb-brass-256-dark.png" width="196" height="196" alt="Brass Orb static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/orb-brass-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-brass-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Brass Orb</h2><p>orb · <code>orb-brass</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,520 bytes</summary>
+    <p>breathe + orbit + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/orb-brass.gif" width="96" height="96" alt="Brass Orb deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="orb-crescent">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/orb-crescent-256.png"><img src="artifacts/v2/png/orb-crescent-256.png" width="196" height="196" alt="Crescent Orb static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/orb-crescent-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-crescent-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/orb-crescent-256-dark.png" width="196" height="196" alt="Crescent Orb static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/orb-crescent-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-crescent-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Crescent Orb</h2><p>orb · <code>orb-crescent</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,648 bytes</summary>
+    <p>breathe + orbit. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/orb-crescent.gif" width="96" height="96" alt="Crescent Orb deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="orb-twin">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/orb-twin-256.png"><img src="artifacts/v2/png/orb-twin-256.png" width="196" height="196" alt="Twin Orb static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/orb-twin-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-twin-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/orb-twin-256-dark.png" width="196" height="196" alt="Twin Orb static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/orb-twin-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/orb-twin-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Twin Orb</h2><p>orb · <code>orb-twin</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,215 bytes</summary>
+    <p>blink + orbit. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/orb-twin.gif" width="96" height="96" alt="Twin Orb deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="visor-shard">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/visor-shard-256.png"><img src="artifacts/v2/png/visor-shard-256.png" width="196" height="196" alt="Shard Visor static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/visor-shard-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-shard-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/visor-shard-256-dark.png" width="196" height="196" alt="Shard Visor static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/visor-shard-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-shard-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Shard Visor</h2><p>visor · <code>visor-shard</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 4,591 bytes</summary>
+    <p>breathe + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/visor-shard.gif" width="96" height="96" alt="Shard Visor deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="visor-split">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/visor-split-256.png"><img src="artifacts/v2/png/visor-split-256.png" width="196" height="196" alt="Split Visor static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/visor-split-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-split-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/visor-split-256-dark.png" width="196" height="196" alt="Split Visor static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/visor-split-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-split-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Split Visor</h2><p>visor · <code>visor-split</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,041 bytes</summary>
+    <p>blink + breathe. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/visor-split.gif" width="96" height="96" alt="Split Visor deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="visor-oval">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/visor-oval-256.png"><img src="artifacts/v2/png/visor-oval-256.png" width="196" height="196" alt="Oval Visor static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/visor-oval-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-oval-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/visor-oval-256-dark.png" width="196" height="196" alt="Oval Visor static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/visor-oval-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/visor-oval-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Oval Visor</h2><p>visor · <code>visor-oval</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 4,775 bytes</summary>
+    <p>blink + breathe. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/visor-oval.gif" width="96" height="96" alt="Oval Visor deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="spore-leaf">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/spore-leaf-256.png"><img src="artifacts/v2/png/spore-leaf-256.png" width="196" height="196" alt="Leaf Spore static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/spore-leaf-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-leaf-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/spore-leaf-256-dark.png" width="196" height="196" alt="Leaf Spore static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/spore-leaf-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-leaf-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Leaf Spore</h2><p>organic · <code>spore-leaf</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 6,258 bytes</summary>
+    <p>breathe + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/spore-leaf.gif" width="96" height="96" alt="Leaf Spore deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="spore-seed">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/spore-seed-256.png"><img src="artifacts/v2/png/spore-seed-256.png" width="196" height="196" alt="Seed Spore static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/spore-seed-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-seed-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/spore-seed-256-dark.png" width="196" height="196" alt="Seed Spore static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/spore-seed-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-seed-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Seed Spore</h2><p>organic · <code>spore-seed</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 7,202 bytes</summary>
+    <p>breathe + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/spore-seed.gif" width="96" height="96" alt="Seed Spore deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="spore-tendril">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/spore-tendril-256.png"><img src="artifacts/v2/png/spore-tendril-256.png" width="196" height="196" alt="Tendril Spore static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/spore-tendril-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-tendril-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/spore-tendril-256-dark.png" width="196" height="196" alt="Tendril Spore static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/spore-tendril-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/spore-tendril-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Tendril Spore</h2><p>organic · <code>spore-tendril</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 6,892 bytes</summary>
+    <p>morph + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/spore-tendril.gif" width="96" height="96" alt="Tendril Spore deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="sentinel-monolith">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/sentinel-monolith-256.png"><img src="artifacts/v2/png/sentinel-monolith-256.png" width="196" height="196" alt="Monolith Sentinel static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-monolith-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-monolith-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/sentinel-monolith-256-dark.png" width="196" height="196" alt="Monolith Sentinel static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-monolith-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-monolith-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Monolith Sentinel</h2><p>sentinel · <code>sentinel-monolith</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,109 bytes</summary>
+    <p>pulse + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/sentinel-monolith.gif" width="96" height="96" alt="Monolith Sentinel deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="sentinel-gate">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/sentinel-gate-256.png"><img src="artifacts/v2/png/sentinel-gate-256.png" width="196" height="196" alt="Gate Sentinel static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-gate-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-gate-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/sentinel-gate-256-dark.png" width="196" height="196" alt="Gate Sentinel static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-gate-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-gate-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Gate Sentinel</h2><p>sentinel · <code>sentinel-gate</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,663 bytes</summary>
+    <p>blink + pulse. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/sentinel-gate.gif" width="96" height="96" alt="Gate Sentinel deterministic animated avatar">
+  </details>
+</article><article class="candidate" id="sentinel-antenna">
+  <div class="pair">
+    <a class="tile light" href="artifacts/v2/png/sentinel-antenna-256.png"><img src="artifacts/v2/png/sentinel-antenna-256.png" width="196" height="196" alt="Antenna Sentinel static v2 avatar, light surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-antenna-32.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-antenna-24.png" width="24" height="24" alt="24px"></span></a>
+    <div class="tile dark"><img src="artifacts/v2/png/sentinel-antenna-256-dark.png" width="196" height="196" alt="Antenna Sentinel static v2 avatar on a dark surface"><span class="sizes"><img src="artifacts/v2/png/sentinel-antenna-32-dark.png" width="32" height="32" alt="32px"><img src="artifacts/v2/png/sentinel-antenna-24-dark.png" width="24" height="24" alt="24px"></span></div>
+  </div>
+  <h2>Antenna Sentinel</h2><p>sentinel · <code>sentinel-antenna</code></p>
+  <details class="motion"><summary>Motion · GIF 96×96 · 6 frames · 5,465 bytes</summary>
+    <p>pulse + blink. Static frame is the fallback; open only if motion is welcome.</p>
+    <img src="artifacts/v2/gif/sentinel-antenna.gif" width="96" height="96" alt="Antenna Sentinel deterministic animated avatar">
+  </details>
+</article></div>
+<section class="section"><h2>v1 baseline — preserved</h2><p class="lede">These 16 marks are unchanged from v1 and are shown only for comparison. Their SVGs, PNGs, preview, manifest, and contract remain intact.</p><div class="v1grid"><a class="v1" href="artifacts/png/atlas-01-256.png"><img src="artifacts/svg/atlas-01.svg" width="64" height="64" alt="Quiet Aperture v1"><span>Quiet Aperture</span></a>
+<a class="v1" href="artifacts/png/atlas-02-256.png"><img src="artifacts/svg/atlas-02.svg" width="64" height="64" alt="Slate Fold v1"><span>Slate Fold</span></a>
+<a class="v1" href="artifacts/png/atlas-03-256.png"><img src="artifacts/svg/atlas-03.svg" width="64" height="64" alt="Warm Aperture v1"><span>Warm Aperture</span></a>
+<a class="v1" href="artifacts/png/atlas-04-256.png"><img src="artifacts/svg/atlas-04.svg" width="64" height="64" alt="Green Wedge v1"><span>Green Wedge</span></a>
+<a class="v1" href="artifacts/png/atlas-05-256.png"><img src="artifacts/svg/atlas-05.svg" width="64" height="64" alt="Paper Cut v1"><span>Paper Cut</span></a>
+<a class="v1" href="artifacts/png/atlas-06-256.png"><img src="artifacts/svg/atlas-06.svg" width="64" height="64" alt="Ink Fold v1"><span>Ink Fold</span></a>
+<a class="v1" href="artifacts/png/atlas-07-256.png"><img src="artifacts/svg/atlas-07.svg" width="64" height="64" alt="Amber Notch v1"><span>Amber Notch</span></a>
+<a class="v1" href="artifacts/png/atlas-08-256.png"><img src="artifacts/svg/atlas-08.svg" width="64" height="64" alt="Moss Aperture v1"><span>Moss Aperture</span></a>
+<a class="v1" href="artifacts/png/atlas-09-256.png"><img src="artifacts/svg/atlas-09.svg" width="64" height="64" alt="Dark Fold v1"><span>Dark Fold</span></a>
+<a class="v1" href="artifacts/png/atlas-10-256.png"><img src="artifacts/svg/atlas-10.svg" width="64" height="64" alt="Bone Wedge v1"><span>Bone Wedge</span></a>
+<a class="v1" href="artifacts/png/atlas-11-256.png"><img src="artifacts/svg/atlas-11.svg" width="64" height="64" alt="Clay Aperture v1"><span>Clay Aperture</span></a>
+<a class="v1" href="artifacts/png/atlas-12-256.png"><img src="artifacts/svg/atlas-12.svg" width="64" height="64" alt="Field Fold v1"><span>Field Fold</span></a>
+<a class="v1" href="artifacts/png/atlas-13-256.png"><img src="artifacts/svg/atlas-13.svg" width="64" height="64" alt="Orbit / Ember v1"><span>Orbit / Ember</span></a>
+<a class="v1" href="artifacts/png/atlas-14-256.png"><img src="artifacts/svg/atlas-14.svg" width="64" height="64" alt="Signal / Stone v1"><span>Signal / Stone</span></a>
+<a class="v1" href="artifacts/png/atlas-15-256.png"><img src="artifacts/svg/atlas-15.svg" width="64" height="64" alt="Orbit / Pine v1"><span>Orbit / Pine</span></a>
+<a class="v1" href="artifacts/png/atlas-16-256.png"><img src="artifacts/svg/atlas-16.svg" width="64" height="64" alt="Signal / Clay v1"><span>Signal / Clay</span></a></div></section>
+<section class="section"><h2>v2 families</h2><p class="lede"><strong>Orb</strong> (full slit, crescent, twin) · <strong>Visor</strong> (shard, split jaw, oval) · <strong>Organic</strong> (leaf, seed, tendril) · <strong>Sentinel</strong> (monolith, gate, antenna). Color is restrained: ink, bone, and one muted accent. Differences are silhouette-level, not rotations or palette swaps.</p>
+<p class="lede">Motion proof: <a href="artifacts/v2/filmstrip-motion.png">six-frame filmstrips for one candidate per family</a> show the deterministic blink, breathe, morph, and orbit sequences without loading the GIFs.</p>
+<p class="lede">Small-size evidence: every card shows the actual 32px and 24px PNGs at native size; <a href="artifacts/v2/legibility-24-32.png">this native-size proof sheet</a> also includes a 3× nearest-neighbour inset for inspection. GIFs are 4.5–7.2 KB and six deterministic frames at 140 ms. The contact sheets are at <code>artifacts/v2/contact-sheet-light-12.png</code>, <code>artifacts/v2/contact-sheet-dark-12.png</code>, and <code>artifacts/v2/comparison-v1-v2.png</code>.</p></section>
+</main></body></html>
