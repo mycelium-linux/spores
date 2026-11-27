@@ -21,7 +21,7 @@ keywords = ["shell", "desktop", "dock", "launcher"]
 [engine]
 soil = ">=0.1"
 target = "wasm32-wasip2"
-abi = { spore = "0.1.0", canvas = "1.0.0" }
+abi = { spore = "0.1.0", surface = "1.1.0" }
 
 [module]
 path = "module.wasm"
@@ -32,11 +32,13 @@ jit = true
 hot_reload = true
 
 [launch]
+# `canvas` is the host launch target, not the contract: the guest imports
+# soil:surface and the host decides which window/browser adapter presents it.
 default = "canvas"
 surfaces = ["canvas", "native"]
 
 [grants]
-"soil:canvas" = "present the bar"
+"soil:surface" = "present the bar"
 "soil:device" = "read battery state"
 "soil:time" = "read elapsed time; wall clock is the gap noted in wit/world.wit"
 # Pending `soil:shell`: workspaces and focus. Until that package exists the bar

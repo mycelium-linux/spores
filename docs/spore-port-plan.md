@@ -44,6 +44,30 @@ Deletion means removing the package from this repo (git history keeps it).
 Retirement means keeping a shared library until its last consumer moves, then
 removing it in the same change that removes the consumer.
 
+### UI contract
+
+The UI question is settled: **SSR HTML or GPUI**, with host-owned system
+surfaces as the third case.
+
+- **SSR HTML** for document-shaped work: lists, forms, tables, transcripts,
+  inboxes, stores, and settings. The Spore answers `wasi:http`; the host owns
+  routing and the browser/web view. A shared HTML/CSS kit is being built so
+  these pages do not each invent their own tokens and components.
+- **GPUI** for pixel-shaped work: spatial views, live visualization, 3D,
+  drag-and-drop, and anything whose value is layout or paint fidelity. The
+  guest renders through `wasi:webgpu`.
+- **Host-owned** for chrome, consent, notification trays, terminals, and other
+  surfaces the host must own to keep policy.
+
+`soil:surface@1.1.0` is the canonical spore-facing presentation contract.
+`soil:present` and `soil:canvas` are legacy: their current consumers are listed
+in `tools/ui-contract-baseline.txt`, that list may only shrink, and no new
+Spore may adopt them. Lua `[ui]` is frozen; the existing entries are the porting
+list, not a pattern to extend.
+
+Do not build a second hand-written UI for the same Spore. A web export may be
+generated from the same model; it is not a third implementation.
+
 ## Summary
 
 | Disposition | Spores |
@@ -142,17 +166,23 @@ UI demos.
 
 ## P3 — UI
 
-Do not port one Lua/GPUI view at a time. Wait for `soil:ui` signals and the
-HTML/CSS path in the Soil roadmap, then port views in this order:
+Lua `[ui]` is frozen and is the first porting list. Do not port one Lua view at
+a time by hand; convert each Spore to its target surface instead:
 
-1. `launcher` / `home` — the smallest state machines with the most reuse;
-2. `marbles-ui` — a real data view (and the surviving Marbles UI);
-3. `scribe-ui` — capture browsing and search;
-4. `lights-view` — the Hue view over the P0 library.
+1. **SSR HTML first**, as the shared HTML/CSS kit lands: `store`, `contacts`,
+   `crm`, `git`, `worklog`, `unibus`, `pulse`, `spore-browser`, `gallery`.
+2. **GPUI** where the view is the product: `launcher` / `home`, `fleet`,
+   `search`, `dragshift`, `dfm-report`, and the existing GPUI views.
+3. **Host-owned** where the host must keep policy: chrome/divebar, consent,
+   notification tray, terminal.
 
-GPUI stays for the surfaces that need its layout/text fidelity:
-`lights-view` until the Soil path can draw it, `vitals-view`, and any view
-whose whole value is a GPU ring or chart.
+`marbles-ui` and `scribe-ui` are the SSR reference shapes: one Spore, one page
+model, one HTTP surface, no Lua. `lights-view` stays GPUI over the Hue library
+until the SSR path can draw it.
+
+The `soil:surface` canonical decision still applies to the window path. A GPUI
+Spore must not add a new `soil:present` dependency; the migration of the
+existing GPUI consumers is tracked by the UI contract baseline.
 
 ## Delete and fold
 

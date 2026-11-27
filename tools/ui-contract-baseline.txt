@@ -1,0 +1,70 @@
+# UI contract baseline.
+#
+# `soil:surface` is canonical. `soil:canvas` and `soil:present` are legacy,
+# and Lua `[ui]` is frozen. `tools/check-ui-contract.sh` fails when a Spore
+# declares a legacy surface without a row here, or when a row goes stale.
+#
+# Removing a Spore, or migrating it, means deleting its row in the same change.
+
+# --- lua-ui ------------------------------------------------------
+lua-ui spores/chrome
+lua-ui spores/consent
+lua-ui spores/contacts
+lua-ui spores/crm
+lua-ui spores/dfm-report
+lua-ui spores/divebar
+lua-ui spores/dragshift
+lua-ui spores/files
+lua-ui spores/fleet
+lua-ui spores/gallery
+lua-ui spores/git
+lua-ui spores/home
+lua-ui spores/launcher
+lua-ui spores/markdown
+lua-ui spores/media-probe
+lua-ui spores/mush
+lua-ui spores/notify
+lua-ui spores/pulse
+lua-ui spores/rooms
+lua-ui spores/search
+lua-ui spores/sfx
+lua-ui spores/spore-browser
+lua-ui spores/store
+lua-ui spores/surface-probe
+lua-ui spores/terminal
+lua-ui spores/unibus
+lua-ui spores/worklog
+
+# --- legacy-canvas -----------------------------------------------
+legacy-canvas spores/divebar
+legacy-canvas spores/elmers-ui
+legacy-canvas spores/files
+legacy-canvas spores/fleet
+legacy-canvas spores/gallery
+legacy-canvas spores/git
+legacy-canvas spores/home
+legacy-canvas spores/launcher
+legacy-canvas spores/lights-view
+legacy-canvas spores/markdown
+legacy-canvas spores/probe-gpui
+legacy-canvas spores/pulse
+legacy-canvas spores/rooms
+legacy-canvas spores/search
+legacy-canvas spores/sfx
+legacy-canvas spores/spore-browser
+legacy-canvas spores/store
+legacy-canvas spores/unibus
+legacy-canvas spores/vitals-view
+legacy-canvas spores/worklog
+
+# --- legacy-present ----------------------------------------------
+legacy-present apps/doc-shell/guest
+legacy-present apps/xplorer
+legacy-present spores/board
+legacy-present spores/deadwax
+legacy-present spores/elmers-ui
+legacy-present spores/lights-view
+legacy-present spores/probe-gpui
+legacy-present spores/spore-browser
+legacy-present spores/store
+legacy-present spores/vitals-view

@@ -36,7 +36,7 @@ it feel good is either a global input monitor or a codec.
 
 | Concern | Owner | Capability |
 |---|---|---|
-| Radial menu scene | Spore (Lua) | `soil:canvas` |
+| Radial menu scene | Spore (Lua) | `soil:surface` |
 | Operation model, parameters, output naming | Spore (wasm) | — |
 | Read the source, write next to it | host | `soil:vfs`, `soil:vfs-mut` |
 | PNG/JPEG/WebP/GIF/TIFF/BMP/ICO | Spore | pure Rust in wasm |
@@ -132,7 +132,7 @@ person explicitly wants the exact upstream trigger.
 
 ```toml
 [grants]
-"soil:canvas"    = "present the radial menu and the tool surfaces"
+"soil:surface"   = "present the radial menu and the tool surfaces"
 "soil:vfs"      = "read the source file"
 "soil:vfs-mut"  = "write the result next to it"
 "soil:notify"   = "report what changed, offer Undo"

@@ -1,12 +1,17 @@
 # UI model
 
-Status: adopted, partly implemented. `sdk/ui/ui.lua` is the canonical library;
-`spores/gallery` is the fixture-driven component catalog. The older per-Spore
-copies in `markdown` and `unibus` are migration debt, not the source of truth.
+**Status: superseded.** Lua `[ui]` is frozen; the current decision is in
+[`spore-port-plan.md`](spore-port-plan.md#ui-contract): SSR HTML for
+document-shaped Spores, GPUI for pixel-shaped Spores, and `soil:surface` as the
+canonical window contract. This document records the scene/Lua model that is
+being retired, not a pattern for new Spores.
+
+The older per-Spore copies in `markdown` and `unibus` are migration debt, not the
+source of truth.
 
 This reconciles a declarative-UI proposal with the constraints the system
-already has: Canvas owns layout and pixels, `soil:canvas` is the guest ABI, a
-Spore is a signed wasm module, and a view has no authority.
+already has: Canvas owns layout and pixels, `soil:canvas` is the legacy guest ABI,
+a Spore is a signed wasm module, and a view has no authority.
 
 ## The shape
 
