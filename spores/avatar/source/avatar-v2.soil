@@ -1,0 +1,120 @@
+; Canonical intelligence avatars, style version v2.
+;
+; Four silhouette families, three genuinely distinct bodies each. Frames are a
+; pure deterministic function of seed + family + variant + frame; no clocks,
+; randomness, network, or image model. PNG/GIF encoding happens outside Soil.
+
+(defun av2/style-version () "v2")
+
+(defun av2/mod (n m)
+  (if (< n m) n (av2/mod (- n m) m)))
+
+(defun av2/hash-bytes (bytes acc)
+  (if (nil? bytes)
+      acc
+      (av2/hash-bytes (rest bytes)
+                      (av2/mod (+ (* acc 131) (first bytes)) 65521))))
+
+(defun av2/seed (identity family variant)
+  (av2/hash-bytes (string->bytes (str identity "|" family "|" variant "|v2")) 216613))
+
+(defun av2/palette (family)
+  (cond
+    ((= family "orb") (list "#0C0F12" "#F1EDE2" "#B86B45"))
+    ((= family "visor") (list "#12110F" "#F4EFE3" "#8C9B8A"))
+    ((= family "organic") (list "#101613" "#EFE9DC" "#C09662"))
+    (else (list "#0E1114" "#F2EDE1" "#A86A4B"))))
+
+(defun av2/pick (palette index) (nth index palette))
+(defun av2/body (p) (av2/pick p 0))
+(defun av2/ground (p) (av2/pick p 1))
+(defun av2/accent (p) (av2/pick p 2))
+
+(defun av2/scale (frame)
+  (nth frame (list "0.97" "0.99" "1.02" "1.0" "1.01" "0.98")))
+
+(defun av2/eye-h (frame)
+  (nth frame (list 26 26 9 4 16 26)))
+
+(defun av2/eye-r (frame)
+  (nth frame (list 10 10 4 2 7 10)))
+
+(defun av2/sat-x (frame)
+  (nth frame (list 218 220 216 206 195 204)))
+
+(defun av2/sat-y (frame)
+  (nth frame (list 42 58 78 94 78 58)))
+
+(defun av2/orb (seed variant frame)
+  (let ((p (av2/palette "orb"))
+        (g (av2/ground (av2/palette "orb")))
+        (b (av2/body (av2/palette "orb")))
+        (a (av2/accent (av2/palette "orb")))
+        (turn (- (av2/mod (* seed 3) 12) 6))
+        (eh (av2/eye-h frame))
+        (er (av2/eye-r frame))
+        (s (av2/scale frame))
+        (sx (av2/sat-x frame))
+        (sy (av2/sat-y frame)))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Orb identity</title><rect width='256' height='256' rx='64' fill='" g "'/><g transform='translate(128 128) scale(" s ") translate(-128 -128) rotate(" (str turn) " 128 128)'>"
+      (cond
+        ((= variant 0) (str "<circle cx='128' cy='128' r='94' fill='" b "'/><rect x='62' y='" (str (- 128 (/ eh 2))) "' width='132' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" g "'/><circle cx='128' cy='128' r='" (str er) "' fill='" a "'/>"))
+        ((= variant 1) (str "<path d='M128 30 A98 98 0 1 1 78 212 A82 92 0 1 0 128 30Z' fill='" b "'/><circle cx='103' cy='128' r='" (str (+ er 2)) "' fill='" a "'/><path d='M178 92 A52 52 0 0 1 226 132' fill='none' stroke='" g "' stroke-width='10'/>"))
+        (else (str "<circle cx='98' cy='128' r='64' fill='" b "'/><circle cx='160' cy='128' r='64' fill='" b "'/><circle cx='98' cy='128' r='" (str er) "' fill='" a "'/><circle cx='160' cy='128' r='" (str er) "' fill='" a "'/>")))
+      "</g><circle cx='" (str sx) "' cy='" (str sy) "' r='9' fill='" a "'/><circle cx='" (str sx) "' cy='" (str sy) "' r='3' fill='" g "'/></svg>" )))
+
+(defun av2/visor (seed variant frame)
+  (let ((p (av2/palette "visor"))
+        (g (av2/ground (av2/palette "visor")))
+        (b (av2/body (av2/palette "visor")))
+        (a (av2/accent (av2/palette "visor")))
+        (eh (av2/eye-h frame))
+        (turn (- (av2/mod (* seed 5) 10) 5))
+        (x (+ 82 (av2/mod seed 16)))
+        (s (av2/scale frame)))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Visor identity</title><rect width='256' height='256' rx='64' fill='" g "'/><g transform='translate(128 128) scale(" s ") translate(-128 -128) rotate(" (str turn) " 128 128)'>"
+      (cond
+        ((= variant 0) (str "<path d='M40 96 L218 72 L198 184 L54 198Z' fill='" b "'/><rect x='" (str x) "' y='" (str (- 130 (/ eh 2))) "' width='" (str (- 200 (* 2 x))) "' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" g "'/><circle cx='" (str (+ x 10)) "' cy='130' r='" (str (av2/eye-r frame)) "' fill='" a "'/>"))
+        ((= variant 1) (str "<path d='M34 88 L204 48 L222 102 L112 122Z' fill='" b "'/><path d='M62 174 L188 150 L210 216 L46 210Z' fill='" b "'/><circle cx='" (str (+ x 6)) "' cy='136' r='" (str (+ (av2/eye-r frame) 8)) "' fill='" g "'/><circle cx='" (str (+ x 6)) "' cy='136' r='" (str (av2/eye-r frame)) "' fill='" a "'/>"))
+        (else (str "<rect x='30' y='74' width='196' height='108' rx='54' fill='" b "'/><rect x='" (str x) "' y='118' width='" (str (- 220 (* 2 x))) "' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" g "'/><circle cx='128' cy='" (str (+ 118 (/ eh 2))) "' r='" (str (av2/eye-r frame)) "' fill='" a "'/>")))
+      "</g></svg>" )))
+
+(defun av2/organic (seed variant frame)
+  (let ((p (av2/palette "organic"))
+        (g (av2/ground (av2/palette "organic")))
+        (b (av2/body (av2/palette "organic")))
+        (a (av2/accent (av2/palette "organic")))
+        (turn (- (av2/mod (* seed 7) 16) 8))
+        (s (av2/scale frame))
+        (er (av2/eye-r frame))
+        (mx (+ 122 (nth frame (list -3 0 3 4 2 -1))))
+        (my (+ 104 (nth frame (list 3 1 -2 -3 0 2)))))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Organic identity</title><rect width='256' height='256' rx='64' fill='" g "'/><g transform='translate(128 128) scale(" s ") translate(-128 -128) rotate(" (str turn) " 128 128)'>"
+      (cond
+        ((= variant 0) (str "<path d='M128 26 C174 26 218 66 224 112 C230 160 196 218 146 226 C96 234 42 202 30 154 C18 106 48 54 92 34 C103 29 115 26 128 26Z' fill='" b "'/><path d='M96 132 C110 114 144 112 164 128 C180 142 174 166 154 174 C132 182 104 168 96 150Z' fill='" g "'/><circle cx='122' cy='146' r='" (str er) "' fill='" a "'/>"))
+        ((= variant 1) (str "<path d='M128 20 C180 20 228 64 228 116 C228 174 186 224 128 236 C70 224 28 174 28 116 C28 64 76 20 128 20Z' fill='" b "'/><path d='M74 100 C88 76 128 70 160 88 C190 106 186 146 160 166 C132 188 88 174 70 146 C60 130 64 114 74 100Z' fill='" g "'/><circle cx='128' cy='128' r='" (str (+ er 2)) "' fill='" a "'/><path d='M128 22 L128 54' stroke='" a "' stroke-width='6'/>"))
+        (else (str "<path d='M38 58 C102 16 196 34 222 96 C244 150 206 196 160 214 C194 176 198 132 174 102 C150 72 104 60 38 58Z' fill='" b "'/><path d='M58 210 C54 158 76 120 " (str mx) " " (str my) "' fill='none' stroke='" b "' stroke-width='24' stroke-linecap='round'/><path d='M98 140 C116 124 146 130 154 150 C162 170 144 188 124 182 C106 176 96 158 98 140Z' fill='" g "'/><circle cx='126' cy='162' r='" (str er) "' fill='" a "'/><circle cx='200' cy='48' r='8' fill='" a "'/>")))
+      "</g></svg>" )))
+
+(defun av2/sentinel (seed variant frame)
+  (let ((p (av2/palette "sentinel"))
+        (g (av2/ground (av2/palette "sentinel")))
+        (b (av2/body (av2/palette "sentinel")))
+        (a (av2/accent (av2/palette "sentinel")))
+        (eh (av2/eye-h frame))
+        (pulse (nth frame (list 9 11 14 12 10 8))))
+    (str "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><title>Sentinel identity</title><rect width='256' height='256' rx='64' fill='" g "'/>"
+      (cond
+        ((= variant 0) (str "<rect x='82' y='30' width='92' height='196' rx='46' fill='" b "'/><rect x='96' y='" (str (- 128 (/ eh 2))) "' width='64' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" g "'/><circle cx='128' cy='128' r='" (str (av2/eye-r frame)) "' fill='" a "'/><circle cx='128' cy='24' r='" (str pulse) "' fill='" a "'/>"))
+        ((= variant 1) (str "<path d='M54 216 L54 100 Q54 32 128 32 Q202 32 202 100 L202 216Z' fill='" b "'/><path d='M84 216 L84 104 Q84 70 128 70 Q172 70 172 104 L172 216Z' fill='" g "'/><rect x='106' y='" (str (- 140 (/ eh 2))) "' width='44' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" b "'/><circle cx='128' cy='140' r='" (str (av2/eye-r frame)) "' fill='" a "'/><circle cx='212' cy='" (str (+ 26 pulse)) "' r='4' fill='" a "'/>"))
+        (else (str "<rect x='76' y='76' width='104' height='150' rx='28' fill='" b "'/><rect x='102' y='26' width='52' height='66' rx='26' fill='" b "'/><rect x='112' y='" (str (- 144 (/ eh 2))) "' width='32' height='" (str eh) "' rx='" (str (/ eh 2)) "' fill='" g "'/><circle cx='128' cy='144' r='" (str (av2/eye-r frame)) "' fill='" a "'/><rect x='44' y='160' width='24' height='" (str (+ 20 pulse)) "' rx='12' fill='" a "'/><rect x='188' y='174' width='24' height='" (str (+ 6 pulse)) "' rx='12' fill='" a "'/>")))
+      "</svg>" )))
+
+(defun av2/render (identity family variant frame)
+  (cond
+    ((= family "orb") (av2/orb (av2/seed identity family variant) variant frame))
+    ((= family "visor") (av2/visor (av2/seed identity family variant) variant frame))
+    ((= family "organic") (av2/organic (av2/seed identity family variant) variant frame))
+    (else (av2/sentinel (av2/seed identity family variant) variant frame))))
+
+(defun av2/frame-count () 6)

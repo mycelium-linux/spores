@@ -1,0 +1,476 @@
+{
+  "schema": "mycelium.avatar/v1",
+  "style_version": "v1",
+  "canonical": {
+    "vfs_root": "avatars/<seed_hash>/<style_version>/",
+    "artifact": "avatar.svg",
+    "record_schema": "mycelium.avatar/identity@1",
+    "sync": "records + VFS; content IDs are BLAKE3/SHA-256; no private identity id in filename"
+  },
+  "candidates": [
+    {
+      "candidate": "Quiet Aperture",
+      "seed": "atlas-01",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-01.svg",
+        "bytes": 618,
+        "sha256": "eef402d787bb5eaa01473cbfa4dc3d347593ff527be4704b64f85f8cf4e3b800",
+        "content_id": "sha256:eef402d787bb5eaa01473cbfa4dc3d347593ff527be4704b64f85f8cf4e3b800"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-01-256.png",
+        "bytes": 8232,
+        "sha256": "09b482bd4109ad3e9cbd87542247c81136806f5e58c35f3ca7bcf46daa109304"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-01-32.png",
+        "bytes": 1122,
+        "sha256": "67115ce98818f18b90905db821b8feaa174e94d75b30da79d7f53adfa00a32d9"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-01-24.png",
+        "bytes": 816,
+        "sha256": "1a9b0aa0fc1f9641ce96b93c28b59c29937af4dee3eac006fd7af5efab68c1ee"
+      },
+      "seed_hash": "sha256:fcf1d7decc4ba5294e05b3533d0c14cd34237f6bdbe97abe232463f7193629de",
+      "proposed_vfs_path": "avatars/fcf1d7decc4ba5294e05b3533d0c14cd34237f6bdbe97abe232463f7193629de/v1/avatar.svg"
+    },
+    {
+      "candidate": "Slate Fold",
+      "seed": "atlas-02",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-02.svg",
+        "bytes": 617,
+        "sha256": "992720c806665663dd8ad44b9606cf9cbbc0f3e6900f0a60f4337b3a0243f74b",
+        "content_id": "sha256:992720c806665663dd8ad44b9606cf9cbbc0f3e6900f0a60f4337b3a0243f74b"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-02-256.png",
+        "bytes": 10015,
+        "sha256": "d6e3e3af438b5ee2ab2d36ce64a0c338ffc27994efd2943bbda93c5260b2603d"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-02-32.png",
+        "bytes": 1223,
+        "sha256": "235f8e34425ff3b9bdfed80fa9bb42039e0549eb9464a93f6260ca1b950d17e4"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-02-24.png",
+        "bytes": 902,
+        "sha256": "0f321a14ff9a2d8886450e4a94b31cd02d526fd6bd61f6cd8f78888369039a9f"
+      },
+      "seed_hash": "sha256:27011832d3d2166d6557e98a4e5853519b09014704f2f0a5e3b3cd15724c4ed2",
+      "proposed_vfs_path": "avatars/27011832d3d2166d6557e98a4e5853519b09014704f2f0a5e3b3cd15724c4ed2/v1/avatar.svg"
+    },
+    {
+      "candidate": "Warm Aperture",
+      "seed": "atlas-03",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-03.svg",
+        "bytes": 616,
+        "sha256": "110e979d4e692242400fcf9c5a8001de1df3a6a9b9acf042d0f7991ecec89778",
+        "content_id": "sha256:110e979d4e692242400fcf9c5a8001de1df3a6a9b9acf042d0f7991ecec89778"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-03-256.png",
+        "bytes": 10596,
+        "sha256": "9072ca3cd0e5c234807af8c6e0180708834fae75e905c06065d11052f39a2b47"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-03-32.png",
+        "bytes": 1256,
+        "sha256": "56d478fbb56b1f88a6bb4172e2a9a12622717386bda2c934759fd8cca2c0114d"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-03-24.png",
+        "bytes": 925,
+        "sha256": "52f829c311d6625a09bda2e1e1ef4ed1ff2eafd1eed0d966f890c99f232525d3"
+      },
+      "seed_hash": "sha256:b3ebc151db7aee87dc2afc32fabb5fa6560aeacd3b319dad60e21046431b1854",
+      "proposed_vfs_path": "avatars/b3ebc151db7aee87dc2afc32fabb5fa6560aeacd3b319dad60e21046431b1854/v1/avatar.svg"
+    },
+    {
+      "candidate": "Green Wedge",
+      "seed": "atlas-04",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-04.svg",
+        "bytes": 617,
+        "sha256": "6c3a85cd24c3c123811cf783ed9a6a30331bc70452782d22674c48f3657abf6d",
+        "content_id": "sha256:6c3a85cd24c3c123811cf783ed9a6a30331bc70452782d22674c48f3657abf6d"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-04-256.png",
+        "bytes": 10231,
+        "sha256": "95a23979df0bb3f797db3be7bf081b6dacc73a0baab4034d04f5d520d684b767"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-04-32.png",
+        "bytes": 1249,
+        "sha256": "e819a164b12b72997d1a98bb18aac6bfef3095aa875e91f3e6e8d6e76d7b696e"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-04-24.png",
+        "bytes": 910,
+        "sha256": "f2cc0157a981f7549df3ec55ba049adc5f122c27b1318a50ef1b8b5056d50485"
+      },
+      "seed_hash": "sha256:6876c5ac53bd1d4ae6b5540390a95fb35ff81622245e0d840a28290009e4c75d",
+      "proposed_vfs_path": "avatars/6876c5ac53bd1d4ae6b5540390a95fb35ff81622245e0d840a28290009e4c75d/v1/avatar.svg"
+    },
+    {
+      "candidate": "Paper Cut",
+      "seed": "atlas-05",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-05.svg",
+        "bytes": 617,
+        "sha256": "432507de06c122bc90bb53124cda867290e3bf5efe379b637f075503659c87d0",
+        "content_id": "sha256:432507de06c122bc90bb53124cda867290e3bf5efe379b637f075503659c87d0"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-05-256.png",
+        "bytes": 9542,
+        "sha256": "33fdd062455cc0c29489ec8788e5bab8df47594239556c9e7486e72f1a368f18"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-05-32.png",
+        "bytes": 1199,
+        "sha256": "62f5f19ae663305e7eb48fe6562166d0e53ea436f758136d8185b56643c97965"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-05-24.png",
+        "bytes": 891,
+        "sha256": "a06d15c0c8eca9896bfb4d55fb9be11e8d9d69f065ee50f0a247e81feb6b002b"
+      },
+      "seed_hash": "sha256:057d4b8652573990013a723168dbc30348139841613f2aa478f5f077fa389c36",
+      "proposed_vfs_path": "avatars/057d4b8652573990013a723168dbc30348139841613f2aa478f5f077fa389c36/v1/avatar.svg"
+    },
+    {
+      "candidate": "Ink Fold",
+      "seed": "atlas-06",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-06.svg",
+        "bytes": 616,
+        "sha256": "84685d0f88650f0e791c2b88dfc91ec39acdcb0d50a5f960ddcbc55f22091d1d",
+        "content_id": "sha256:84685d0f88650f0e791c2b88dfc91ec39acdcb0d50a5f960ddcbc55f22091d1d"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-06-256.png",
+        "bytes": 8415,
+        "sha256": "5bf32ece40f14adc3031ad7e688e8ce44aea55f44ab7d75cf4700eda0032b683"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-06-32.png",
+        "bytes": 1126,
+        "sha256": "9d7e3e139164f6ee859bbfe5fb1b4edfcfb8d7a8f80fe53e69c8b4a7c47e8f58"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-06-24.png",
+        "bytes": 842,
+        "sha256": "8dc19f57b9ed485fcc757c75594e7a6505a574d392694f981c059350f4f091f1"
+      },
+      "seed_hash": "sha256:0a262038a8f67ac20381313190ab80850bf05616039b794caef8f77bf35f1063",
+      "proposed_vfs_path": "avatars/0a262038a8f67ac20381313190ab80850bf05616039b794caef8f77bf35f1063/v1/avatar.svg"
+    },
+    {
+      "candidate": "Amber Notch",
+      "seed": "atlas-07",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-07.svg",
+        "bytes": 616,
+        "sha256": "3ef1539481660c6de093d0ff61bfc2479f2f72ab6c64907d459f1977df4693ce",
+        "content_id": "sha256:3ef1539481660c6de093d0ff61bfc2479f2f72ab6c64907d459f1977df4693ce"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-07-256.png",
+        "bytes": 8447,
+        "sha256": "d75ab9826fbb09c66ba51472139918e3a11797e49d5d67f313422f4b6097d749"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-07-32.png",
+        "bytes": 1122,
+        "sha256": "2bbdc8b7c5211029e1b67b34a5709143b0836c1ae1a7a2515e5f648a176b79d9"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-07-24.png",
+        "bytes": 823,
+        "sha256": "2b7a0e4c865c9f99b3de72a5b012447f67b434c9828a3c53844449e7b8605b4e"
+      },
+      "seed_hash": "sha256:00e55b501afc01a0d28eb9ee9c2fd6d2228efd825379cc0d225a2521bedd9f01",
+      "proposed_vfs_path": "avatars/00e55b501afc01a0d28eb9ee9c2fd6d2228efd825379cc0d225a2521bedd9f01/v1/avatar.svg"
+    },
+    {
+      "candidate": "Moss Aperture",
+      "seed": "atlas-08",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-08.svg",
+        "bytes": 616,
+        "sha256": "abd302a0b8adfe0a1c41c41bf168edcba8b5852183c2339b5b3a44c1eabfa013",
+        "content_id": "sha256:abd302a0b8adfe0a1c41c41bf168edcba8b5852183c2339b5b3a44c1eabfa013"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-08-256.png",
+        "bytes": 8674,
+        "sha256": "90ec887fbb4e9fab770953648a0fb718cfa659ba0d30af0b80767d10bac84d6e"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-08-32.png",
+        "bytes": 1132,
+        "sha256": "2ce3f527e8376577881b0369be933b4ad31f273671bde8ccd131bcbb73728c32"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-08-24.png",
+        "bytes": 809,
+        "sha256": "82b3a222d1eae18ec00f98bda8ba585ff24d18044c611690b03e651a33dd6049"
+      },
+      "seed_hash": "sha256:36ccc288c33a3da7856833b2afec2c1b77d3c2576e78bad3be9cec23ae82d29a",
+      "proposed_vfs_path": "avatars/36ccc288c33a3da7856833b2afec2c1b77d3c2576e78bad3be9cec23ae82d29a/v1/avatar.svg"
+    },
+    {
+      "candidate": "Dark Fold",
+      "seed": "atlas-09",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-09.svg",
+        "bytes": 616,
+        "sha256": "97e724d6c1b1aac4422edcafc7551220b43c4af26cf01635a8931435fe3bb228",
+        "content_id": "sha256:97e724d6c1b1aac4422edcafc7551220b43c4af26cf01635a8931435fe3bb228"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-09-256.png",
+        "bytes": 8880,
+        "sha256": "2ab70ebc39fd4d84f9146854753e0b87b86d1d733b31335a54de312147072886"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-09-32.png",
+        "bytes": 1121,
+        "sha256": "2dab0115fad82178c980212a5624c9db01985f8613c7e716913c10e73ca885e6"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-09-24.png",
+        "bytes": 813,
+        "sha256": "a279cf4b7f14ff75de76ae8b66f9dba70c18e798e8680e86d7fbc80059a7a4d5"
+      },
+      "seed_hash": "sha256:54a2f91e71e048753d669f96418476818158f83eb1efca385e4939d94c5545e2",
+      "proposed_vfs_path": "avatars/54a2f91e71e048753d669f96418476818158f83eb1efca385e4939d94c5545e2/v1/avatar.svg"
+    },
+    {
+      "candidate": "Bone Wedge",
+      "seed": "atlas-10",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-10.svg",
+        "bytes": 617,
+        "sha256": "fec80b658bea13e603c8205a6ca32c239ffeff1b67470197adb14a1a0d190ce8",
+        "content_id": "sha256:fec80b658bea13e603c8205a6ca32c239ffeff1b67470197adb14a1a0d190ce8"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-10-256.png",
+        "bytes": 9662,
+        "sha256": "2b53627685478aa7e488f83d08c08de2c9d79264fa9a639c09061f5470c555c7"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-10-32.png",
+        "bytes": 1224,
+        "sha256": "8fea6fb1459cc795a2b59fe2421f47dffdede7f90096ddcc768353712f9a5843"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-10-24.png",
+        "bytes": 874,
+        "sha256": "89ed3431d2004050e16213e03f4d9b2fe15b8572f401a6f0d7904dde3d9a1ce0"
+      },
+      "seed_hash": "sha256:2b3c3f40ae232bfacb130331778819c6a33464ddaf2fd4c9f672ae5d50d633b1",
+      "proposed_vfs_path": "avatars/2b3c3f40ae232bfacb130331778819c6a33464ddaf2fd4c9f672ae5d50d633b1/v1/avatar.svg"
+    },
+    {
+      "candidate": "Clay Aperture",
+      "seed": "atlas-11",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-11.svg",
+        "bytes": 617,
+        "sha256": "1296929edfaa2f2048b0e4ab079c54db47b4d5e4fb9ab680f10fcee590dc727d",
+        "content_id": "sha256:1296929edfaa2f2048b0e4ab079c54db47b4d5e4fb9ab680f10fcee590dc727d"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-11-256.png",
+        "bytes": 9419,
+        "sha256": "2eccd7af46659b89332a28b9595b04e2f8888b938d93126960a939eba7f87993"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-11-32.png",
+        "bytes": 1153,
+        "sha256": "c49924b98a17e4e9450f7b1a4fa38543d8328e144598b3eab270b892287f23e9"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-11-24.png",
+        "bytes": 850,
+        "sha256": "d34e027b413960a9dc7a2aa6afdde8114404ecbb4b2f679e1aa86c56613634ef"
+      },
+      "seed_hash": "sha256:f54ad0d8d15ead2ebb93c64298f254e0aa08a0472a3c08b58269a3c8ab5a5c65",
+      "proposed_vfs_path": "avatars/f54ad0d8d15ead2ebb93c64298f254e0aa08a0472a3c08b58269a3c8ab5a5c65/v1/avatar.svg"
+    },
+    {
+      "candidate": "Field Fold",
+      "seed": "atlas-12",
+      "style": "fold",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-12.svg",
+        "bytes": 617,
+        "sha256": "b6114399487569a162c08e9aadc7a26ee475cd88e10db4cd78e414444993785f",
+        "content_id": "sha256:b6114399487569a162c08e9aadc7a26ee475cd88e10db4cd78e414444993785f"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-12-256.png",
+        "bytes": 9040,
+        "sha256": "86dd7329ea2498ae59d5f46483f6e11f3689230ea5fbf5901541df2ffe51ebe3"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-12-32.png",
+        "bytes": 1161,
+        "sha256": "7e85e047a33d5047c136c0633706eade5c56a0178a88ed45de2969e442de77ce"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-12-24.png",
+        "bytes": 832,
+        "sha256": "ac110bf960182dbc167b951e403f1fc5d8d5a7d6c9630b0296abe0073b82e082"
+      },
+      "seed_hash": "sha256:1e3f4624dbdb53febde04bc29a688660786b2fd189df576a68058de6f19c3db3",
+      "proposed_vfs_path": "avatars/1e3f4624dbdb53febde04bc29a688660786b2fd189df576a68058de6f19c3db3/v1/avatar.svg"
+    },
+    {
+      "candidate": "Orbit / Ember",
+      "seed": "atlas-13",
+      "style": "orbit",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-13.svg",
+        "bytes": 493,
+        "sha256": "9f6d27d35bfcf6c3c2b40b2655210b3e97af0aa33b58a4204a0166d72409eb92",
+        "content_id": "sha256:9f6d27d35bfcf6c3c2b40b2655210b3e97af0aa33b58a4204a0166d72409eb92"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-13-256.png",
+        "bytes": 15418,
+        "sha256": "3f5a6fbecaecc515063c2108e00f2b1107f2331a6ae7e43efa7407a788e12e27"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-13-32.png",
+        "bytes": 1633,
+        "sha256": "cefa8cd809e7124c09a960e497105ce7cfa7f823fd8343501cefc5b320b09cc4"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-13-24.png",
+        "bytes": 1158,
+        "sha256": "ec4393f95783555da48dd55089ab6ed031732b8f9d2c0e547ad374c0193ed8d2"
+      },
+      "seed_hash": "sha256:9a28ef6bd0edd76c537ee09f6d8a768ce86c17cf9a63eb31ecae802d3d089f72",
+      "proposed_vfs_path": "avatars/9a28ef6bd0edd76c537ee09f6d8a768ce86c17cf9a63eb31ecae802d3d089f72/v1/avatar.svg"
+    },
+    {
+      "candidate": "Signal / Stone",
+      "seed": "atlas-14",
+      "style": "signal",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-14.svg",
+        "bytes": 463,
+        "sha256": "30ca143db56a7a89b7b059f2e0e632ac5cfa3e29777371dc5f1e61bdd7ae5f8a",
+        "content_id": "sha256:30ca143db56a7a89b7b059f2e0e632ac5cfa3e29777371dc5f1e61bdd7ae5f8a"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-14-256.png",
+        "bytes": 7962,
+        "sha256": "957d67a4c5e0a017b2ca6bc8e3101200ec8aefb28b4dbb814c0ee7e0f5619243"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-14-32.png",
+        "bytes": 902,
+        "sha256": "1ddb0d407bfe01aeeb31aa230d64c49c275b3e0b9a2f643a39e741c484167294"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-14-24.png",
+        "bytes": 750,
+        "sha256": "9585b98e260d04d569cc77b8cd0436d362a7b80b9bfaab9dbaeacdfc062e1f85"
+      },
+      "seed_hash": "sha256:6fcf61ef2fbb1d29146e09e88fc89a67f246bf92f58c1c73a7530db0be75ae65",
+      "proposed_vfs_path": "avatars/6fcf61ef2fbb1d29146e09e88fc89a67f246bf92f58c1c73a7530db0be75ae65/v1/avatar.svg"
+    },
+    {
+      "candidate": "Orbit / Pine",
+      "seed": "atlas-15",
+      "style": "orbit",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-15.svg",
+        "bytes": 494,
+        "sha256": "96cf71f1b39afdaeac2fe60fefbdb5c84ed6a6e7a212d6551d6d3908746721f1",
+        "content_id": "sha256:96cf71f1b39afdaeac2fe60fefbdb5c84ed6a6e7a212d6551d6d3908746721f1"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-15-256.png",
+        "bytes": 11463,
+        "sha256": "2b50c075bc85be419721d908bccd1bcf8a4559d1ccb5f20f0377743d0e9ab750"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-15-32.png",
+        "bytes": 1232,
+        "sha256": "e726833c0dbd903e41245758f2b38f9944f30790c75dddd06027a574457b5d64"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-15-24.png",
+        "bytes": 908,
+        "sha256": "80207cc4df407d6cbeafc3dcb66da4f99898a613968594e5ea59a8092c7bc7d4"
+      },
+      "seed_hash": "sha256:31c2e8c6968101586e052fe4d74c3adf7866e83cc63862bca373903de853c64a",
+      "proposed_vfs_path": "avatars/31c2e8c6968101586e052fe4d74c3adf7866e83cc63862bca373903de853c64a/v1/avatar.svg"
+    },
+    {
+      "candidate": "Signal / Clay",
+      "seed": "atlas-16",
+      "style": "signal",
+      "style_version": "v1",
+      "svg": {
+        "path": "artifacts/svg/atlas-16.svg",
+        "bytes": 464,
+        "sha256": "be4b8b0e0fad1467b32daacc9921c2a75fff51a14123adb14225ede0fdd6319e",
+        "content_id": "sha256:be4b8b0e0fad1467b32daacc9921c2a75fff51a14123adb14225ede0fdd6319e"
+      },
+      "png256": {
+        "path": "artifacts/png/atlas-16-256.png",
+        "bytes": 8338,
+        "sha256": "73758468db7711aab6daffb0f4513118c23f14600e4f91cb3d683deed417b355"
+      },
+      "png32": {
+        "path": "artifacts/png/atlas-16-32.png",
+        "bytes": 981,
+        "sha256": "3037c951893ecc069d51a446049a5409d9e458f53c27f868f42e265178740bb5"
+      },
+      "png24": {
+        "path": "artifacts/png/atlas-16-24.png",
+        "bytes": 723,
+        "sha256": "577ae89d8b53058d7c557a97b49393eb9f19d16aa1ecb23101d4bc4af254f481"
+      },
+      "seed_hash": "sha256:b394e40cfb1f496bca9484036350544af49f807d5c5c34a5d1ecb4fd4ab6c27a",
+      "proposed_vfs_path": "avatars/b394e40cfb1f496bca9484036350544af49f807d5c5c34a5d1ecb4fd4ab6c27a/v1/avatar.svg"
+    }
+  ]
+}
