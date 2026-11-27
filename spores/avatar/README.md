@@ -6,9 +6,9 @@ prototype, not a service and not a production profile change.
 ## Contract
 
 ```text
-identity tuple (issuer, subject)  -> canonical seed (SHA-256)
+identity tuple (issuer, subject)  -> caller-proposed canonical seed (production: SHA-256)
 style version                     -> "v1"
-seed + style version              -> deterministic SVG
+seed + style version              -> deterministic FNV-1a style hash -> SVG
 SVG                               -> existing rsvg-convert -> PNG 256/32/24
 ```
 
@@ -61,8 +61,10 @@ Record: mycelium.avatar/identity@1
           mime, bytes, generated_at }
 ```
 
-The seed is a hash of the canonical `(issuer, subject)` tuple. The record and
-VFS object are the authority; a CDN URL is a projection. The files contain no
+The prototype takes synthetic seed labels; the production seed is proposed as
+a SHA-256 of the canonical `(issuer, subject)` tuple (never email or name).
+The generator then derives its bounded geometry hash from `seed|style|v1`. The
+record and VFS object are the authority; a CDN URL is a projection. The files contain no
 private identity ID in their names. The authorized sync contract is the
 existing `soil:vfs` + `soil:records` grant: read for face surfaces, write only
 for the identity owner/adapter. Do not create a second avatar database.
